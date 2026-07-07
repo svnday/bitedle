@@ -231,7 +231,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         </div>
         <p className="border-tileborder text-muted border-t pt-4">
           A new board drops every day at midnight. Everyone plays the same board, and you only get
-          one shot at it — no retries, no second chances.
+          one shot at it.
         </p>
       </div>
     </Modal>
