@@ -73,6 +73,8 @@ export interface Leaderboard {
   date: string;
   today: TodayEntry[];
   allTime: AllTimeEntry[];
+  /** TEMPORARY diagnostic field, to be removed. */
+  debug?: { guildIdHeaderRaw: string | null; resolvedGuildId: string | null };
 }
 
 export const BOARD_SIZE = 25;

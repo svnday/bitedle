@@ -434,6 +434,12 @@ export function LeaderboardModal({ onClose, nameHint }: LeaderboardModalProps) {
 
   return (
     <Modal title="Leaderboard" onClose={onClose}>
+      {data?.debug && (
+        <p className="border-tileborder bg-tile/40 mb-3 rounded border px-3 py-2 font-mono text-[10px] break-all">
+          debug: header={String(data.debug.guildIdHeaderRaw)} resolved=
+          {String(data.debug.resolvedGuildId)}
+        </p>
+      )}
       <div className="border-tileborder mb-4 flex border-b">
         {(
           [
