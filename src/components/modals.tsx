@@ -184,8 +184,8 @@ function praiseFor(score: number): string {
 export function PlayerResultCard({ entry, onShare }: { entry: TodayEntry; onShare?: () => void }) {
   return (
     <div
-      className={`flex w-16 shrink-0 flex-col items-center gap-1 rounded p-1.5 ${
-        entry.me ? "bg-tile/50 ring-foreground ring-1" : ""
+      className={`flex w-20 shrink-0 flex-col items-center gap-2 rounded-lg p-2 ${
+        entry.me ? "bg-tile/50 ring-foreground ring-1 shadow-md" : "bg-surface"
       }`}
     >
       {entry.discordAvatarUrl ? (
@@ -194,24 +194,24 @@ export function PlayerResultCard({ entry, onShare }: { entry: TodayEntry; onShar
           src={entry.discordAvatarUrl}
           alt=""
           referrerPolicy="no-referrer"
-          className="h-8 w-8 rounded-full"
+          className="h-10 w-10 rounded-full border border-transparent object-cover"
           onError={(e) => {
             e.currentTarget.style.display = "none";
           }}
         />
       ) : (
-        <div className="bg-tile h-8 w-8 rounded-full" />
+        <div className="bg-tile h-10 w-10 rounded-full" />
       )}
       <div className="flex items-center justify-center gap-1 text-sm">
-        <span>{entry.status === "won" ? "✅" : "💥"}</span>
+        <span className="text-base">{entry.status === "won" ? "✅" : "💥"}</span>
         <span className="font-semibold">{entry.clicks}</span>
       </div>
-      <div className="w-full truncate text-center text-[10px] font-semibold">{entry.name}</div>
+      <div className="w-full truncate text-center text-xs font-semibold">{entry.name}</div>
       {entry.me && onShare && (
         <button
           type="button"
           onClick={onShare}
-          className="bg-correct mt-1 cursor-pointer rounded-full px-2.5 py-0.5 text-[10px] font-bold text-white hover:brightness-110"
+          className="bg-correct mt-1 cursor-pointer rounded-full px-3 py-0.5 text-xs font-bold text-white hover:brightness-110"
         >
           Share
         </button>
