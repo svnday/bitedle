@@ -2,9 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { verifyKey } from "discord-interactions";
 
 function siteUrl(): string {
-  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return "https://bitedle.vercel.app";
+  // VERCEL_URL is the unique URL of *this* deployment, not the stable
+  // production domain, so it's deliberately not used as a fallback here.
+  return process.env.NEXT_PUBLIC_SITE_URL || "https://bitedle.vercel.app";
 }
 
 function reply(content: string) {
@@ -12,7 +12,6 @@ function reply(content: string) {
     type: 4,
     data: {
       content,
-      flags: 64,
     },
   });
 }
