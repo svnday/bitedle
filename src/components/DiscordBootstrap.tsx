@@ -21,7 +21,11 @@ export default function DiscordBootstrap() {
         return;
       }
       // Allow-lists the hotlinked win/lose GIFs so they load through Discord's proxy.
-      patchUrlMappings([{ prefix: "/tenor", target: "media1.tenor.com" }]);
+      // patchSrcAttributes defaults to false — without it, only fetch/WebSocket/XHR
+      // get rewritten, and the <img> tags' requests are left blocked by Discord's CSP.
+      patchUrlMappings([{ prefix: "/tenor", target: "media1.tenor.com" }], {
+        patchSrcAttributes: true,
+      });
       const discordSdk = new DiscordSDK(clientId);
       if (!cancelled) await discordSdk.ready();
     })();
