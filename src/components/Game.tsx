@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/client-api";
-import type { GameState, UserStats } from "@/lib/types";
+import { BOARD_SIZE, type CellResult, type GameState, type UserStats } from "@/lib/types";
 import Board from "./Board";
 import Countdown from "./Countdown";
 import {
@@ -22,14 +22,19 @@ interface Toast {
   text: string;
 }
 
+const SHARE_EMOJI: Record<CellResult, string> = { x: "❌", check: "✅", bomb: "💣" };
+
+/** The player's board as an emoji grid — only their own clicks, no spoilers. */
 function shareText(state: GameState): string {
-  const misses = state.clicks.filter((c) => c.result === "x").length;
-  const trail = "🟥".repeat(misses) + (state.status === "won" ? "🟩" : "💥");
+  const cells = Array<string>(BOARD_SIZE).fill("⬛");
+  for (const c of state.clicks) cells[c.index] = SHARE_EMOJI[c.result];
+  const rows: string[] = [];
+  for (let r = 0; r < BOARD_SIZE; r += 5) rows.push(cells.slice(r, r + 5).join(""));
   const scoreLine =
     state.status === "won"
       ? `${state.score} ${state.score === 1 ? "click" : "clicks"}`
       : "boom 💣";
-  return `Bitedle #${state.puzzleNumber} · ${scoreLine}\n${trail}`;
+  return `Bitedle #${state.puzzleNumber} · ${scoreLine}\n${rows.join("\n")}`;
 }
 
 export default function Game() {
@@ -218,7 +223,7 @@ export default function Game() {
 
         <Board
           clicks={state?.clicks ?? []}
-          ghostCheckIndex={state?.status === "lost" ? (state.checkIndex ?? null) : null}
+          layout={state?.layout ?? null}
           disabled={busy || finished || !state}
           onCellClick={handleCell}
         />

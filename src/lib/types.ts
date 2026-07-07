@@ -18,8 +18,8 @@ export interface GameState {
   clicks: ClickRecord[];
   /** Epoch ms when the next daily board drops (the game's reset timezone). */
   nextResetAt: number;
-  /** Where the check was — only revealed once the game is finished. */
-  checkIndex?: number;
+  /** The full board — only revealed once the game is finished. */
+  layout?: CellResult[];
 }
 
 export interface GameRecord {

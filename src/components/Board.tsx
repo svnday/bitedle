@@ -5,8 +5,8 @@ import { BOARD_SIZE } from "@/lib/types";
 
 interface BoardProps {
   clicks: ClickRecord[];
-  /** After a loss, the check's location is hinted on its unrevealed tile. */
-  ghostCheckIndex: number | null;
+  /** The full board once the game is over; unclicked tiles reveal dimmed. */
+  layout: CellResult[] | null;
   disabled: boolean;
   onCellClick: (index: number) => void;
 }
@@ -29,20 +29,21 @@ const BACK_FACE: Record<CellResult, { className: string; glyph: React.ReactNode;
   },
 };
 
-export default function Board({ clicks, ghostCheckIndex, disabled, onCellClick }: BoardProps) {
-  const revealed = new Map(clicks.map((c) => [c.index, c.result]));
+export default function Board({ clicks, layout, disabled, onCellClick }: BoardProps) {
+  const clicked = new Map(clicks.map((c) => [c.index, c.result]));
 
   return (
     <div className="grid w-full max-w-[360px] grid-cols-5 gap-1.5" role="grid" aria-label="Bitedle board">
       {Array.from({ length: BOARD_SIZE }, (_, i) => {
-        const result = revealed.get(i);
-        const isGhost = ghostCheckIndex === i && !result;
+        const result = clicked.get(i) ?? layout?.[i];
+        // Tiles the player never clicked flip dimmed at game end, cascading.
+        const isDim = result !== undefined && !clicked.has(i);
         const row = Math.floor(i / 5) + 1;
         const col = (i % 5) + 1;
         return (
           <div
             key={i}
-            className={`tile aspect-square ${result ? "revealed" : ""} ${isGhost ? "ghost-check" : ""}`}
+            className={`tile aspect-square ${result ? "revealed" : ""} ${isDim ? "tile-dim" : ""}`}
           >
             <button
               type="button"
@@ -51,16 +52,15 @@ export default function Board({ clicks, ghostCheckIndex, disabled, onCellClick }
               onClick={() => onCellClick(i)}
               aria-label={
                 result
-                  ? `Row ${row}, column ${col}: ${BACK_FACE[result].label}`
+                  ? `Row ${row}, column ${col}: ${BACK_FACE[result].label}${isDim ? " (not clicked)" : ""}`
                   : `Row ${row}, column ${col}: hidden`
               }
             >
-              <div className="tile-inner">
-                <div className="tile-face tile-front bg-surface">
-                  {isGhost && (
-                    <span className="text-correct/80 text-2xl font-bold leading-none">✓</span>
-                  )}
-                </div>
+              <div
+                className="tile-inner"
+                style={isDim ? { transitionDelay: `${i * 30}ms` } : undefined}
+              >
+                <div className="tile-face tile-front bg-surface" />
                 {result && (
                   <div className={`tile-face tile-back ${BACK_FACE[result].className}`}>
                     {BACK_FACE[result].glyph}

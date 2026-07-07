@@ -16,8 +16,9 @@ import {
 
 export { todayStr };
 
-/** Puzzle #1 launched on this date. */
-export const EPOCH_DATE = "2026-07-06";
+/** The puzzle number that launched on EPOCH_DATE. */
+const FIRST_PUZZLE = 257;
+export const EPOCH_DATE = "2026-07-07";
 
 const MS_PER_DAY = 86_400_000;
 const DEV_SECRET = "bitedle-dev-secret-not-for-production";
@@ -43,7 +44,7 @@ function dayNum(date: string): number {
 }
 
 export function puzzleNumber(date: string): number {
-  return dayNum(date) - dayNum(EPOCH_DATE) + 1;
+  return dayNum(date) - dayNum(EPOCH_DATE) + FIRST_PUZZLE;
 }
 
 function mulberry32(seed: number): () => number {
@@ -94,7 +95,7 @@ export async function stateFor(userId: string, date: string): Promise<GameState>
     nextResetAt: nextResetAt(),
   };
   if (status !== "playing") {
-    state.checkIndex = layoutFor(date).indexOf("check");
+    state.layout = layoutFor(date);
   }
   return state;
 }
