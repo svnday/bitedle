@@ -1,0 +1,41 @@
+import type { CellResult, GameState, Leaderboard, UserStats } from "./types";
+
+export class ApiError extends Error {
+  status: number;
+  /** Some errors (e.g. "already played") include the authoritative state. */
+  state?: GameState;
+
+  constructor(message: string, status: number, state?: GameState) {
+    super(message);
+    this.status = status;
+    this.state = state;
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...init?.headers },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new ApiError(data.error ?? `Request failed (${res.status})`, res.status, data.state);
+  }
+  return data as T;
+}
+
+export const api = {
+  setName: (name: string) =>
+    request<{ username: string }>("/api/name", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  state: () => request<GameState>("/api/state"),
+  click: (index: number) =>
+    request<{ result: CellResult; state: GameState }>("/api/click", {
+      method: "POST",
+      body: JSON.stringify({ index }),
+    }),
+  stats: () => request<UserStats>("/api/stats"),
+  leaderboard: () => request<Leaderboard>("/api/leaderboard"),
+};

@@ -20,6 +20,9 @@
 # production
 /build
 
+# bitedle runtime data (users, games, daily-board secret)
+/data
+
 # misc
 .DS_Store
 *.pem

@@ -1,8 +1,9 @@
 @import "tailwindcss";
 
+/* Bitedle commits to a Wordle-style dark look in both OS themes. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #121213;
+  --foreground: #f8f8f8;
 }
 
 @theme inline {
@@ -12,15 +13,119 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@theme {
+  --color-surface: #121213;
+  --color-raised: #1e1e20;
+  --color-tile: #2b2b2d;
+  --color-tileborder: #3a3a3c;
+  --color-tilehover: #565758;
+  --color-correct: #538d4e;
+  --color-danger: #b3392f;
+  --color-miss: #e06c6c;
+  --color-muted: #818384;
+
+  --animate-rise: rise 200ms ease-out;
+  --animate-fadein: fadein 150ms ease-out;
+  --animate-pop: pop 140ms ease-out;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes fadein {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes pop {
+    0% {
+      transform: scale(0.85);
+    }
+    60% {
+      transform: scale(1.06);
+    }
+    100% {
+      transform: scale(1);
+    }
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* --- Tile 3D flip ------------------------------------------------------- */
+
+.tile {
+  perspective: 600px;
+}
+
+.tile-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 450ms cubic-bezier(0.3, 0, 0.3, 1);
+}
+
+.tile.revealed .tile-inner {
+  transform: rotateX(180deg);
+}
+
+.tile-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.tile-back {
+  transform: rotateX(180deg);
+}
+
+.tile-front {
+  border: 2px solid var(--color-tileborder);
+  transition:
+    border-color 120ms ease,
+    transform 80ms ease;
+}
+
+.tile:not(.revealed) button:hover .tile-front,
+.tile:not(.revealed) button:focus-visible .tile-front {
+  border-color: var(--color-tilehover);
+}
+
+.tile:not(.revealed) button:active .tile-front {
+  transform: scale(0.94);
+}
+
+/* Ghost of the check's location, shown after a loss. */
+.tile.ghost-check .tile-front {
+  border-color: var(--color-correct);
+  animation: ghost-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes ghost-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(83, 141, 78, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(83, 141, 78, 0);
+  }
 }

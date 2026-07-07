@@ -1,0 +1,64 @@
+export type CellResult = "x" | "bomb" | "check";
+export type GameStatus = "playing" | "won" | "lost";
+
+export interface ClickRecord {
+  index: number;
+  result: CellResult;
+}
+
+export interface GameState {
+  date: string;
+  puzzleNumber: number;
+  username: string;
+  status: GameStatus;
+  /** Number of non-bomb clicks it took to find the check (wins only). */
+  score: number | null;
+  clicks: ClickRecord[];
+  /** Where the check was — only revealed once the game is finished. */
+  checkIndex?: number;
+}
+
+export interface UserStats {
+  played: number;
+  wins: number;
+  winPct: number;
+  currentStreak: number;
+  maxStreak: number;
+  bestScore: number | null;
+  avgScore: number | null;
+  /** Buckets: "1".."5", "6+", and "X" for losses. */
+  distribution: Record<string, number>;
+}
+
+export interface TodayEntry {
+  name: string;
+  status: "won" | "lost";
+  score: number | null;
+  clicks: number;
+  /** Whether this row belongs to the requesting player (names aren't unique). */
+  me: boolean;
+}
+
+export interface AllTimeEntry {
+  name: string;
+  played: number;
+  wins: number;
+  winPct: number;
+  avgScore: number | null;
+  bestScore: number | null;
+  currentStreak: number;
+  maxStreak: number;
+  /** Whether this row belongs to the requesting player (names aren't unique). */
+  me: boolean;
+}
+
+export interface Leaderboard {
+  date: string;
+  today: TodayEntry[];
+  allTime: AllTimeEntry[];
+}
+
+export const BOARD_SIZE = 25;
+export const MIN_BOMBS = 3;
+export const MAX_BOMBS = 5;
+export const DISTRIBUTION_BUCKETS = ["1", "2", "3", "4", "5", "6+", "X"] as const;
