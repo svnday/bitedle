@@ -23,5 +23,8 @@ export function shareText(game: {
   // this is the total click count for either outcome.
   const totalClicks = clicksLabel(game.misses + 1);
   const scoreLine = game.status === "won" ? `found in ${totalClicks}` : `boom in ${totalClicks}`;
-  return `Bitedle #${game.puzzleNumber} · ${scoreLine}\n${squareTrail(game.status, game.misses)}`;
+  // No repeated 🟥 miss trail here (unlike squareTrail) — the click count is
+  // already spelled out above, so the squares would just be redundant.
+  const indicator = game.status === "won" ? "✅" : "💥";
+  return `Bitedle #${game.puzzleNumber} · ${scoreLine}\n${indicator}`;
 }
