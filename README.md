@@ -115,3 +115,25 @@ DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... node scripts/set-entry-point-command
 
 Safe to re-run any time you want to change the name or description again.
 
+### Adding slash commands
+
+To register the new Discord slash commands for `/play` and `/share`, run:
+
+```bash
+DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... node scripts/register-discord-commands.mjs
+```
+
+If you want the commands to appear in a specific Discord server immediately, include the server ID:
+
+```bash
+DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... DISCORD_GUILD_ID=123456789012345678 node scripts/register-discord-commands.mjs
+```
+
+The script also prints an install URL that uses Discord's `applications.commands` scope. Open that URL and add the app to the server so the slash commands are actually exposed there.
+
+Then set the interaction endpoint URL in the Discord Developer Portal to:
+
+```text
+https://<your-domain>/api/discord/interactions
+```
+
