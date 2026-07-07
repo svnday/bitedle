@@ -92,26 +92,33 @@ played inside one server only ever shows up on that server's leaderboard,
 never on the public website's, and never on another server's
 ([src/lib/discord.ts](src/lib/discord.ts)).
 
-### Slash commands: `/play` and `/share`
+### Slash commands: `/play`, `/bitedle`, and `/share`
 
-Two commands, two different mechanisms:
+`/play` and `/bitedle` both launch the Activity inline, visible to everyone
+in the channel — they're intentionally redundant names for the same
+action. `/share` posts a result. Two different mechanisms are involved:
 
-- **`/play`** launches the Activity inline, visible to everyone in the
-  channel. This is Discord's **entry point command** — enabling Activities
+- **`/play`** is Discord's **entry point command** — enabling Activities
   auto-creates a default one named "Launch" (type `PRIMARY_ENTRY_POINT`,
   handled entirely by Discord's own servers via `DISCORD_LAUNCH_ACTIVITY`;
   no code on this backend runs). There's no Developer Portal field to rename
   it, so [scripts/set-entry-point-command.mjs](scripts/set-entry-point-command.mjs)
-  does it via Discord's API instead, renaming it to `/play`.
+  does it via Discord's API instead, renaming it to `/play`. An app can only
+  have **one** entry point command, so this mechanism can't be reused for a
+  second name.
+- **`/bitedle`** is an ordinary `CHAT_INPUT` command (registered by
+  [scripts/register-discord-commands.mjs](scripts/register-discord-commands.mjs))
+  that gets the same visible result a different way: its handler in
+  [src/app/api/discord/interactions/route.ts](src/app/api/discord/interactions/route.ts)
+  replies with interaction response type `12` (`LAUNCH_ACTIVITY`), which
+  tells Discord to launch the Activity as the command's response.
 - **`/share`** posts that player's already-finished result for today's
   puzzle (same non-spoiling text as the site's own Share button), publicly
-  in the channel. Unlike `/play`, this is an ordinary `CHAT_INPUT` command
-  that Discord forwards to Bitedle's own backend —
-  [scripts/register-discord-commands.mjs](scripts/register-discord-commands.mjs)
-  registers it, and [src/app/api/discord/interactions/route.ts](src/app/api/discord/interactions/route.ts)
-  handles it, looking the caller up by their linked Discord id (see
-  "avatar-linking" below — a player must have opened `/play` at least once
-  for that link to exist) and their game for today.
+  in the channel. Also an ordinary `CHAT_INPUT` command handled by the same
+  interactions route — it looks the caller up by their linked Discord id (a
+  player must have opened `/play` or `/bitedle` at least once for that link
+  to exist, since that's when Discord identity gets linked) and their game
+  for today.
 
 Run both scripts locally (not from Vercel — one-time admin actions, not
 part of the deployed app):

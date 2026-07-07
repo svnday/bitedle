@@ -23,6 +23,13 @@ const headers = {
 // launches the Activity inline instead of just replying with a link.
 const commands = [
   {
+    name: "bitedle",
+    description: "Open today's Bitedle",
+    type: 1,
+    integration_types: [0],
+    contexts: [0, 1],
+  },
+  {
     name: "share",
     description: "Share Bitedle from Discord",
     type: 1,

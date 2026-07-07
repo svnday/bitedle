@@ -74,6 +74,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ type: 1 });
   }
 
+  if (body?.type === 2 && body?.data?.name === "bitedle") {
+    // Response type 12 = LAUNCH_ACTIVITY, so an ordinary CHAT_INPUT command
+    // can launch the Activity inline too — an app can only have one
+    // PRIMARY_ENTRY_POINT command (that's /play), so this is the only way
+    // for a second command to do the same thing.
+    return NextResponse.json({ type: 12 });
+  }
+
   if (body?.type === 2 && body?.data?.name === "share") {
     return handleShare(body);
   }
