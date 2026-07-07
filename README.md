@@ -58,23 +58,3 @@ npm start
   leaderboard marks your own rows server-side. Clearing cookies (or switching
   browsers) starts a fresh player — streaks don't follow you across devices.
 
-## Deploying (Vercel + Neon)
-
-1. Push this repo to GitHub (already at `svnday/bitedle`).
-2. On [vercel.com](https://vercel.com), **Import Project** → pick the repo.
-   Next.js is auto-detected; no build settings needed.
-3. Add the **Neon integration** (Vercel Marketplace → Neon, or create the
-   database at [neon.tech](https://neon.tech) and copy its connection
-   string). Either way, the project needs a `DATABASE_URL` environment
-   variable.
-4. Add a `BITEDLE_SECRET` environment variable: any long random string
-   (e.g. `openssl rand -hex 32`). Set it once and never change it —
-   it defines the daily boards.
-5. Optionally set `BITEDLE_TZ` if you want the daily reset somewhere other
-   than US Eastern midnight.
-6. Deploy. The database schema is created automatically on the first
-   request — no migration step.
-
-To develop against the real database locally, copy `.env.example` to
-`.env.local` and fill in `DATABASE_URL`; without it, dev mode uses the JSON
-file.
