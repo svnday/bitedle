@@ -216,18 +216,17 @@ function praiseFor(score: number): string {
  *  only ever rendered for the viewer's own ("me") card. */
 export function PlayerResultCard({ entry, onShare }: { entry: TodayEntry; onShare?: () => void }) {
   return (
-    <div
-      className={`flex w-20 shrink-0 flex-col items-center gap-2 rounded-lg p-2 ${
-        entry.me ? "bg-tile/50 ring-foreground ring-1 shadow-md" : "bg-surface"
-      }`}
-    >
+    <div className={`flex w-20 shrink-0 flex-col items-center gap-2 rounded-lg p-2 bg-surface`}>
+      <div
+        className={`w-full rounded-lg overflow-hidden border ${entry.me ? "border-white bg-tile/60 shadow-md" : "border-tileborder bg-surface"} px-2 py-3 flex flex-col items-center`}
+      >
       {entry.discordAvatarUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={entry.discordAvatarUrl}
           alt=""
           referrerPolicy="no-referrer"
-          className="h-10 w-10 rounded-full border border-transparent object-cover"
+          className="h-10 w-10 rounded-full object-cover"
           onError={(e) => {
             e.currentTarget.style.display = "none";
           }}
@@ -235,22 +234,25 @@ export function PlayerResultCard({ entry, onShare }: { entry: TodayEntry; onShar
       ) : (
         <div className="bg-tile h-10 w-10 rounded-full" />
       )}
-      <div className="flex items-center justify-center gap-1 text-sm">
+      <div className="flex items-center justify-center gap-1 text-sm mt-1">
         <span className="text-base">{entry.status === "won" ? "✅" : "💥"}</span>
         <span className="font-semibold">{entry.clicks}</span>
       </div>
-      <div className="w-full truncate text-center text-xs font-semibold">{entry.name}</div>
+      <div className="w-full truncate text-center text-xs font-semibold mt-1">{entry.name}</div>
       {entry.me && onShare && (
         <button
           type="button"
           onClick={onShare}
-          className="bg-correct mt-1 cursor-pointer rounded-full px-3 py-0.5 text-xs font-bold text-white hover:brightness-110"
+          className="bg-correct mt-2 cursor-pointer rounded-full px-3 py-0.5 text-xs font-bold text-white hover:brightness-110"
         >
           Share
         </button>
       )}
-      <MiniBoardPreview entry={entry} />
+      <div className="mt-3">
+        <MiniBoardPreview entry={entry} />
+      </div>
     </div>
+  </div>
   );
 }
 
