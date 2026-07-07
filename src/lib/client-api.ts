@@ -59,7 +59,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ code }),
     }),
-  discordIdentify: (payload: { discordUserId: string; discordAvatar: string | null }) =>
+  discordIdentify: (payload: { discordUserId: string; discordAvatar: string | null; discordName: string }) =>
     request<{ ok: true }>("/api/discord/identify", {
       method: "POST",
       body: JSON.stringify(payload),

@@ -68,6 +68,15 @@ export default function Game() {
     refresh();
   }, [refresh]);
 
+  // DiscordBootstrap links the Discord identity (and syncs the display name)
+  // asynchronously, in a separate component, after this already fetched
+  // state once — refetch so the header picks up the synced name promptly.
+  useEffect(() => {
+    if (!isDiscordEmbed()) return;
+    window.addEventListener("bitedle:discord-identity-synced", refresh);
+    return () => window.removeEventListener("bitedle:discord-identity-synced", refresh);
+  }, [refresh]);
+
   // Fetch the result gifs up front so they play instantly when a game ends.
   useEffect(() => {
     for (const src of [WIN_GIF, LOSE_GIF]) {
@@ -204,7 +213,7 @@ export default function Game() {
               Clicks: {state?.clicks.length ?? 0}
             </span>
           </div>
-          {state && (
+          {state && !isDiscordEmbed() && (
             <button
               type="button"
               onClick={() => {
@@ -218,6 +227,15 @@ export default function Game() {
               <IconUser />
               <span className="truncate">{state.username}</span>
             </button>
+          )}
+          {state && isDiscordEmbed() && (
+            <span
+              title="Your Discord name"
+              className="border-tileborder flex max-w-28 items-center gap-1 rounded border px-2 py-1 font-semibold"
+            >
+              <IconUser />
+              <span className="truncate">{state.username}</span>
+            </span>
           )}
         </div>
 

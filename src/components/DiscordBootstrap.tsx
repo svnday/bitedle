@@ -74,5 +74,12 @@ async function linkDiscordIdentity(discordSdk: DiscordSDK, clientId: string): Pr
   });
   const { access_token } = await api.discordToken(code);
   const { user } = await discordSdk.commands.authenticate({ access_token });
-  await api.discordIdentify({ discordUserId: user.id, discordAvatar: user.avatar ?? null });
+  await api.discordIdentify({
+    discordUserId: user.id,
+    discordAvatar: user.avatar ?? null,
+    discordName: user.global_name ?? user.username,
+  });
+  // Game.tsx already fetched state before this (async, separate component)
+  // finished — nudge it to refetch so the header picks up the synced name.
+  window.dispatchEvent(new Event("bitedle:discord-identity-synced"));
 }
