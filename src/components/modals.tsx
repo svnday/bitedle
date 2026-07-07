@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client-api";
-import { isDiscordEmbed } from "@/lib/discord-context";
 import { squareTrail } from "@/lib/share-text";
 import type { GameState, Leaderboard, TodayEntry, UserStats } from "@/lib/types";
 import { DISTRIBUTION_BUCKETS } from "@/lib/types";
@@ -167,25 +166,96 @@ function praiseFor(score: number): string {
   return "Phew — got there!";
 }
 
+/** One player's avatar + non-spoiling result trail + name, for the guild
+ *  results carousel and the persistent board sidebar alike. */
+export function PlayerResultCard({ entry }: { entry: TodayEntry }) {
+  return (
+    <div
+      className={`flex w-16 shrink-0 flex-col items-center gap-1 rounded p-1.5 ${
+        entry.me ? "bg-tile/50 ring-foreground ring-1" : ""
+      }`}
+    >
+      {entry.discordAvatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={entry.discordAvatarUrl}
+          alt=""
+          referrerPolicy="no-referrer"
+          className="h-8 w-8 rounded-full"
+          onError={(e) => {
+            e.currentTarget.style.display = "none";
+          }}
+        />
+      ) : (
+        <div className="bg-tile h-8 w-8 rounded-full" />
+      )}
+      <div className="text-center text-[10px] leading-tight break-all">
+        {squareTrail(entry.status, entry.clicks - 1)}
+      </div>
+      <div className="w-full truncate text-center text-[10px] font-semibold">{entry.name}</div>
+    </div>
+  );
+}
+
+/** Guild results carousel + win rate/streak stats — shared by the win/lose
+ *  splash and the standalone Channel Stats screen. */
+export function GuildResultsPanel({
+  entries,
+  stats,
+  onShare,
+}: {
+  entries: TodayEntry[];
+  stats: UserStats | null;
+  onShare?: () => void;
+}) {
+  return (
+    <div>
+      {entries.length > 0 && (
+        <div className="flex gap-3 overflow-x-auto pb-1">
+          {entries.map((entry, i) => (
+            <PlayerResultCard key={i} entry={entry} />
+          ))}
+        </div>
+      )}
+      {onShare && entries.length > 0 && (
+        <button
+          type="button"
+          onClick={onShare}
+          className="bg-correct mt-3 w-full cursor-pointer rounded py-2 text-sm font-bold text-white hover:brightness-110"
+        >
+          Share your result 📋
+        </button>
+      )}
+      {stats && (
+        <div className="border-tileborder mt-4 grid grid-cols-3 gap-2 border-t pt-4 text-center">
+          {(
+            [
+              [`${stats.winPct}%`, "Win rate"],
+              [stats.currentStreak, "Current streak"],
+              [stats.maxStreak, "Best streak"],
+            ] as const
+          ).map(([value, label]) => (
+            <div key={label}>
+              <div className="text-2xl font-semibold">{value}</div>
+              <div className="text-muted mt-0.5 text-[11px] leading-tight">{label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ResultModalProps {
   won: boolean;
   score: number | null;
   stats: UserStats | null;
+  guildEntries: TodayEntry[] | null;
   onShare: () => void;
   onContinue: () => void;
 }
 
-export function ResultModal({ won, score, stats, onShare, onContinue }: ResultModalProps) {
-  const [guildEntries, setGuildEntries] = useState<TodayEntry[] | null>(null);
-
-  useEffect(() => {
-    if (!isDiscordEmbed()) return;
-    api
-      .leaderboard()
-      .then((data: Leaderboard) => setGuildEntries(data.today))
-      .catch(() => setGuildEntries(null));
-  }, []);
-
+export function ResultModal({ won, score, stats, guildEntries, onShare, onContinue }: ResultModalProps) {
   return (
     <Modal title={won ? "You found it!" : "Game over"} onClose={onContinue}>
       {/* Plain <img>: self-hosted animated gif, not a next/image candidate. */}
@@ -206,61 +276,7 @@ export function ResultModal({ won, score, stats, onShare, onContinue }: ResultMo
           <h3 className="text-muted mb-2 text-xs font-bold tracking-widest uppercase">
             This server today
           </h3>
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {guildEntries.map((entry, i) => (
-              <div
-                key={i}
-                className={`flex w-16 shrink-0 flex-col items-center gap-1 rounded p-1.5 ${
-                  entry.me ? "bg-tile/50 ring-foreground ring-1" : ""
-                }`}
-              >
-                {entry.discordAvatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={entry.discordAvatarUrl}
-                    alt=""
-                    referrerPolicy="no-referrer"
-                    className="h-8 w-8 rounded-full"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                ) : (
-                  <div className="bg-tile h-8 w-8 rounded-full" />
-                )}
-                <div className="text-center text-[10px] leading-tight break-all">
-                  {squareTrail(entry.status, entry.clicks - 1)}
-                </div>
-                <div className="w-full truncate text-center text-[10px] font-semibold">
-                  {entry.name}
-                </div>
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={onShare}
-            className="bg-correct mt-3 w-full cursor-pointer rounded py-2 text-sm font-bold text-white hover:brightness-110"
-          >
-            Share your result 📋
-          </button>
-        </div>
-      )}
-
-      {guildEntries && stats && (
-        <div className="border-tileborder mt-4 grid grid-cols-3 gap-2 border-t pt-4 text-center">
-          {(
-            [
-              [`${stats.winPct}%`, "Win rate"],
-              [stats.currentStreak, "Current streak"],
-              [stats.maxStreak, "Best streak"],
-            ] as const
-          ).map(([value, label]) => (
-            <div key={label}>
-              <div className="text-2xl font-semibold">{value}</div>
-              <div className="text-muted mt-0.5 text-[11px] leading-tight">{label}</div>
-            </div>
-          ))}
+          <GuildResultsPanel entries={guildEntries} stats={stats} onShare={onShare} />
         </div>
       )}
 
@@ -273,6 +289,61 @@ export function ResultModal({ won, score, stats, onShare, onContinue }: ResultMo
       >
         Continue
       </button>
+    </Modal>
+  );
+}
+
+/* -------------------------------------------------------- welcome back */
+
+interface WelcomeBackModalProps {
+  onChannelStats: () => void;
+  onDismiss: () => void;
+}
+
+export function WelcomeBackModal({ onChannelStats, onDismiss }: WelcomeBackModalProps) {
+  return (
+    <Modal title="Welcome back" onClose={onDismiss}>
+      <p className="text-center font-bold">Nice work on today&apos;s Bitedle!</p>
+      <p className="text-muted mt-2 text-center text-sm">Check out how your server did today.</p>
+      <button
+        type="button"
+        onClick={onChannelStats}
+        className="bg-correct mt-4 w-full cursor-pointer rounded py-2.5 font-bold text-white hover:brightness-110"
+      >
+        Channel Stats
+      </button>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="text-muted hover:text-foreground mt-2 w-full cursor-pointer py-1.5 text-sm font-semibold"
+      >
+        Back to puzzle
+      </button>
+    </Modal>
+  );
+}
+
+/* -------------------------------------------------------- channel stats */
+
+interface ChannelStatsModalProps {
+  entries: TodayEntry[] | null;
+  stats: UserStats | null;
+  onShare: () => void;
+  onClose: () => void;
+}
+
+export function ChannelStatsModal({ entries, stats, onShare, onClose }: ChannelStatsModalProps) {
+  return (
+    <Modal title="Channel Stats" onClose={onClose}>
+      {!entries ? (
+        <p className="text-muted py-8 text-center">Loading…</p>
+      ) : entries.length === 0 ? (
+        <p className="text-muted py-8 text-center text-sm">
+          No one has finished today&apos;s Bitedle yet. Be the first!
+        </p>
+      ) : (
+        <GuildResultsPanel entries={entries} stats={stats} onShare={onShare} />
+      )}
     </Modal>
   );
 }

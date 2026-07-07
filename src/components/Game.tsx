@@ -4,20 +4,31 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/client-api";
 import { isDiscordEmbed } from "@/lib/discord-context";
 import { shareText } from "@/lib/share-text";
-import type { GameState, UserStats } from "@/lib/types";
+import type { GameState, TodayEntry, UserStats } from "@/lib/types";
 import Board from "./Board";
 import Countdown from "./Countdown";
 import {
+  ChannelStatsModal,
   HelpModal,
   LeaderboardModal,
   LOSE_GIF,
   NameModal,
+  PlayerResultCard,
   ResultModal,
   StatsModal,
+  WelcomeBackModal,
   WIN_GIF,
 } from "./modals";
 
-type ModalKind = null | "help" | "stats" | "leaderboard" | "name" | "result";
+type ModalKind =
+  | null
+  | "help"
+  | "stats"
+  | "leaderboard"
+  | "name"
+  | "result"
+  | "channelStats"
+  | "welcomeBack";
 
 interface Toast {
   id: number;
@@ -32,6 +43,7 @@ function gameShareText(state: GameState): string {
 export default function Game() {
   const [state, setState] = useState<GameState | null>(null);
   const [stats, setStats] = useState<UserStats | null>(null);
+  const [guildEntries, setGuildEntries] = useState<TodayEntry[] | null>(null);
   const [modal, setModal] = useState<ModalKind>(null);
   const [nameMode, setNameMode] = useState<"post" | "edit">("edit");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -39,6 +51,8 @@ export default function Game() {
   const [nameError, setNameError] = useState<string | null>(null);
   const toastId = useRef(0);
   const introChecked = useRef(false);
+
+  const finished = state !== null && state.status !== "playing";
 
   const toast = useCallback((text: string) => {
     const id = ++toastId.current;
@@ -55,6 +69,9 @@ export default function Game() {
           if (!localStorage.getItem("bitedle:seenHelp")) {
             localStorage.setItem("bitedle:seenHelp", "1");
             setModal("help");
+          } else if (isDiscordEmbed() && s.status !== "playing") {
+            // Relaunching the Activity after already finishing today.
+            setModal("welcomeBack");
           }
         }
       },
@@ -85,13 +102,17 @@ export default function Game() {
     }
   }, []);
 
-  // The Discord results strip on the result splash needs stats up front,
-  // before the player reaches the separate Stats modal.
+  // The results carousel/sidebar/stats need this data as soon as the game is
+  // finished, since it's shown in three places: the win/lose splash, the
+  // standalone Channel Stats screen, and the persistent board sidebar.
   useEffect(() => {
-    if (modal === "result" && isDiscordEmbed()) {
-      api.stats().then(setStats).catch(() => {});
-    }
-  }, [modal]);
+    if (!isDiscordEmbed() || !finished) return;
+    api.stats().then(setStats).catch(() => {});
+    api
+      .leaderboard()
+      .then((data) => setGuildEntries(data.today))
+      .catch(() => {});
+  }, [finished]);
 
   const openStats = useCallback(async () => {
     setModal("stats");
@@ -164,8 +185,6 @@ export default function Game() {
     refresh();
   }, [refresh]);
 
-  const finished = state !== null && state.status !== "playing";
-
   return (
     <div className="flex min-h-screen w-full flex-col items-center">
       <header className="border-tileborder w-full border-b">
@@ -180,6 +199,16 @@ export default function Game() {
           </button>
           <h1 className="text-2xl font-extrabold tracking-[0.2em] select-none">BITEDLE</h1>
           <div className="flex items-center gap-0.5">
+            {isDiscordEmbed() && (
+              <button
+                type="button"
+                onClick={() => setModal("channelStats")}
+                aria-label="Channel Stats"
+                className="text-muted hover:text-foreground cursor-pointer p-1.5"
+              >
+                <IconUsers />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setModal("leaderboard")}
@@ -239,12 +268,28 @@ export default function Game() {
           )}
         </div>
 
-        <Board
-          clicks={state?.clicks ?? []}
-          layout={state?.layout ?? null}
-          disabled={busy || finished || !state}
-          onCellClick={handleCell}
-        />
+        {isDiscordEmbed() && finished && guildEntries && guildEntries.length > 0 ? (
+          <div className="flex w-full max-w-2xl items-start justify-center gap-4">
+            <div className="hidden max-h-[420px] w-20 shrink-0 flex-col gap-2 overflow-y-auto sm:flex">
+              {guildEntries.map((entry, i) => (
+                <PlayerResultCard key={i} entry={entry} />
+              ))}
+            </div>
+            <Board
+              clicks={state?.clicks ?? []}
+              layout={state?.layout ?? null}
+              disabled={busy || finished || !state}
+              onCellClick={handleCell}
+            />
+          </div>
+        ) : (
+          <Board
+            clicks={state?.clicks ?? []}
+            layout={state?.layout ?? null}
+            disabled={busy || finished || !state}
+            onCellClick={handleCell}
+          />
+        )}
 
         {finished && state && (
           <div className="animate-rise border-tileborder bg-raised flex w-full max-w-[360px] flex-col items-center gap-4 rounded-lg border p-4">
@@ -297,8 +342,23 @@ export default function Game() {
           won={state.status === "won"}
           score={state.score}
           stats={stats}
+          guildEntries={guildEntries}
           onShare={handleShare}
           onContinue={handleResultContinue}
+        />
+      )}
+      {modal === "welcomeBack" && (
+        <WelcomeBackModal
+          onChannelStats={() => setModal("channelStats")}
+          onDismiss={() => setModal(null)}
+        />
+      )}
+      {modal === "channelStats" && (
+        <ChannelStatsModal
+          entries={guildEntries}
+          stats={stats}
+          onShare={handleShare}
+          onClose={() => setModal(null)}
         />
       )}
       {modal === "name" && (
@@ -388,6 +448,17 @@ function IconUser() {
     <svg {...iconProps} width={14} height={14}>
       <circle cx="12" cy="8" r="4" />
       <path d="M4 21c0-4 3.6-6 8-6s8 2 8 6" />
+    </svg>
+  );
+}
+
+function IconUsers() {
+  return (
+    <svg {...iconProps}>
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5" />
+      <path d="M15.5 6.2a3.2 3.2 0 0 1 0 6.2" />
+      <path d="M17 14.6c2.4.5 4.5 2.2 4.5 5.4" />
     </svg>
   );
 }
