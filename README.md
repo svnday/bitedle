@@ -16,10 +16,11 @@ hiding too, and one wrong click ends your day.
   hidden) — every other tile is a miss.
 - A new board is generated every day at midnight. Everyone plays the **same
   board**, and each player gets **one game per day**.
-- No sign-in: just type a display name (or skip it and play as `Player-xxxx`
-  — you can rename anytime from the header chip). Stats (win %, streaks,
-  score distribution) and the daily/all-time leaderboards follow you via an
-  anonymous browser cookie.
+- No sign-in: play immediately, and after your first game pick a display
+  name for the leaderboard (rename anytime from the header chip). Skipping
+  the name keeps your results **off the leaderboards** until you pick one —
+  personal stats still work. Everything follows you via an anonymous browser
+  cookie.
 
 ## Running it
 

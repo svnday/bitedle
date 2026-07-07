@@ -40,8 +40,11 @@ export interface Store {
   getGame(date: string, userId: string): Promise<GameRecord | null>;
   /** Upserts; must never overwrite a game that is already finished. */
   putGame(date: string, userId: string, game: GameRecord): Promise<void>;
+  /** Every finished game for one player (their private stats). */
   finishedGamesFor(userId: string): Promise<FinishedGame[]>;
+  /** Leaderboard feed: finished games on a date, NAMED players only. */
   finishedGamesOn(date: string): Promise<TodayRow[]>;
+  /** Leaderboard feed: all finished games, NAMED players only. */
   allFinishedGames(): Promise<AllTimeRow[]>;
 }
 

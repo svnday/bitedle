@@ -88,10 +88,11 @@ export class FileStore implements Store {
   async finishedGamesOn(date: string): Promise<TodayRow[]> {
     const out: TodayRow[] = [];
     for (const [userId, g] of Object.entries(this.db.games[date] ?? {})) {
-      if (g.status === "playing") continue;
+      const user = this.db.users[userId];
+      if (g.status === "playing" || !user?.named) continue;
       out.push({
         userId,
-        name: this.db.users[userId]?.name ?? "Player",
+        name: user.name,
         status: g.status,
         score: g.score,
         clickCount: g.clicks.length,
@@ -105,10 +106,11 @@ export class FileStore implements Store {
     const out: AllTimeRow[] = [];
     for (const [date, byUser] of Object.entries(this.db.games)) {
       for (const [userId, g] of Object.entries(byUser)) {
-        if (g.status === "playing") continue;
+        const user = this.db.users[userId];
+        if (g.status === "playing" || !user?.named) continue;
         out.push({
           userId,
-          name: this.db.users[userId]?.name ?? "Player",
+          name: user.name,
           date,
           status: g.status,
           score: g.score,

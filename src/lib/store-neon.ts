@@ -107,7 +107,7 @@ export class NeonStore implements Store {
       SELECT g.user_id, u.name, g.status, g.score,
              jsonb_array_length(g.clicks) AS click_count, g.finished_at
       FROM games g JOIN users u ON u.id = g.user_id
-      WHERE g.date = ${date} AND g.status <> 'playing'`;
+      WHERE g.date = ${date} AND g.status <> 'playing' AND u.named`;
     return rows.map((r) => ({
       userId: r.user_id as string,
       name: r.name as string,
@@ -123,7 +123,7 @@ export class NeonStore implements Store {
     const rows = await this.sql`
       SELECT g.user_id, u.name, g.date, g.status, g.score
       FROM games g JOIN users u ON u.id = g.user_id
-      WHERE g.status <> 'playing'
+      WHERE g.status <> 'playing' AND u.named
       ORDER BY g.date`;
     return rows.map((r) => ({
       userId: r.user_id as string,

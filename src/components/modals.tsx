@@ -93,7 +93,7 @@ export function NameModal({ mode, currentName, onSubmit, onClose, error }: NameM
   const [busy, setBusy] = useState(false);
 
   return (
-    <Modal title={mode === "post" ? "You're on the board!" : "Change your name"} onClose={onClose}>
+    <Modal title={mode === "post" ? "Get on the leaderboard" : "Change your name"} onClose={onClose}>
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -113,7 +113,7 @@ export function NameModal({ mode, currentName, onSubmit, onClose, error }: NameM
       >
         <label htmlFor="playername" className="text-muted mb-1 block text-xs font-semibold">
           {mode === "post"
-            ? "Pick a leaderboard name — no account needed, change it anytime"
+            ? "Pick a display name to post your score — skip and your results stay off the leaderboard"
             : "Your display name on the leaderboard"}
         </label>
         <input
@@ -140,12 +140,14 @@ export function NameModal({ mode, currentName, onSubmit, onClose, error }: NameM
             onClick={onClose}
             className="text-muted hover:text-foreground mt-2 w-full cursor-pointer py-1.5 text-sm font-semibold"
           >
-            Skip — stay as {currentName}
+            Skip — don&apos;t post my score
           </button>
         )}
       </form>
       <p className="text-muted mt-3 text-xs leading-snug">
-        Your streaks and daily game live in a browser cookie — same browser, same player.
+        {mode === "post"
+          ? "Changed your mind later? Name yourself from the header and your results (including today's) will appear."
+          : "Your streaks and daily game live in a browser cookie — same browser, same player."}
       </p>
     </Modal>
   );
@@ -336,9 +338,11 @@ export function StatsModal({ stats, state, onClose, onShare, onNewDay }: StatsMo
 
 interface LeaderboardModalProps {
   onClose: () => void;
+  /** True when the viewer finished today's game without picking a name. */
+  nameHint?: boolean;
 }
 
-export function LeaderboardModal({ onClose }: LeaderboardModalProps) {
+export function LeaderboardModal({ onClose, nameHint }: LeaderboardModalProps) {
   const [data, setData] = useState<Leaderboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"today" | "alltime">("today");
@@ -377,6 +381,12 @@ export function LeaderboardModal({ onClose }: LeaderboardModalProps) {
 
       {data && tab === "today" && (
         <div>
+          {nameHint && (
+            <p className="border-tileborder bg-tile/40 mb-3 rounded border px-3 py-2 text-xs leading-snug">
+              Your result isn&apos;t posted — pick a name (the 👤 button above the board) to join
+              the leaderboard.
+            </p>
+          )}
           {data.today.length === 0 ? (
             <p className="text-muted py-8 text-center text-sm">
               No one has finished today&apos;s Bitedle yet. Be the first!

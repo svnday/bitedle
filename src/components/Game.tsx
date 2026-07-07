@@ -302,7 +302,12 @@ export default function Game() {
           onNewDay={handleNewDay}
         />
       )}
-      {modal === "leaderboard" && <LeaderboardModal onClose={() => setModal(null)} />}
+      {modal === "leaderboard" && (
+        <LeaderboardModal
+          onClose={() => setModal(null)}
+          nameHint={finished && state !== null && !state.named}
+        />
+      )}
     </div>
   );
 }
