@@ -82,3 +82,26 @@ Normal web play at `bitedle.vercel.app` is unaffected either way: the Discord
 SDK only loads, and the `/.proxy` prefix only applies, when the app detects
 it's running inside a `*.discordsays.com` iframe.
 
+### Renaming the entry point command
+
+Enabling Activities auto-creates a default slash command named "Launch" —
+this is how the Activity gets started from Discord's App Launcher. There's
+no Developer Portal field to rename it, so
+[scripts/set-entry-point-command.mjs](scripts/set-entry-point-command.mjs)
+does it via Discord's API instead, renaming it to `/bitedle`.
+
+Run it locally (not from Vercel — it's a one-time admin action, not part of
+the deployed app):
+
+```bash
+DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... node scripts/set-entry-point-command.mjs
+```
+
+- `DISCORD_CLIENT_ID` is the same value as `NEXT_PUBLIC_DISCORD_CLIENT_ID`.
+- `DISCORD_BOT_TOKEN` comes from the Developer Portal's **Bot** tab (Reset
+  Token / Copy). Unlike the client ID, this is a real secret — never commit
+  it, never prefix it `NEXT_PUBLIC_`, and only pass it as a one-off
+  environment variable in your own terminal.
+
+Safe to re-run any time you want to change the name or description again.
+
