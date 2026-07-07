@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import type { DiscordSDK } from "@discord/embedded-app-sdk";
 import { api } from "@/lib/client-api";
-import { setGuildId } from "@/lib/discord-context";
+import { isDiscordEmbed, setGuildId } from "@/lib/discord-context";
 
 /**
  * Handshakes with the Discord client when Bitedle is loaded as a Discord
@@ -13,7 +13,7 @@ import { setGuildId } from "@/lib/discord-context";
  */
 export default function DiscordBootstrap() {
   useEffect(() => {
-    if (!window.location.hostname.endsWith(".discordsays.com")) return;
+    if (!isDiscordEmbed()) return;
 
     let cancelled = false;
     (async () => {

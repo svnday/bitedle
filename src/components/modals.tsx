@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client-api";
-import type { GameState, Leaderboard, UserStats } from "@/lib/types";
+import { isDiscordEmbed } from "@/lib/discord-context";
+import { squareTrail } from "@/lib/share-text";
+import type { GameState, Leaderboard, TodayEntry, UserStats } from "@/lib/types";
 import { DISTRIBUTION_BUCKETS } from "@/lib/types";
 import Countdown from "./Countdown";
 
@@ -168,10 +170,22 @@ function praiseFor(score: number): string {
 interface ResultModalProps {
   won: boolean;
   score: number | null;
+  stats: UserStats | null;
+  onShare: () => void;
   onContinue: () => void;
 }
 
-export function ResultModal({ won, score, onContinue }: ResultModalProps) {
+export function ResultModal({ won, score, stats, onShare, onContinue }: ResultModalProps) {
+  const [guildEntries, setGuildEntries] = useState<TodayEntry[] | null>(null);
+
+  useEffect(() => {
+    if (!isDiscordEmbed()) return;
+    api
+      .leaderboard()
+      .then((data: Leaderboard) => setGuildEntries(data.today))
+      .catch(() => setGuildEntries(null));
+  }, []);
+
   return (
     <Modal title={won ? "You found it!" : "Game over"} onClose={onContinue}>
       {/* Plain <img>: self-hosted animated gif, not a next/image candidate. */}
@@ -186,6 +200,70 @@ export function ResultModal({ won, score, onContinue }: ResultModalProps) {
           ? `${praiseFor(score)} Found in ${score} ${score === 1 ? "click" : "clicks"}. ✓`
           : "💥 BOOM! That was a bomb. See you tomorrow."}
       </p>
+
+      {guildEntries && guildEntries.length > 0 && (
+        <div className="border-tileborder mt-4 border-t pt-4">
+          <h3 className="text-muted mb-2 text-xs font-bold tracking-widest uppercase">
+            This server today
+          </h3>
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {guildEntries.map((entry, i) => (
+              <div
+                key={i}
+                className={`flex w-16 shrink-0 flex-col items-center gap-1 rounded p-1.5 ${
+                  entry.me ? "bg-tile/50 ring-foreground ring-1" : ""
+                }`}
+              >
+                {entry.discordAvatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={entry.discordAvatarUrl}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    className="h-8 w-8 rounded-full"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <div className="bg-tile h-8 w-8 rounded-full" />
+                )}
+                <div className="text-center text-[10px] leading-tight break-all">
+                  {squareTrail(entry.status, entry.clicks - 1)}
+                </div>
+                <div className="w-full truncate text-center text-[10px] font-semibold">
+                  {entry.name}
+                </div>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={onShare}
+            className="bg-correct mt-3 w-full cursor-pointer rounded py-2 text-sm font-bold text-white hover:brightness-110"
+          >
+            Share your result 📋
+          </button>
+        </div>
+      )}
+
+      {guildEntries && stats && (
+        <div className="border-tileborder mt-4 grid grid-cols-3 gap-2 border-t pt-4 text-center">
+          {(
+            [
+              [`${stats.winPct}%`, "Win rate"],
+              [stats.currentStreak, "Current streak"],
+              [stats.maxStreak, "Best streak"],
+            ] as const
+          ).map(([value, label]) => (
+            <div key={label}>
+              <div className="text-2xl font-semibold">{value}</div>
+              <div className="text-muted mt-0.5 text-[11px] leading-tight">{label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <button
         type="button"
         onClick={onContinue}

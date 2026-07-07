@@ -13,3 +13,8 @@ export function setGuildId(id: string | null): void {
 export function getGuildId(): string | null {
   return guildId;
 }
+
+/** True when running inside Discord's Activity iframe (vs. plain web play). */
+export function isDiscordEmbed(): boolean {
+  return typeof window !== "undefined" && window.location.hostname.endsWith(".discordsays.com");
+}

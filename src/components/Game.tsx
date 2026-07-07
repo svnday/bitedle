@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/client-api";
+import { isDiscordEmbed } from "@/lib/discord-context";
 import { shareText } from "@/lib/share-text";
 import type { GameState, UserStats } from "@/lib/types";
 import Board from "./Board";
@@ -74,6 +75,14 @@ export default function Game() {
       img.src = src;
     }
   }, []);
+
+  // The Discord results strip on the result splash needs stats up front,
+  // before the player reaches the separate Stats modal.
+  useEffect(() => {
+    if (modal === "result" && isDiscordEmbed()) {
+      api.stats().then(setStats).catch(() => {});
+    }
+  }, [modal]);
 
   const openStats = useCallback(async () => {
     setModal("stats");
@@ -269,6 +278,8 @@ export default function Game() {
         <ResultModal
           won={state.status === "won"}
           score={state.score}
+          stats={stats}
+          onShare={handleShare}
           onContinue={handleResultContinue}
         />
       )}
