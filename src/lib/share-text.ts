@@ -9,13 +9,19 @@ export function squareTrail(status: GameStatus, misses: number): string {
   return "🟥".repeat(misses) + (status === "won" ? "🟩" : "💥");
 }
 
+function clicksLabel(n: number): string {
+  return `${n} ${n === 1 ? "click" : "clicks"}`;
+}
+
 export function shareText(game: {
   puzzleNumber: number;
   status: GameStatus;
   score: number | null;
   misses: number;
 }): string {
-  const scoreLine =
-    game.status === "won" ? `${game.score} ${game.score === 1 ? "click" : "clicks"}` : "boom 💣";
+  // The winning/losing click is always the one right after the misses, so
+  // this is the total click count for either outcome.
+  const totalClicks = clicksLabel(game.misses + 1);
+  const scoreLine = game.status === "won" ? `found in ${totalClicks}` : `boom in ${totalClicks}`;
   return `Bitedle #${game.puzzleNumber} · ${scoreLine}\n${squareTrail(game.status, game.misses)}`;
 }
