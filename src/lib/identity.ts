@@ -49,12 +49,23 @@ export async function ensureUser(request: NextRequest): Promise<Identity> {
   return { id };
 }
 
-/** (Re)issues the identity cookie, refreshing its one-year expiry. */
+/**
+ * (Re)issues the identity cookie, refreshing its one-year expiry.
+ *
+ * SameSite=None + Partitioned in production so the cookie survives inside a
+ * sandboxed iframe (Discord Activities) — browsers refuse stricter SameSite
+ * cookies on any iframe navigation. Applied site-wide, not just for Discord:
+ * the cookie is a low-value anonymous UUID, so the broadened cross-site
+ * behavior is an acceptable tradeoff. SameSite=None requires Secure, which
+ * requires HTTPS, so this only applies once actually deployed (production).
+ */
 export function attachIdentity(res: NextResponse, identity: Identity): NextResponse {
+  const isProd = process.env.NODE_ENV === "production";
   res.cookies.set(AUTH_COOKIE, identity.id, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: isProd ? "none" : "lax",
+    secure: isProd,
+    partitioned: isProd,
     path: "/",
     maxAge: 60 * 60 * 24 * 365,
   });

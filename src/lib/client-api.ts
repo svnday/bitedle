@@ -12,8 +12,16 @@ export class ApiError extends Error {
   }
 }
 
+/** True when running inside a Discord Activity iframe (Discord's reverse-proxy domain). */
+function isDiscordEmbedded(): boolean {
+  return typeof window !== "undefined" && window.location.hostname.endsWith(".discordsays.com");
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  // Discord's Activity proxy blocks plain relative requests; they must be
+  // routed through /.proxy. Never applied outside the Discord iframe.
+  const url = isDiscordEmbedded() ? `/.proxy${path}` : path;
+  const res = await fetch(url, {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   });

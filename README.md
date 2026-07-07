@@ -58,3 +58,29 @@ npm start
   leaderboard marks your own rows server-side. Clearing cookies (or switching
   browsers) starts a fresh player — streaks don't follow you across devices.
 
+## Discord Activity setup
+
+Bitedle can run embedded in Discord as an Activity — an iframe loaded through
+Discord's own reverse proxy. The code side is already handled
+([src/components/DiscordBootstrap.tsx](src/components/DiscordBootstrap.tsx),
+the `/.proxy`-aware fetch helper in
+[src/lib/client-api.ts](src/lib/client-api.ts), and the iframe-friendly cookie
+and CSP settings in [src/lib/identity.ts](src/lib/identity.ts) and
+[next.config.ts](next.config.ts)) — but a few steps only exist in the Discord
+Developer Portal and can't be done from this repo:
+
+1. Create an Application at the [Discord Developer Portal](https://discord.com/developers/applications) and enable **Activities** for it.
+2. Under **Activities → URL Mappings**, add:
+   - Root mapping — PREFIX `/`, TARGET `bitedle.vercel.app`
+   - PREFIX `/tenor`, TARGET `media1.tenor.com` (so the win/lose GIFs, hotlinked from Tenor, load through Discord's proxy)
+3. Under **General Information**, set:
+   - Terms of Service URL: `https://bitedle.vercel.app/terms`
+   - Privacy Policy URL: `https://bitedle.vercel.app/privacy`
+
+   (Discord requires both for any public Application; they only resolve once this app is deployed with the `/terms` and `/privacy` pages.)
+4. Copy the Application's **Client ID** into the `NEXT_PUBLIC_DISCORD_CLIENT_ID` environment variable (see [.env.example](.env.example)) — in Vercel's project settings for production.
+
+Normal web play at `bitedle.vercel.app` is unaffected either way: the Discord
+SDK only loads, and the `/.proxy` prefix only applies, when the app detects
+it's running inside a `*.discordsays.com` iframe.
+
