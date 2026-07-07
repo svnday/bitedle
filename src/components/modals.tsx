@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client-api";
-import { squareTrail } from "@/lib/share-text";
 import type { GameState, Leaderboard, TodayEntry, UserStats } from "@/lib/types";
 import { DISTRIBUTION_BUCKETS } from "@/lib/types";
 import Countdown from "./Countdown";
@@ -189,8 +188,8 @@ export function PlayerResultCard({ entry }: { entry: TodayEntry }) {
       ) : (
         <div className="bg-tile h-8 w-8 rounded-full" />
       )}
-      <div className="text-center text-[10px] leading-tight break-all">
-        {squareTrail(entry.status, entry.clicks - 1)}
+      <div className="text-center text-sm leading-tight whitespace-nowrap">
+        {entry.status === "won" ? "✅" : "💥"} {entry.clicks}
       </div>
       <div className="w-full truncate text-center text-[10px] font-semibold">{entry.name}</div>
     </div>
