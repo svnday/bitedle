@@ -1,3 +1,4 @@
+import { getGuildId } from "./discord-context";
 import type { CellResult, GameState, Leaderboard, UserStats } from "./types";
 
 export class ApiError extends Error {
@@ -20,10 +21,16 @@ function isDiscordEmbedded(): boolean {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // Discord's Activity proxy blocks plain relative requests; they must be
   // routed through /.proxy. Never applied outside the Discord iframe.
-  const url = isDiscordEmbedded() ? `/.proxy${path}` : path;
+  const embedded = isDiscordEmbedded();
+  const url = embedded ? `/.proxy${path}` : path;
+  const guildId = embedded ? getGuildId() : null;
   const res = await fetch(url, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(guildId ? { "X-Bitedle-Guild-Id": guildId } : {}),
+      ...init?.headers,
+    },
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -46,4 +53,14 @@ export const api = {
     }),
   stats: () => request<UserStats>("/api/stats"),
   leaderboard: () => request<Leaderboard>("/api/leaderboard"),
+  discordToken: (code: string) =>
+    request<{ access_token: string }>("/api/discord/token", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  discordIdentify: (payload: { discordUserId: string; discordAvatar: string | null }) =>
+    request<{ ok: true }>("/api/discord/identify", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };

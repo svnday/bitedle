@@ -26,7 +26,8 @@ export default function PrivacyPage() {
         (<code>bitedle_id</code>). That cookie — not your name, email, or any other personal
         detail — is how Bitedle recognizes you as a returning player. It lasts about a year, and
         clearing your cookies or switching browsers simply starts you over as a new anonymous
-        player.
+        player. When Bitedle is played through Discord, an additional step described below links
+        your Discord identity to this same cookie.
       </p>
 
       <h2 className="mt-8 mb-2 font-bold">Display name</h2>
@@ -41,7 +42,10 @@ export default function PrivacyPage() {
       <p className="text-muted mb-3 leading-relaxed">
         Your anonymous ID, your display name (if set), and your daily game results (which cells you
         clicked and whether you won or lost) are stored in a database (Neon/Postgres) so that
-        stats, streaks, and leaderboards work. That&apos;s the entirety of what Bitedle stores.
+        stats, streaks, and leaderboards work. If you play through Discord, this may also include
+        your Discord user ID, a reference to your Discord avatar image, and which Discord server a
+        given game was played in (see &quot;Playing inside Discord&quot; below). That&apos;s the
+        entirety of what Bitedle stores.
       </p>
 
       <h2 className="mt-8 mb-2 font-bold">No tracking, no ads</h2>
@@ -51,14 +55,29 @@ export default function PrivacyPage() {
 
       <h2 className="mt-8 mb-2 font-bold">Playing inside Discord</h2>
       <p className="text-muted mb-3 leading-relaxed">
-        If you play Bitedle through Discord (as an Activity), Discord itself may collect data about
-        that session under its own privacy policy, separate from and outside of Bitedle&apos;s
-        control.
+        If you play Bitedle through Discord (as an Activity) and grant Discord&apos;s
+        &quot;identify&quot; permission when prompted, Bitedle asks Discord for your Discord user
+        ID and a reference to your avatar image. Both are stored linked to your existing anonymous
+        Bitedle ID, solely so your real Discord avatar can be shown next to your name on the
+        leaderboard <em>inside that Discord server</em>. This never happens on the public website
+        (bitedle.vercel.app), and Bitedle never posts anything back to Discord or to any channel —
+        the only use is displaying your avatar within Bitedle&apos;s own leaderboard.
+      </p>
+      <p className="text-muted mb-3 leading-relaxed">
+        Games played through a specific Discord server are also tagged with that server&apos;s ID,
+        so the leaderboard shown inside a server only ever includes players and games from that
+        same server — never the public website&apos;s leaderboard, and never another server&apos;s.
+        The public website leaderboard only ever shows games played directly on the website.
+      </p>
+      <p className="text-muted mb-3 leading-relaxed">
+        Separately, and outside Bitedle&apos;s control, Discord itself may collect its own data
+        about your Activity session under Discord&apos;s own privacy policy.
       </p>
 
       <h2 className="mt-8 mb-2 font-bold">Deleting your data</h2>
       <p className="text-muted mb-3 leading-relaxed">
-        To request deletion or anonymization of your data, contact{" "}
+        To request deletion or anonymization of your data — including any linked Discord identity
+        — contact{" "}
         <a href="mailto:sumadef@gmail.com" className="text-foreground underline">
           sumadef@gmail.com
         </a>

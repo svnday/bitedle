@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
+import type { DiscordSDK } from "@discord/embedded-app-sdk";
+import { api } from "@/lib/client-api";
+import { setGuildId } from "@/lib/discord-context";
 
 /**
  * Handshakes with the Discord client when Bitedle is loaded as a Discord
@@ -20,10 +23,20 @@ export default function DiscordBootstrap() {
         console.warn("Bitedle: running inside Discord but NEXT_PUBLIC_DISCORD_CLIENT_ID is unset");
         return;
       }
-      // The win/lose gifs are self-hosted (same-origin), so no URL mapping is
-      // needed for them — the only remaining setup is the ready() handshake.
       const discordSdk = new DiscordSDK(clientId);
-      if (!cancelled) await discordSdk.ready();
+      if (cancelled) return;
+      await discordSdk.ready();
+      if (cancelled) return;
+
+      // Available immediately post-ready, no OAuth needed — used to scope
+      // the leaderboard to this server.
+      setGuildId(discordSdk.guildId ?? null);
+
+      // Fire-and-forget: links the real Discord identity for avatars. Never
+      // awaited — a slow or declined consent prompt must not block anything.
+      void linkDiscordIdentity(discordSdk, clientId).catch((e) => {
+        console.warn("Bitedle: Discord identity link failed", e);
+      });
     })();
 
     return () => {
@@ -32,4 +45,17 @@ export default function DiscordBootstrap() {
   }, []);
 
   return null;
+}
+
+async function linkDiscordIdentity(discordSdk: DiscordSDK, clientId: string): Promise<void> {
+  const { code } = await discordSdk.commands.authorize({
+    client_id: clientId,
+    response_type: "code",
+    state: "",
+    prompt: "none",
+    scope: ["identify"],
+  });
+  const { access_token } = await api.discordToken(code);
+  const { user } = await discordSdk.commands.authenticate({ access_token });
+  await api.discordIdentify({ discordUserId: user.id, discordAvatar: user.avatar ?? null });
 }

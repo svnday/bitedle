@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { guildIdFromRequest } from "@/lib/discord";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { layoutFor, stateFor, todayStr } from "@/lib/game";
 import { getStore } from "@/lib/store";
@@ -19,6 +20,7 @@ export async function POST(request: NextRequest) {
     status: "playing",
     score: null,
     finishedAt: null,
+    guildId: guildIdFromRequest(request),
   };
 
   if (game.status !== "playing") {

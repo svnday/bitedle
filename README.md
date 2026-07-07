@@ -77,10 +77,20 @@ Developer Portal and can't be done from this repo:
 
    (Discord requires both for any public Application; they only resolve once this app is deployed with the `/terms` and `/privacy` pages.)
 4. Copy the Application's **Client ID** into the `NEXT_PUBLIC_DISCORD_CLIENT_ID` environment variable (see [.env.example](.env.example)) — in Vercel's project settings for production.
+5. (Optional, for Discord avatars) Under **OAuth2**, copy the **Client Secret** into `DISCORD_CLIENT_SECRET` — a real secret, unlike the client ID, so never expose it to the browser or commit it. The redirect URI needed for `authorize()` to work is a placeholder (`https://127.0.0.1`) added under the same OAuth2 tab; the Embedded App SDK handles the real redirect itself, so the URL doesn't need to resolve to anything.
 
 Normal web play at `bitedle.vercel.app` is unaffected either way: the Discord
 SDK only loads, and the `/.proxy` prefix only applies, when the app detects
 it's running inside a `*.discordsays.com` iframe.
+
+When played through Discord, Bitedle also silently asks for the `identify`
+OAuth scope so it can show each player's real Discord avatar on the
+leaderboard ([src/components/DiscordBootstrap.tsx](src/components/DiscordBootstrap.tsx),
+[src/app/api/discord/](src/app/api/discord/)) — this never happens on the
+public website. Leaderboards are also scoped per Discord server: a game
+played inside one server only ever shows up on that server's leaderboard,
+never on the public website's, and never on another server's
+([src/lib/discord.ts](src/lib/discord.ts)).
 
 ### Renaming the entry point command
 

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { discordAvatarUrl } from "./discord";
 import { getStore, type FinishedGame } from "./store";
 import { nextResetAt, todayStr } from "./time";
 import {
@@ -159,11 +160,15 @@ export async function computeUserStats(userId: string, today: string): Promise<U
   return statsFromGames(await getStore().finishedGamesFor(userId), today);
 }
 
-export async function computeLeaderboard(today: string, meId: string | null): Promise<Leaderboard> {
+export async function computeLeaderboard(
+  today: string,
+  meId: string | null,
+  guildId: string | null,
+): Promise<Leaderboard> {
   const store = getStore();
   const [todayRows, allRows] = await Promise.all([
-    store.finishedGamesOn(today),
-    store.allFinishedGames(),
+    store.finishedGamesOn(today, guildId),
+    store.allFinishedGames(guildId),
   ]);
 
   const todayEntries = todayRows
@@ -177,6 +182,7 @@ export async function computeLeaderboard(today: string, meId: string | null): Pr
     .map(
       (r): TodayEntry => ({
         name: r.name,
+        discordAvatarUrl: discordAvatarUrl(r.discordUserId, r.discordAvatar),
         status: r.status,
         score: r.score,
         clicks: r.clickCount,
@@ -184,10 +190,20 @@ export async function computeLeaderboard(today: string, meId: string | null): Pr
       }),
     );
 
-  const byUser = new Map<string, { name: string; games: FinishedGame[] }>();
+  const byUser = new Map<
+    string,
+    { name: string; discordUserId: string | null; discordAvatar: string | null; games: FinishedGame[] }
+  >();
   for (const r of allRows) {
-    const u = byUser.get(r.userId) ?? { name: r.name, games: [] };
+    const u = byUser.get(r.userId) ?? {
+      name: r.name,
+      discordUserId: r.discordUserId,
+      discordAvatar: r.discordAvatar,
+      games: [],
+    };
     u.name = r.name;
+    u.discordUserId = r.discordUserId;
+    u.discordAvatar = r.discordAvatar;
     u.games.push(r);
     byUser.set(r.userId, u);
   }
@@ -196,6 +212,7 @@ export async function computeLeaderboard(today: string, meId: string | null): Pr
     const s = statsFromGames(u.games, today);
     allTime.push({
       name: u.name,
+      discordAvatarUrl: discordAvatarUrl(u.discordUserId, u.discordAvatar),
       played: s.played,
       wins: s.wins,
       winPct: s.winPct,

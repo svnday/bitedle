@@ -27,6 +27,8 @@ export interface GameRecord {
   status: GameStatus;
   score: number | null;
   finishedAt: number | null;
+  /** Discord server this game was played in; null for web play. Set once at creation, immutable after. */
+  guildId: string | null;
 }
 
 export interface UserStats {
@@ -43,6 +45,8 @@ export interface UserStats {
 
 export interface TodayEntry {
   name: string;
+  /** Discord avatar CDN URL, or null for web players / unlinked Discord players. */
+  discordAvatarUrl: string | null;
   status: "won" | "lost";
   score: number | null;
   clicks: number;
@@ -52,6 +56,8 @@ export interface TodayEntry {
 
 export interface AllTimeEntry {
   name: string;
+  /** Discord avatar CDN URL, or null for web players / unlinked Discord players. */
+  discordAvatarUrl: string | null;
   played: number;
   wins: number;
   winPct: number;

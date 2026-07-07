@@ -13,6 +13,8 @@ export interface FinishedGame {
 export interface TodayRow {
   userId: string;
   name: string;
+  discordUserId: string | null;
+  discordAvatar: string | null;
   status: "won" | "lost";
   score: number | null;
   clickCount: number;
@@ -23,12 +25,17 @@ export interface TodayRow {
 export interface AllTimeRow extends FinishedGame {
   userId: string;
   name: string;
+  discordUserId: string | null;
+  discordAvatar: string | null;
 }
 
 export interface UserInfo {
   name: string;
   /** True once the player has chosen a name (vs the auto-generated one). */
   named: boolean;
+  /** Linked Discord identity, only present if the player authorized via a Discord Activity. */
+  discordUserId: string | null;
+  discordAvatar: string | null;
 }
 
 export interface Store {
@@ -37,15 +44,20 @@ export interface Store {
   createUser(id: string, name: string): Promise<void>;
   /** Sets a chosen display name (also marks the player as named). */
   setUserName(id: string, name: string): Promise<void>;
+  /** Links a player's real Discord identity (for avatar display only). */
+  setDiscordIdentity(userId: string, discordUserId: string, discordAvatar: string | null): Promise<void>;
   getGame(date: string, userId: string): Promise<GameRecord | null>;
-  /** Upserts; must never overwrite a game that is already finished. */
+  /** Upserts; must never overwrite a game that is already finished, and must
+   *  never change guildId once a game row exists (set once, at creation). */
   putGame(date: string, userId: string, game: GameRecord): Promise<void>;
-  /** Every finished game for one player (their private stats). */
+  /** Every finished game for one player (their private stats) — cross-guild. */
   finishedGamesFor(userId: string): Promise<FinishedGame[]>;
-  /** Leaderboard feed: finished games on a date, NAMED players only. */
-  finishedGamesOn(date: string): Promise<TodayRow[]>;
-  /** Leaderboard feed: all finished games, NAMED players only. */
-  allFinishedGames(): Promise<AllTimeRow[]>;
+  /** Leaderboard feed: finished games on a date, NAMED players only, scoped
+   *  to one guild (null = web-only games). */
+  finishedGamesOn(date: string, guildId: string | null): Promise<TodayRow[]>;
+  /** Leaderboard feed: all finished games, NAMED players only, scoped to one
+   *  guild (null = web-only games). */
+  allFinishedGames(guildId: string | null): Promise<AllTimeRow[]>;
 }
 
 // Cached on globalThis so dev HMR reloads keep one instance per process.
