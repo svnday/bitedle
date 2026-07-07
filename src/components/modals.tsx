@@ -77,6 +77,33 @@ function MiniTile({ kind }: { kind: "x" | "bomb" | "check" | "hidden" }) {
   );
 }
 
+function MiniBoardPreview({ entry }: { entry: TodayEntry }) {
+  // Render a 5x5 tiny preview. We don't have per-tile data here, so
+  // visually represent the player's progress by filling the first N cells
+  // where N = min(clicks, 25). If won, the last filled cell is green.
+  const total = Math.max(0, Math.min(25, entry.clicks));
+  const cells = Array.from({ length: 25 }, (_, i) => {
+    if (i >= total) return "hidden" as const;
+    if (entry.status === "won") {
+      return i === total - 1 ? "check" : "x";
+    }
+    return "bomb" as const;
+  });
+  return (
+    <div className="mt-2 grid h-12 w-12 grid-cols-5 gap-[2px]">
+      {cells.map((c, i) => (
+        <span
+          key={i}
+          aria-hidden
+          className={`inline-block h-2 w-2 rounded ${
+            c === "hidden" ? "bg-[#111]" : c === "x" ? "bg-gray-700" : c === "bomb" ? "bg-danger" : "bg-correct"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
 /* ----------------------------------------------------------------- name */
 
 interface NameModalProps {
@@ -216,6 +243,7 @@ export function PlayerResultCard({ entry, onShare }: { entry: TodayEntry; onShar
           Share
         </button>
       )}
+      <MiniBoardPreview entry={entry} />
     </div>
   );
 }
@@ -245,18 +273,20 @@ export function GuildResultsPanel({
           <h3 className="text-muted mb-2 text-center text-xs font-bold tracking-widest uppercase">
             General Statistics
           </h3>
-          <div className="grid w-full max-w-[240px] grid-cols-2 gap-2 text-center">
-            {(
-              [
-                [`${stats.winPct}%`, "Win rate"],
-                [stats.currentStreak, "Current streak"],
-              ] as const
-            ).map(([value, label]) => (
-              <div key={label} className="min-w-0">
-                <div className="text-2xl font-semibold">{value}</div>
-                <div className="text-muted mt-0.5 text-[11px] leading-tight">{label}</div>
+          <div className="mt-2 flex items-center justify-center">
+            <div className="flex items-center">
+              <div className="text-center px-4">
+                <div className="text-3xl font-extrabold">{`${stats.winPct}%`}</div>
+                <div className="text-muted mt-1 text-[11px] leading-tight">Win Rate</div>
               </div>
-            ))}
+
+              <div className="mx-4 h-10 w-px bg-border/70" />
+
+              <div className="text-center px-4">
+                <div className="text-3xl font-extrabold">{stats.currentStreak}</div>
+                <div className="text-muted mt-1 text-[11px] leading-tight">Current streak</div>
+              </div>
+            </div>
           </div>
         </div>
       )}
