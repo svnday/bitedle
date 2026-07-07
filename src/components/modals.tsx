@@ -82,24 +82,30 @@ function MiniBoardPreview({ entry }: { entry: TodayEntry }) {
   // visually represent the player's progress by filling the first N cells
   // where N = min(clicks, 25). If won, the last filled cell is green.
   const total = Math.max(0, Math.min(25, entry.clicks));
-  const cells = Array.from({ length: 25 }, (_, i) => {
-    if (i >= total) return "hidden" as const;
-    if (entry.status === "won") {
-      return i === total - 1 ? "check" : "x";
-    }
-    return "bomb" as const;
-  });
+  const cells = Array.from({ length: 25 }, (_, i) => (i < total ? true : false));
+  const last = total - 1;
   return (
     <div className="mt-2 grid h-12 w-12 grid-cols-5 gap-[2px]">
-      {cells.map((c, i) => (
-        <span
-          key={i}
-          aria-hidden
-          className={`inline-block h-2 w-2 rounded ${
-            c === "hidden" ? "bg-[#111]" : c === "x" ? "bg-gray-700" : c === "bomb" ? "bg-danger" : "bg-correct"
-          }`}
-        />
-      ))}
+      {cells.map((filled, i) => {
+        if (!filled) {
+          return <span key={i} aria-hidden className="inline-block h-2 w-2 rounded bg-[#111]" />;
+        }
+        // Final filled cell: show emoji for win/loss
+        if (i === last) {
+          const emoji = entry.status === "won" ? "✓" : "💥";
+          return (
+            <span
+              key={i}
+              aria-hidden
+              className={`inline-flex h-2 w-2 items-center justify-center rounded text-[10px] leading-none`}
+            >
+              <span className="-translate-y-[1px]">{emoji}</span>
+            </span>
+          );
+        }
+        // Intermediate filled cells: neutral squares
+        return <span key={i} aria-hidden className="inline-block h-2 w-2 rounded bg-gray-700" />;
+      })}
     </div>
   );
 }
