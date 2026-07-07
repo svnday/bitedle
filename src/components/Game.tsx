@@ -5,9 +5,17 @@ import { api, ApiError } from "@/lib/client-api";
 import type { GameState, UserStats } from "@/lib/types";
 import Board from "./Board";
 import Countdown from "./Countdown";
-import { HelpModal, LeaderboardModal, NameModal, StatsModal } from "./modals";
+import {
+  HelpModal,
+  LeaderboardModal,
+  LOSE_GIF,
+  NameModal,
+  ResultModal,
+  StatsModal,
+  WIN_GIF,
+} from "./modals";
 
-type ModalKind = null | "help" | "stats" | "leaderboard" | "name";
+type ModalKind = null | "help" | "stats" | "leaderboard" | "name" | "result";
 
 interface Toast {
   id: number;
@@ -24,18 +32,11 @@ function shareText(state: GameState): string {
   return `Bitedle #${state.puzzleNumber} · ${scoreLine}\n${trail}`;
 }
 
-function praiseFor(score: number): string {
-  if (score === 1) return "UNREAL — first click!";
-  if (score <= 3) return "Splendid!";
-  if (score <= 6) return "Nice work!";
-  return "Phew — got there!";
-}
-
 export default function Game() {
   const [state, setState] = useState<GameState | null>(null);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [modal, setModal] = useState<ModalKind>(null);
-  const [nameMode, setNameMode] = useState<"intro" | "edit">("edit");
+  const [nameMode, setNameMode] = useState<"post" | "edit">("edit");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -54,10 +55,9 @@ export default function Game() {
         setState(s);
         if (!introChecked.current) {
           introChecked.current = true;
-          if (!localStorage.getItem("bitedle:seenIntro")) {
-            localStorage.setItem("bitedle:seenIntro", "1");
-            setNameMode("intro");
-            setModal("name");
+          if (!localStorage.getItem("bitedle:seenHelp")) {
+            localStorage.setItem("bitedle:seenHelp", "1");
+            setModal("help");
           }
         }
       },
@@ -71,6 +71,14 @@ export default function Game() {
     refresh();
   }, [refresh]);
 
+  // Fetch the result gifs up front so they play instantly when a game ends.
+  useEffect(() => {
+    for (const src of [WIN_GIF, LOSE_GIF]) {
+      const img = new Image();
+      img.src = src;
+    }
+  }, []);
+
   const openStats = useCallback(async () => {
     setModal("stats");
     setStats(null);
@@ -81,12 +89,27 @@ export default function Game() {
     }
   }, [toast]);
 
+  /** After the result splash: unnamed players pick a name, then stats. */
+  const handleResultContinue = () => {
+    if (state && !state.named) {
+      setNameError(null);
+      setNameMode("post");
+      setModal("name");
+    } else {
+      openStats();
+    }
+  };
+
   const handleName = async (name: string) => {
     try {
       await api.setName(name);
       setNameError(null);
-      setModal(null);
       await refresh();
+      if (nameMode === "post") {
+        openStats();
+      } else {
+        setModal(null);
+      }
     } catch (e) {
       setNameError(e instanceof Error ? e.message : "Couldn't save the name");
     }
@@ -98,12 +121,9 @@ export default function Game() {
     try {
       const { state: next } = await api.click(index);
       setState(next);
-      if (next.status === "won" && next.score !== null) {
-        toast(praiseFor(next.score));
-        setTimeout(() => openStats(), 1700);
-      } else if (next.status === "lost") {
-        toast("💥 BOOM! See you tomorrow.");
-        setTimeout(() => openStats(), 1700);
+      if (next.status !== "playing") {
+        // Let the tile finish flipping before the result splash covers it.
+        setTimeout(() => setModal("result"), 900);
       }
     } catch (e) {
       if (e instanceof ApiError) {
@@ -249,6 +269,13 @@ export default function Game() {
         ))}
       </div>
 
+      {modal === "result" && finished && state && (
+        <ResultModal
+          won={state.status === "won"}
+          score={state.score}
+          onContinue={handleResultContinue}
+        />
+      )}
       {modal === "name" && (
         <NameModal
           mode={nameMode}
@@ -256,7 +283,11 @@ export default function Game() {
           onSubmit={handleName}
           onClose={() => {
             setNameError(null);
-            setModal(null);
+            if (nameMode === "post") {
+              openStats();
+            } else {
+              setModal(null);
+            }
           }}
           error={nameError}
         />

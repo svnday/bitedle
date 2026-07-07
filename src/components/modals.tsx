@@ -80,8 +80,8 @@ function MiniTile({ kind }: { kind: "x" | "bomb" | "check" | "hidden" }) {
 /* ----------------------------------------------------------------- name */
 
 interface NameModalProps {
-  /** "intro" shows the rules blurb on first visit; "edit" is a plain rename. */
-  mode: "intro" | "edit";
+  /** "post" asks after the first finished game; "edit" is a plain rename. */
+  mode: "post" | "edit";
   currentName: string;
   onSubmit: (name: string) => Promise<void>;
   onClose: () => void;
@@ -93,21 +93,12 @@ export function NameModal({ mode, currentName, onSubmit, onClose, error }: NameM
   const [busy, setBusy] = useState(false);
 
   return (
-    <Modal title={mode === "intro" ? "Welcome to Bitedle" : "Change your name"} onClose={onClose}>
-      {mode === "intro" && (
-        <div className="mb-5 flex items-start gap-3">
-          <MiniTile kind="check" />
-          <p className="text-sm leading-snug">
-            One check mark hides on a 5×5 board with 3–5 bombs. Find it in as few clicks as you
-            can — hit a bomb and you&apos;re done. One board a day, one try per player.
-          </p>
-        </div>
-      )}
+    <Modal title={mode === "post" ? "You're on the board!" : "Change your name"} onClose={onClose}>
       <form
         onSubmit={async (e) => {
           e.preventDefault();
           if (busy) return;
-          // Skipping the name on first visit just starts the game.
+          // Skipping keeps the auto-generated name.
           if (value.trim() === "") {
             onClose();
             return;
@@ -121,8 +112,8 @@ export function NameModal({ mode, currentName, onSubmit, onClose, error }: NameM
         }}
       >
         <label htmlFor="playername" className="text-muted mb-1 block text-xs font-semibold">
-          {mode === "intro"
-            ? "Pick a display name for the leaderboard — no account needed, change it anytime"
+          {mode === "post"
+            ? "Pick a leaderboard name — no account needed, change it anytime"
             : "Your display name on the leaderboard"}
         </label>
         <input
@@ -131,7 +122,7 @@ export function NameModal({ mode, currentName, onSubmit, onClose, error }: NameM
           value={value}
           onChange={(e) => setValue(e.target.value)}
           maxLength={20}
-          placeholder={mode === "intro" ? `e.g. bomb-dodger (or skip: ${currentName})` : currentName}
+          placeholder={mode === "post" ? "e.g. bomb-dodger" : currentName}
           autoComplete="nickname"
           className="bg-surface border-tileborder focus:border-tilehover w-full rounded border px-3 py-2.5 text-base outline-none"
         />
@@ -141,12 +132,67 @@ export function NameModal({ mode, currentName, onSubmit, onClose, error }: NameM
           disabled={busy || (mode === "edit" && value.trim() === "")}
           className="bg-correct mt-4 w-full cursor-pointer rounded py-2.5 font-bold text-white hover:brightness-110 disabled:cursor-default disabled:opacity-50"
         >
-          {busy ? "Saving…" : mode === "intro" ? "Play" : "Save"}
+          {busy ? "Saving…" : "Save"}
         </button>
+        {mode === "post" && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted hover:text-foreground mt-2 w-full cursor-pointer py-1.5 text-sm font-semibold"
+          >
+            Skip — stay as {currentName}
+          </button>
+        )}
       </form>
       <p className="text-muted mt-3 text-xs leading-snug">
         Your streaks and daily game live in a browser cookie — same browser, same player.
       </p>
+    </Modal>
+  );
+}
+
+/* --------------------------------------------------------------- result */
+
+export const WIN_GIF = "https://media1.tenor.com/m/YMG3l8xlJwYAAAAd/sushichaeng-dj-khaled.gif";
+export const LOSE_GIF = "https://media1.tenor.com/m/Odzr8rBoAsgAAAAd/dj-khaled.gif";
+
+function praiseFor(score: number): string {
+  if (score === 1) return "UNREAL — first click!";
+  if (score <= 3) return "Splendid!";
+  if (score <= 6) return "Nice work!";
+  return "Phew — got there!";
+}
+
+interface ResultModalProps {
+  won: boolean;
+  score: number | null;
+  onContinue: () => void;
+}
+
+export function ResultModal({ won, score, onContinue }: ResultModalProps) {
+  return (
+    <Modal title={won ? "You found it!" : "Game over"} onClose={onContinue}>
+      {/* Plain <img>: an animated gif from Tenor, not a next/image candidate. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={won ? WIN_GIF : LOSE_GIF}
+        alt={won ? "DJ Khaled celebrating your win" : "DJ Khaled taking the loss"}
+        className="w-full rounded"
+      />
+      <p className="mt-4 text-center font-bold">
+        {won && score !== null
+          ? `${praiseFor(score)} Found in ${score} ${score === 1 ? "click" : "clicks"}. ✓`
+          : "💥 BOOM! That was a bomb. See you tomorrow."}
+      </p>
+      <button
+        type="button"
+        onClick={onContinue}
+        className={`mt-4 w-full cursor-pointer rounded py-2.5 font-bold text-white hover:brightness-110 ${
+          won ? "bg-correct" : "bg-danger"
+        }`}
+      >
+        Continue
+      </button>
     </Modal>
   );
 }

@@ -81,15 +81,13 @@ export function layoutFor(date: string): CellResult[] {
 
 export async function stateFor(userId: string, date: string): Promise<GameState> {
   const store = getStore();
-  const [game, name] = await Promise.all([
-    store.getGame(date, userId),
-    store.getUserName(userId),
-  ]);
+  const [game, user] = await Promise.all([store.getGame(date, userId), store.getUser(userId)]);
   const status = game?.status ?? "playing";
   const state: GameState = {
     date,
     puzzleNumber: puzzleNumber(date),
-    username: name ?? "Player",
+    username: user?.name ?? "Player",
+    named: user?.named ?? false,
     status,
     score: game?.score ?? null,
     clicks: game?.clicks ?? [],

@@ -32,8 +32,8 @@ export function sanitizeName(raw: unknown): string | null {
 export async function resolveUser(request: NextRequest): Promise<string | null> {
   const value = request.cookies.get(AUTH_COOKIE)?.value;
   if (!value || !UUID_RE.test(value)) return null;
-  const name = await getStore().getUserName(value);
-  return name === null ? null : value;
+  const user = await getStore().getUser(value);
+  return user === null ? null : value;
 }
 
 /**

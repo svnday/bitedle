@@ -10,6 +10,8 @@ export interface GameState {
   date: string;
   puzzleNumber: number;
   username: string;
+  /** False while the player still has an auto-generated Player-xxxx name. */
+  named: boolean;
   status: GameStatus;
   /** Number of non-bomb clicks it took to find the check (wins only). */
   score: number | null;

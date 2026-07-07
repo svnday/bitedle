@@ -1,6 +1,6 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import type { GameRecord } from "./types";
-import type { AllTimeRow, FinishedGame, Store, TodayRow } from "./store";
+import type { AllTimeRow, FinishedGame, Store, TodayRow, UserInfo } from "./store";
 
 /**
  * Postgres (Neon) storage. The schema is created lazily on first use, so a
@@ -20,8 +20,11 @@ export class NeonStore implements Store {
         CREATE TABLE IF NOT EXISTS users (
           id uuid PRIMARY KEY,
           name text NOT NULL,
+          named boolean NOT NULL DEFAULT false,
           created_at bigint NOT NULL
         )`;
+      // Upgrades tables created before the named column existed.
+      await this.sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS named boolean NOT NULL DEFAULT false`;
       await this.sql`
         CREATE TABLE IF NOT EXISTS games (
           date text NOT NULL,
@@ -37,10 +40,11 @@ export class NeonStore implements Store {
     return this.ready;
   }
 
-  async getUserName(id: string): Promise<string | null> {
+  async getUser(id: string): Promise<UserInfo | null> {
     await this.ensureSchema();
-    const rows = await this.sql`SELECT name FROM users WHERE id = ${id}`;
-    return rows.length > 0 ? (rows[0].name as string) : null;
+    const rows = await this.sql`SELECT name, named FROM users WHERE id = ${id}`;
+    if (rows.length === 0) return null;
+    return { name: rows[0].name as string, named: Boolean(rows[0].named) };
   }
 
   async createUser(id: string, name: string): Promise<void> {
@@ -53,7 +57,7 @@ export class NeonStore implements Store {
 
   async setUserName(id: string, name: string): Promise<void> {
     await this.ensureSchema();
-    await this.sql`UPDATE users SET name = ${name} WHERE id = ${id}`;
+    await this.sql`UPDATE users SET name = ${name}, named = true WHERE id = ${id}`;
   }
 
   async getGame(date: string, userId: string): Promise<GameRecord | null> {

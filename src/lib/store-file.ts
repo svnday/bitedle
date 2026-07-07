@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { GameRecord } from "./types";
-import type { AllTimeRow, FinishedGame, Store, TodayRow } from "./store";
+import type { AllTimeRow, FinishedGame, Store, TodayRow, UserInfo } from "./store";
 
 interface FileDb {
-  users: Record<string, { name: string; createdAt: number }>;
+  users: Record<string, { name: string; createdAt: number; named?: boolean }>;
   /** games[date][userId] */
   games: Record<string, Record<string, GameRecord>>;
 }
@@ -43,13 +43,14 @@ export class FileStore implements Store {
     fs.renameSync(tmp, DB_PATH);
   }
 
-  async getUserName(id: string): Promise<string | null> {
-    return this.db.users[id]?.name ?? null;
+  async getUser(id: string): Promise<UserInfo | null> {
+    const u = this.db.users[id];
+    return u ? { name: u.name, named: !!u.named } : null;
   }
 
   async createUser(id: string, name: string): Promise<void> {
     if (!this.db.users[id]) {
-      this.db.users[id] = { name, createdAt: Date.now() };
+      this.db.users[id] = { name, createdAt: Date.now(), named: false };
       this.persist();
     }
   }
@@ -57,6 +58,7 @@ export class FileStore implements Store {
   async setUserName(id: string, name: string): Promise<void> {
     if (this.db.users[id]) {
       this.db.users[id].name = name;
+      this.db.users[id].named = true;
       this.persist();
     }
   }

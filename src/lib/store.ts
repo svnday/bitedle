@@ -25,10 +25,17 @@ export interface AllTimeRow extends FinishedGame {
   name: string;
 }
 
+export interface UserInfo {
+  name: string;
+  /** True once the player has chosen a name (vs the auto-generated one). */
+  named: boolean;
+}
+
 export interface Store {
-  /** Display name for a player id, or null if the id is unknown. */
-  getUserName(id: string): Promise<string | null>;
+  /** The player for an id, or null if the id is unknown. */
+  getUser(id: string): Promise<UserInfo | null>;
   createUser(id: string, name: string): Promise<void>;
+  /** Sets a chosen display name (also marks the player as named). */
   setUserName(id: string, name: string): Promise<void>;
   getGame(date: string, userId: string): Promise<GameRecord | null>;
   /** Upserts; must never overwrite a game that is already finished. */
