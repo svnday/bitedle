@@ -241,18 +241,18 @@ export function GuildResultsPanel({
         </div>
       )}
       {stats && (
-        <div className="mt-6">
+        <div className="mt-6 flex flex-col items-center">
           <h3 className="text-muted mb-2 text-center text-xs font-bold tracking-widest uppercase">
             General Statistics
           </h3>
-          <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="grid w-full max-w-[240px] grid-cols-2 gap-2 text-center">
             {(
               [
                 [`${stats.winPct}%`, "Win rate"],
                 [stats.currentStreak, "Current streak"],
               ] as const
             ).map(([value, label]) => (
-              <div key={label}>
+              <div key={label} className="min-w-0">
                 <div className="text-2xl font-semibold">{value}</div>
                 <div className="text-muted mt-0.5 text-[11px] leading-tight">{label}</div>
               </div>
