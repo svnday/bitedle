@@ -267,7 +267,7 @@ export function StatsModal({ stats, state, onClose, onShare, onNewDay }: StatsMo
                 <div className="text-muted text-[11px] font-semibold tracking-widest uppercase">
                   Next Bitedle
                 </div>
-                <Countdown onExpire={onNewDay} />
+                <Countdown target={state.nextResetAt} onExpire={onNewDay} />
               </div>
               <div className="flex-1 pl-4 text-center">
                 <button

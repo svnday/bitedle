@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getDb, sanitizeName, saveDb } from "@/lib/db";
-import { attachIdentity, ensureUser } from "@/lib/identity";
+import { attachIdentity, ensureUser, sanitizeName } from "@/lib/identity";
+import { getStore } from "@/lib/store";
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
@@ -12,9 +12,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const identity = ensureUser(request);
-  getDb().users[identity.id].name = name;
-  saveDb();
+  const identity = await ensureUser(request);
+  await getStore().setUserName(identity.id, name);
 
   return attachIdentity(NextResponse.json({ username: name }), identity);
 }

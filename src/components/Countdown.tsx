@@ -2,13 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 
-function msUntilMidnight(): number {
-  const now = new Date();
-  const next = new Date(now);
-  next.setHours(24, 0, 0, 0);
-  return next.getTime() - now.getTime();
-}
-
 function format(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = String(Math.floor(total / 3600)).padStart(2, "0");
@@ -17,21 +10,29 @@ function format(ms: number): string {
   return `${h}:${m}:${s}`;
 }
 
-/** Ticking clock until the next daily board; fires onExpire once at midnight. */
-export default function Countdown({ onExpire }: { onExpire?: () => void }) {
-  const [remaining, setRemaining] = useState(msUntilMidnight());
-  const prevRef = useRef(remaining);
+interface CountdownProps {
+  /** Epoch ms of the next daily reset, as reported by the server. */
+  target: number;
+  onExpire?: () => void;
+}
+
+/** Ticks down to the next daily board; fires onExpire once when it arrives. */
+export default function Countdown({ target, onExpire }: CountdownProps) {
+  const [remaining, setRemaining] = useState(() => target - Date.now());
+  const firedRef = useRef(false);
 
   useEffect(() => {
+    firedRef.current = false;
     const id = setInterval(() => {
-      const ms = msUntilMidnight();
-      // The countdown only ever shrinks — a jump upward means we crossed midnight.
-      if (ms > prevRef.current) onExpire?.();
-      prevRef.current = ms;
+      const ms = target - Date.now();
       setRemaining(ms);
+      if (ms <= 0 && !firedRef.current) {
+        firedRef.current = true;
+        onExpire?.();
+      }
     }, 1000);
     return () => clearInterval(id);
-  }, [onExpire]);
+  }, [target, onExpire]);
 
   return (
     <span className="font-mono text-xl font-semibold tabular-nums" suppressHydrationWarning>

@@ -1,22 +1,51 @@
 import type { NextRequest, NextResponse } from "next/server";
-import { AUTH_COOKIE, defaultName, getDb, newUserId, saveDb, userIdFromCookie } from "./db";
+import { getStore } from "./store";
+
+export const AUTH_COOKIE = "bitedle_id";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface Identity {
   id: string;
+}
+
+export function defaultName(id: string): string {
+  return `Player-${id.slice(0, 4)}`;
+}
+
+/**
+ * Cleans a free-form display name: strips control characters, collapses
+ * whitespace, caps the length. Returns null if nothing usable remains.
+ */
+export function sanitizeName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const name = raw
+    .replace(/\p{C}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 20)
+    .trim();
+  return name.length > 0 ? name : null;
+}
+
+/** The caller's player id if their cookie names a known player, else null. */
+export async function resolveUser(request: NextRequest): Promise<string | null> {
+  const value = request.cookies.get(AUTH_COOKIE)?.value;
+  if (!value || !UUID_RE.test(value)) return null;
+  const name = await getStore().getUserName(value);
+  return name === null ? null : value;
 }
 
 /**
  * Returns the caller's player id, provisioning an anonymous player (with a
  * placeholder name) on first contact. No sign-in — the cookie IS the identity.
  */
-export function ensureUser(request: NextRequest): Identity {
-  const existing = userIdFromCookie(request.cookies.get(AUTH_COOKIE)?.value);
+export async function ensureUser(request: NextRequest): Promise<Identity> {
+  const existing = await resolveUser(request);
   if (existing) return { id: existing };
 
-  const db = getDb();
-  const id = newUserId();
-  db.users[id] = { name: defaultName(id), createdAt: Date.now() };
-  saveDb();
+  const id = crypto.randomUUID();
+  await getStore().createUser(id, defaultName(id));
   return { id };
 }
 
@@ -25,6 +54,7 @@ export function attachIdentity(res: NextResponse, identity: Identity): NextRespo
   res.cookies.set(AUTH_COOKIE, identity.id, {
     httpOnly: true,
     sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 24 * 365,
   });

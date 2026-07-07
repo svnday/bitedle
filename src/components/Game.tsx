@@ -215,7 +215,7 @@ export default function Game() {
                 <div className="text-muted text-[10px] font-semibold tracking-widest uppercase">
                   Next Bitedle
                 </div>
-                <Countdown onExpire={handleNewDay} />
+                <Countdown target={state.nextResetAt} onExpire={handleNewDay} />
               </div>
               <div className="flex flex-1 flex-col items-center gap-2 pl-3">
                 <button

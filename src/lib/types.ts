@@ -14,8 +14,17 @@ export interface GameState {
   /** Number of non-bomb clicks it took to find the check (wins only). */
   score: number | null;
   clicks: ClickRecord[];
+  /** Epoch ms when the next daily board drops (the game's reset timezone). */
+  nextResetAt: number;
   /** Where the check was — only revealed once the game is finished. */
   checkIndex?: number;
+}
+
+export interface GameRecord {
+  clicks: ClickRecord[];
+  status: GameStatus;
+  score: number | null;
+  finishedAt: number | null;
 }
 
 export interface UserStats {

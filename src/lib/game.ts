@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
-import type { Db, GameRecord } from "./db";
+import { getStore, type FinishedGame } from "./store";
+import { nextResetAt, todayStr } from "./time";
 import {
   BOARD_SIZE,
   MIN_BOMBS,
@@ -13,17 +14,28 @@ import {
   type UserStats,
 } from "./types";
 
+export { todayStr };
+
 /** Puzzle #1 launched on this date. */
 export const EPOCH_DATE = "2026-07-06";
 
 const MS_PER_DAY = 86_400_000;
+const DEV_SECRET = "bitedle-dev-secret-not-for-production";
 
-/** Today's date in the server's local timezone, as YYYY-MM-DD. */
-export function todayStr(): string {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+let warnedDevSecret = false;
+
+/** The secret that seeds each day's board so clients can't precompute it. */
+function boardSecret(): string {
+  const secret = process.env.BITEDLE_SECRET;
+  if (secret && secret.length >= 8) return secret;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("BITEDLE_SECRET must be set in production (any long random string)");
+  }
+  if (!warnedDevSecret) {
+    warnedDevSecret = true;
+    console.warn("Bitedle: BITEDLE_SECRET not set — using a fixed dev secret");
+  }
+  return DEV_SECRET;
 }
 
 function dayNum(date: string): number {
@@ -50,8 +62,8 @@ function mulberry32(seed: number): () => number {
  * Deterministic per (secret, date) so every player gets the same board, but
  * unguessable without the server secret.
  */
-export function layoutFor(secret: string, date: string): CellResult[] {
-  const digest = crypto.createHash("sha256").update(`${secret}:${date}`).digest();
+export function layoutFor(date: string): CellResult[] {
+  const digest = crypto.createHash("sha256").update(`${boardSecret()}:${date}`).digest();
   const rng = mulberry32(digest.readUInt32LE(0));
 
   const bombCount = MIN_BOMBS + Math.floor(rng() * (MAX_BOMBS - MIN_BOMBS + 1));
@@ -67,24 +79,24 @@ export function layoutFor(secret: string, date: string): CellResult[] {
   return cells;
 }
 
-export function gameFor(db: Db, userKey: string, date: string): GameRecord {
-  return (
-    db.games[date]?.[userKey] ?? { clicks: [], status: "playing", score: null, finishedAt: null }
-  );
-}
-
-export function stateFor(db: Db, userKey: string, date: string): GameState {
-  const game = gameFor(db, userKey, date);
+export async function stateFor(userId: string, date: string): Promise<GameState> {
+  const store = getStore();
+  const [game, name] = await Promise.all([
+    store.getGame(date, userId),
+    store.getUserName(userId),
+  ]);
+  const status = game?.status ?? "playing";
   const state: GameState = {
     date,
     puzzleNumber: puzzleNumber(date),
-    username: db.users[userKey]?.name ?? "Player",
-    status: game.status,
-    score: game.score,
-    clicks: game.clicks,
+    username: name ?? "Player",
+    status,
+    score: game?.score ?? null,
+    clicks: game?.clicks ?? [],
+    nextResetAt: nextResetAt(),
   };
-  if (game.status !== "playing") {
-    state.checkIndex = layoutFor(db.secret, date).indexOf("check");
+  if (status !== "playing") {
+    state.checkIndex = layoutFor(date).indexOf("check");
   }
   return state;
 }
@@ -94,25 +106,11 @@ export function bucketFor(status: GameStatus, score: number | null): string {
   return score <= 5 ? String(score) : "6+";
 }
 
-interface FinishedEntry {
-  day: number;
-  status: "won" | "lost";
-  score: number | null;
-}
-
-function finishedGames(db: Db, userKey: string): FinishedEntry[] {
-  const entries: FinishedEntry[] = [];
-  for (const [date, games] of Object.entries(db.games)) {
-    const g = games[userKey];
-    if (g && g.status !== "playing") {
-      entries.push({ day: dayNum(date), status: g.status, score: g.score });
-    }
-  }
-  return entries.sort((a, b) => a.day - b.day);
-}
-
-export function computeUserStats(db: Db, userKey: string, today: string): UserStats {
-  const entries = finishedGames(db, userKey);
+/** Aggregates a player's finished games (any order) into their stats. */
+export function statsFromGames(games: FinishedGame[], today: string): UserStats {
+  const entries = games
+    .map((g) => ({ day: dayNum(g.date), status: g.status, score: g.score }))
+    .sort((a, b) => a.day - b.day);
   const winScores = entries.filter((e) => e.status === "won").map((e) => e.score ?? 0);
 
   const distribution: Record<string, number> = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6+": 0, X: 0 };
@@ -158,33 +156,47 @@ export function computeUserStats(db: Db, userKey: string, today: string): UserSt
   };
 }
 
-export function computeLeaderboard(db: Db, today: string, meId: string | null): Leaderboard {
-  const todayGames = db.games[today] ?? {};
-  const todayEntries: (TodayEntry & { finishedAt: number })[] = [];
-  for (const [key, g] of Object.entries(todayGames)) {
-    if (g.status === "playing") continue;
-    todayEntries.push({
-      name: db.users[key]?.name ?? "Player",
-      status: g.status,
-      score: g.score,
-      clicks: g.clicks.length,
-      me: key === meId,
-      finishedAt: g.finishedAt ?? 0,
-    });
-  }
-  todayEntries.sort((a, b) => {
-    if (a.status !== b.status) return a.status === "won" ? -1 : 1;
-    if (a.status === "won" && a.score !== b.score) return (a.score ?? 0) - (b.score ?? 0);
-    if (a.status === "lost" && a.clicks !== b.clicks) return b.clicks - a.clicks;
-    return a.finishedAt - b.finishedAt;
-  });
+export async function computeUserStats(userId: string, today: string): Promise<UserStats> {
+  return statsFromGames(await getStore().finishedGamesFor(userId), today);
+}
 
+export async function computeLeaderboard(today: string, meId: string | null): Promise<Leaderboard> {
+  const store = getStore();
+  const [todayRows, allRows] = await Promise.all([
+    store.finishedGamesOn(today),
+    store.allFinishedGames(),
+  ]);
+
+  const todayEntries = todayRows
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === "won" ? -1 : 1;
+      if (a.status === "won" && a.score !== b.score) return (a.score ?? 0) - (b.score ?? 0);
+      if (a.status === "lost" && a.clickCount !== b.clickCount) return b.clickCount - a.clickCount;
+      return a.finishedAt - b.finishedAt;
+    })
+    .slice(0, 100)
+    .map(
+      (r): TodayEntry => ({
+        name: r.name,
+        status: r.status,
+        score: r.score,
+        clicks: r.clickCount,
+        me: r.userId === meId,
+      }),
+    );
+
+  const byUser = new Map<string, { name: string; games: FinishedGame[] }>();
+  for (const r of allRows) {
+    const u = byUser.get(r.userId) ?? { name: r.name, games: [] };
+    u.name = r.name;
+    u.games.push(r);
+    byUser.set(r.userId, u);
+  }
   const allTime: AllTimeEntry[] = [];
-  for (const key of Object.keys(db.users)) {
-    const s = computeUserStats(db, key, today);
-    if (s.played === 0) continue;
+  for (const [userId, u] of byUser) {
+    const s = statsFromGames(u.games, today);
     allTime.push({
-      name: db.users[key].name,
+      name: u.name,
       played: s.played,
       wins: s.wins,
       winPct: s.winPct,
@@ -192,7 +204,7 @@ export function computeLeaderboard(db: Db, today: string, meId: string | null): 
       bestScore: s.bestScore,
       currentStreak: s.currentStreak,
       maxStreak: s.maxStreak,
-      me: key === meId,
+      me: userId === meId,
     });
   }
   allTime.sort((a, b) => {
@@ -203,11 +215,5 @@ export function computeLeaderboard(db: Db, today: string, meId: string | null): 
     return a.name.localeCompare(b.name);
   });
 
-  return {
-    date: today,
-    today: todayEntries
-      .slice(0, 100)
-      .map((e) => ({ name: e.name, status: e.status, score: e.score, clicks: e.clicks, me: e.me })),
-    allTime: allTime.slice(0, 100),
-  };
+  return { date: today, today: todayEntries, allTime: allTime.slice(0, 100) };
 }
