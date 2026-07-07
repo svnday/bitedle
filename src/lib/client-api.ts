@@ -1,4 +1,4 @@
-import { getGuildId } from "./discord-context";
+import { getGuildId, guildContextSettled, isDiscordEmbed } from "./discord-context";
 import type { CellResult, GameState, Leaderboard, UserStats } from "./types";
 
 export class ApiError extends Error {
@@ -13,15 +13,16 @@ export class ApiError extends Error {
   }
 }
 
-/** True when running inside a Discord Activity iframe (Discord's reverse-proxy domain). */
-function isDiscordEmbedded(): boolean {
-  return typeof window !== "undefined" && window.location.hostname.endsWith(".discordsays.com");
-}
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const embedded = isDiscordEmbed();
+  // Wait for DiscordBootstrap's handshake to settle before reading guildId —
+  // otherwise a request fired before setGuildId() runs would silently omit
+  // the header and get scoped as a plain web game (permanently, for /click).
+  if (embedded) {
+    await guildContextSettled();
+  }
   // Discord's Activity proxy blocks plain relative requests; they must be
   // routed through /.proxy. Never applied outside the Discord iframe.
-  const embedded = isDiscordEmbedded();
   const url = embedded ? `/.proxy${path}` : path;
   const guildId = embedded ? getGuildId() : null;
   const res = await fetch(url, {

@@ -6,12 +6,31 @@
  */
 let guildId: string | null = null;
 
+// Resolves once DiscordBootstrap's handshake has settled — either a real
+// guildId, or a definitive null (missing client id, failed ready(), or the
+// safety timeout). client-api.ts awaits this before sending any request
+// while embedded, so nothing can race ahead of the handshake and silently
+// fall back to "web game" scoping.
+let settled = false;
+let resolveSettled: () => void;
+const settledPromise = new Promise<void>((resolve) => {
+  resolveSettled = resolve;
+});
+
 export function setGuildId(id: string | null): void {
   guildId = id;
+  if (!settled) {
+    settled = true;
+    resolveSettled();
+  }
 }
 
 export function getGuildId(): string | null {
   return guildId;
+}
+
+export function guildContextSettled(): Promise<void> {
+  return settledPromise;
 }
 
 /** True when running inside Discord's Activity iframe (vs. plain web play). */
