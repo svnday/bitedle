@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { GameRecord } from "./types";
-import type { AllTimeRow, FinishedGame, Store, TodayRow, UserInfo } from "./store";
+import type { AllTimeRow, FinishedGame, GuildChannel, Store, TodayRow, UserInfo } from "./store";
 
 interface FileDb {
   users: Record<
@@ -16,6 +16,8 @@ interface FileDb {
   >;
   /** games[date][userId] */
   games: Record<string, Record<string, GameRecord>>;
+  /** guildChannels[guildId] — auto-detected daily-summary target channel. */
+  guildChannels: Record<string, { channelId: string; updatedAt: number }>;
 }
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -37,12 +39,13 @@ export class FileStore implements Store {
     try {
       const raw = JSON.parse(fs.readFileSync(DB_PATH, "utf8"));
       if (raw && typeof raw === "object" && raw.users && raw.games) {
-        return { users: raw.users, games: raw.games };
+        // guildChannels didn't exist in files written before this feature.
+        return { users: raw.users, games: raw.games, guildChannels: raw.guildChannels ?? {} };
       }
     } catch {
       // Missing or corrupt file — start fresh.
     }
-    return { users: {}, games: {} };
+    return { users: {}, games: {}, guildChannels: {} };
   }
 
   private persist(): void {
@@ -162,5 +165,17 @@ export class FileStore implements Store {
       }
     }
     return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async setGuildChannel(guildId: string, channelId: string): Promise<void> {
+    this.db.guildChannels[guildId] = { channelId, updatedAt: Date.now() };
+    this.persist();
+  }
+
+  async allGuildChannels(): Promise<GuildChannel[]> {
+    return Object.entries(this.db.guildChannels).map(([guildId, v]) => ({
+      guildId,
+      channelId: v.channelId,
+    }));
   }
 }

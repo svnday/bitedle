@@ -162,3 +162,47 @@ same General Information page; see [.env.example](.env.example)). Set that
 env var (in Vercel too) *before* trying to save the Interactions Endpoint
 URL, or the Portal will reject it. Both scripts are safe to re-run any time.
 
+### Daily results summary
+
+Once a day, Bitedle automatically posts a recap into each Discord server
+that's using it: a plain caption plus a generated image showing every
+player who's finished that day's puzzle in that server, with their Discord
+avatar, name, and a non-spoiling result trail (misses + win/loss — never
+real board positions, same as the site's own Share button). No @mentions,
+no streak stat — just the caption and the image.
+
+This is handled by a [Vercel Cron Job](https://vercel.com/docs/cron-jobs)
+([vercel.json](vercel.json)) that hits
+[src/app/api/cron/daily-summary/route.tsx](src/app/api/cron/daily-summary/route.tsx)
+once a day at `20:00 UTC` — approximately 8 hours before the daily reset:
+exactly 8 hours before midnight in `America/New_York` while daylight saving
+is in effect (most of the year), drifting to about 9 hours during the
+winter months, since Vercel Cron schedules are fixed UTC times and don't
+shift for DST. It loops over every server independently, so one server
+having no finished games yet (or a Discord error) simply skips that server
+without affecting any others.
+
+**Works across any number of servers with no manual setup** — there's no
+admin command to run and nothing to configure per server. The target
+channel is auto-detected: the first time anyone runs `/bitedle` or `/share`
+in a server, [the interactions route](src/app/api/discord/interactions/route.ts)
+records that channel as the one to post that server's summary into
+(reading `channel_id` off Discord's own interaction payload), and keeps it
+up to date on every later use. The one gap: a server that only ever uses
+`/play` (Discord's native entry-point command, which our backend never
+receives an interaction for at all) won't have a channel registered yet —
+running `/bitedle` or `/share` once fixes that.
+
+Two things still need setting up (see [.env.example](.env.example)):
+
+- `DISCORD_BOT_TOKEN` — same value as used for the admin scripts above, but
+  this is the first feature where the *deployed app* also needs it as a
+  real Vercel environment variable (to actually post messages, not just for
+  local one-off scripts). The bot needs **View Channel**, **Send
+  Messages**, and **Attach Files** permissions in whatever channel ends up
+  auto-detected (a common gotcha even when the bot already has broad server
+  permissions, since channels can have their own permission overwrites).
+- `CRON_SECRET` — any long random string. Vercel automatically sends this
+  back as `Authorization: Bearer <value>` on requests it makes to trigger
+  the cron job, which the route checks to reject any other caller.
+

@@ -25,6 +25,8 @@ interface Interaction {
   data?: { name?: string };
   member?: { user?: { id?: string } };
   user?: { id?: string };
+  channel_id?: string;
+  guild_id?: string;
 }
 
 async function handleShare(body: Interaction): Promise<NextResponse> {
@@ -72,6 +74,19 @@ export async function POST(request: NextRequest) {
 
   if (body?.type === 1) {
     return NextResponse.json({ type: 1 });
+  }
+
+  if (body?.type === 2 && body.guild_id && body.channel_id) {
+    // Auto-detect the daily summary's target channel from real usage —
+    // whichever channel a command was most recently run in becomes that
+    // server's target. Must be awaited (not fire-and-forget): a serverless
+    // function invocation isn't guaranteed to keep running background work
+    // after the response is sent.
+    try {
+      await getStore().setGuildChannel(body.guild_id, body.channel_id);
+    } catch (e) {
+      console.warn("interactions: failed to record guild channel", e);
+    }
   }
 
   if (body?.type === 2 && body?.data?.name === "bitedle") {

@@ -38,6 +38,12 @@ export interface UserInfo {
   discordAvatar: string | null;
 }
 
+/** A Discord server's auto-detected daily-summary target channel. */
+export interface GuildChannel {
+  guildId: string;
+  channelId: string;
+}
+
 export interface Store {
   /** The player for an id, or null if the id is unknown. */
   getUser(id: string): Promise<UserInfo | null>;
@@ -60,6 +66,12 @@ export interface Store {
   /** Leaderboard feed: all finished games, NAMED players only, scoped to one
    *  guild (null = web-only games). */
   allFinishedGames(guildId: string | null): Promise<AllTimeRow[]>;
+  /** Records/updates which channel to post a server's daily summary into —
+   *  captured automatically from inbound slash-command interactions
+   *  (channel_id), never configured manually. Last-used-wins. */
+  setGuildChannel(guildId: string, channelId: string): Promise<void>;
+  /** Every registered guild→channel pair, for the daily summary cron to loop over. */
+  allGuildChannels(): Promise<GuildChannel[]>;
 }
 
 // Cached on globalThis so dev HMR reloads keep one instance per process.

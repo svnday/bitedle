@@ -1,6 +1,6 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import type { GameRecord } from "./types";
-import type { AllTimeRow, FinishedGame, Store, TodayRow, UserInfo } from "./store";
+import type { AllTimeRow, FinishedGame, GuildChannel, Store, TodayRow, UserInfo } from "./store";
 
 /**
  * Postgres (Neon) storage. The schema is created lazily on first use, so a
@@ -39,6 +39,12 @@ export class NeonStore implements Store {
         )`;
       await this.sql`ALTER TABLE games ADD COLUMN IF NOT EXISTS guild_id text`;
       await this.sql`CREATE INDEX IF NOT EXISTS games_user_idx ON games (user_id)`;
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS guild_channels (
+          guild_id text PRIMARY KEY,
+          channel_id text NOT NULL,
+          updated_at bigint NOT NULL
+        )`;
     })();
     return this.ready;
   }
@@ -167,5 +173,19 @@ export class NeonStore implements Store {
       status: r.status as AllTimeRow["status"],
       score: r.score === null ? null : Number(r.score),
     }));
+  }
+
+  async setGuildChannel(guildId: string, channelId: string): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO guild_channels (guild_id, channel_id, updated_at)
+      VALUES (${guildId}, ${channelId}, ${Date.now()})
+      ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id, updated_at = EXCLUDED.updated_at`;
+  }
+
+  async allGuildChannels(): Promise<GuildChannel[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`SELECT guild_id, channel_id FROM guild_channels`;
+    return rows.map((r) => ({ guildId: r.guild_id as string, channelId: r.channel_id as string }));
   }
 }
