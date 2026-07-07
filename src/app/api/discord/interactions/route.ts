@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { verifyKey } from "discord-interactions";
 
 function siteUrl(): string {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
@@ -17,14 +18,22 @@ function reply(content: string) {
 }
 
 export async function POST(request: NextRequest) {
+  const signature = request.headers.get("X-Signature-Ed25519");
+  const timestamp = request.headers.get("X-Signature-Timestamp");
   const rawBody = await request.text();
-  let body: any;
 
-  try {
-    body = JSON.parse(rawBody);
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  const publicKey = process.env.DISCORD_PUBLIC_KEY;
+  const isValid =
+    publicKey && signature && timestamp && (await verifyKey(rawBody, signature, timestamp, publicKey));
+
+  if (!isValid) {
+    // Discord sends a PING here (with a valid signature) to verify this URL
+    // before it will let the Developer Portal save it as the Interactions
+    // Endpoint URL — without this check, that verification step fails.
+    return new NextResponse("Bad request signature", { status: 401 });
   }
+
+  const body = JSON.parse(rawBody);
 
   if (body?.type === 1) {
     return NextResponse.json({ type: 1 });
@@ -39,10 +48,4 @@ export async function POST(request: NextRequest) {
   }
 
   return reply("Unknown command.");
-}
-
-export function GET() {
-  // Developer Portal verifies the interactions endpoint by sending a GET
-  // request. Respond with 200 OK so the portal can validate the URL.
-  return NextResponse.json({ ok: true });
 }

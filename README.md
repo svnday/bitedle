@@ -129,11 +129,13 @@ If you want the commands to appear in a specific Discord server immediately, inc
 DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... DISCORD_GUILD_ID=123456789012345678 node scripts/register-discord-commands.mjs
 ```
 
-The script also prints an install URL that uses Discord's `applications.commands` scope. Open that URL and add the app to the server so the slash commands are actually exposed there.
+The script also prints an install URL that uses Discord's `applications.commands` scope. Open that URL and add the app to the server so the slash commands are actually exposed there — a `bot`-scope-only invite is not enough; **no slash command (including `/bitedle`) shows up in a server unless the app was added there with the `applications.commands` scope**.
 
-Then set the interaction endpoint URL in the Discord Developer Portal to:
+Then, in the Developer Portal's **General Information** tab, set the Interactions Endpoint URL to:
 
 ```text
 https://<your-domain>/api/discord/interactions
 ```
+
+Discord immediately sends a signed test request to that URL and refuses to save it unless the response proves it came from a verified Discord request — [src/app/api/discord/interactions/route.ts](src/app/api/discord/interactions/route.ts) checks this using `DISCORD_PUBLIC_KEY` (the **Public Key** field on that same General Information page; see [.env.example](.env.example)). Set that env var (in Vercel too) *before* trying to save the Interactions Endpoint URL, or the Portal will reject it.
 
