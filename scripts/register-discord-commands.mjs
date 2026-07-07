@@ -21,20 +21,26 @@ const headers = {
 // "play" is deliberately not in this list — that name belongs to the
 // PRIMARY_ENTRY_POINT command (see set-entry-point-command.mjs), which
 // launches the Activity inline instead of just replying with a link.
+//
+// integration_types [0, 1] = guild install + user install; contexts
+// [0, 1, 2] = server, app DM, group DM. This lets /bitedle and /share work
+// both where a server has added the app and where an individual has
+// user-installed it. Requires User Install to be enabled for the app in the
+// Developer Portal -> Installation tab first (see README).
 const commands = [
   {
     name: "bitedle",
     description: "Open today's Bitedle",
     type: 1,
-    integration_types: [0],
-    contexts: [0, 1],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
   },
   {
     name: "share",
     description: "Share Bitedle from Discord",
     type: 1,
-    integration_types: [0],
-    contexts: [0, 1],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
   },
 ];
 

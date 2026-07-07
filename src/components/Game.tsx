@@ -221,7 +221,12 @@ export default function Game() {
   if (modal === "welcomeBack") {
     return (
       <>
-        <WelcomeBackScreen onChannelStats={openChannelStats} onDismiss={() => setModal(null)} />
+        <WelcomeBackScreen
+          puzzleNumber={state?.puzzleNumber ?? 0}
+          date={state?.date ?? ""}
+          onChannelStats={openChannelStats}
+          onDismiss={() => setModal(null)}
+        />
         {toastsEl}
       </>
     );

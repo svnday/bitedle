@@ -1,13 +1,21 @@
 #!/usr/bin/env node
 /**
- * One-time admin script: renames Bitedle's Discord Activity entry point
+ * One-time admin script: configures Bitedle's Discord Activity entry point
  * command (the "Launch" command Discord auto-creates when Activities is
- * enabled) to a custom name/description. There's no Developer Portal UI
- * for this — it requires a direct API call.
+ * enabled) — its name/description AND which install contexts it's available
+ * in. There's no Developer Portal UI for the name, so this uses the API.
  *
- * An app can have at most one PRIMARY_ENTRY_POINT command, so this finds
- * the existing one and PATCHes its name/description in place; type and
- * handler (DISCORD_LAUNCH_ACTIVITY) are left untouched.
+ * An app can have at most one PRIMARY_ENTRY_POINT command. This finds the
+ * existing one and updates it in place (keeping type 4 / handler 2,
+ * DISCORD_LAUNCH_ACTIVITY). It sets integration_types [0, 1] and contexts
+ * [0, 1, 2] so the Activity is launchable both when a server adds Bitedle
+ * (guild install) AND when an individual user-installs it — letting them
+ * launch it in any server, even ones that haven't added the app.
+ *
+ * PREREQUISITE: enable User Install for the app first, in the Developer
+ * Portal -> Installation tab -> Installation Contexts (see README). Discord
+ * rejects integration_type 1 on a command if the app itself doesn't support
+ * it. Run this AFTER that portal step.
  *
  * This claims the name "play", so run register-discord-commands.mjs
  * (which deletes any stray ordinary /play command left over from before)
@@ -17,14 +25,16 @@
  *   DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... node scripts/set-entry-point-command.mjs
  *
  * DISCORD_BOT_TOKEN is a secret (Developer Portal -> Bot tab -> Reset
- * Token). Never commit it or expose it client-side. Safe to re-run
- * whenever you want to change the name/description again.
+ * Token). Never commit it or expose it client-side. Safe to re-run any time.
  */
 
 const API_BASE = "https://discord.com/api/v10";
 
 const NEW_NAME = "play";
 const NEW_DESCRIPTION = "Open today's Bitedle";
+// [0, 1] = guild install + user install; [0, 1, 2] = server, app DM, group DM.
+const INTEGRATION_TYPES = [0, 1];
+const CONTEXTS = [0, 1, 2];
 
 const clientId = process.env.DISCORD_CLIENT_ID;
 const botToken = process.env.DISCORD_BOT_TOKEN;
@@ -62,18 +72,68 @@ async function main() {
     process.exit(1);
   }
 
+  // First try to PATCH in place. integration_types/contexts aren't always
+  // editable via PATCH on an existing command; if that's rejected, fall back
+  // to deleting and recreating the (single) entry point command.
   const patchRes = await fetch(`${API_BASE}/applications/${clientId}/commands/${entryPoint.id}`, {
     method: "PATCH",
     headers,
-    body: JSON.stringify({ name: NEW_NAME, description: NEW_DESCRIPTION }),
+    body: JSON.stringify({
+      name: NEW_NAME,
+      description: NEW_DESCRIPTION,
+      integration_types: INTEGRATION_TYPES,
+      contexts: CONTEXTS,
+    }),
   });
-  if (!patchRes.ok) {
-    console.error(`Failed to update the command (${patchRes.status}): ${await patchRes.text()}`);
-    process.exit(1);
+
+  let updated;
+  if (patchRes.ok) {
+    updated = await patchRes.json();
+  } else {
+    const patchErr = await patchRes.text();
+    console.warn(
+      `PATCH failed (${patchRes.status}): ${patchErr}\n` +
+        "Falling back to delete + recreate of the entry point command…",
+    );
+
+    const deleteRes = await fetch(
+      `${API_BASE}/applications/${clientId}/commands/${entryPoint.id}`,
+      { method: "DELETE", headers },
+    );
+    if (!deleteRes.ok) {
+      console.error(
+        `Failed to delete the existing entry point command (${deleteRes.status}): ${await deleteRes.text()}`,
+      );
+      process.exit(1);
+    }
+
+    const createRes = await fetch(`${API_BASE}/applications/${clientId}/commands`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: NEW_NAME,
+        description: NEW_DESCRIPTION,
+        type: 4, // PRIMARY_ENTRY_POINT
+        handler: 2, // DISCORD_LAUNCH_ACTIVITY
+        integration_types: INTEGRATION_TYPES,
+        contexts: CONTEXTS,
+      }),
+    });
+    if (!createRes.ok) {
+      console.error(
+        `Failed to recreate the entry point command (${createRes.status}): ${await createRes.text()}\n` +
+          "If this mentions integration_types, make sure User Install is enabled for the app " +
+          "in the Developer Portal -> Installation tab first (see README).",
+      );
+      process.exit(1);
+    }
+    updated = await createRes.json();
   }
 
-  const updated = await patchRes.json();
-  console.log(`Entry point command renamed: /${updated.name} — "${updated.description}"`);
+  console.log(
+    `Entry point command set: /${updated.name} — "${updated.description}" ` +
+      `(integration_types ${JSON.stringify(updated.integration_types)}, contexts ${JSON.stringify(updated.contexts)})`,
+  );
   console.log("It may take a few minutes (rarely up to an hour) to show up in Discord.");
 }
 

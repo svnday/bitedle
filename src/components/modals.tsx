@@ -352,32 +352,75 @@ export function ResultModal({ won, score, stats, guildEntries, onShare, onContin
 /* -------------------------------------------------------- welcome back */
 
 interface WelcomeBackModalProps {
+  puzzleNumber: number;
+  date: string;
   onChannelStats: () => void;
   onDismiss: () => void;
 }
 
-export function WelcomeBackScreen({ onChannelStats, onDismiss }: WelcomeBackModalProps) {
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** "2026-07-07" -> "July 7, 2026". Parses the parts directly to avoid any
+ *  Date/timezone off-by-one. */
+function formatDisplayDate(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  return `${MONTHS[m - 1]} ${d}, ${y}`;
+}
+
+export function WelcomeBackScreen({
+  puzzleNumber,
+  date,
+  onChannelStats,
+  onDismiss,
+}: WelcomeBackModalProps) {
   return (
     <ScreenShell>
       <div className="flex flex-1 flex-col items-center justify-center text-center">
-        <h1 className="text-xl font-extrabold tracking-[0.15em]">BITEDLE</h1>
-        <p className="mt-6 text-lg font-bold">Nice work on today&apos;s Bitedle!</p>
-        <p className="text-muted mt-2 text-sm">Check out how your server did today.</p>
+        <MiniTile kind="check" />
+        <h2 className="mt-3 text-sm font-extrabold tracking-[0.2em]">BITEDLE</h2>
+        <h1 className="mt-6 text-2xl font-extrabold">Hi Bitedler</h1>
+        <p className="text-muted mx-auto mt-3 max-w-xs text-base leading-snug">
+          Nice work on today&apos;s puzzle! Check out your channel&apos;s progress.
+        </p>
         <button
           type="button"
           onClick={onChannelStats}
-          className="bg-correct mt-8 w-full max-w-xs cursor-pointer rounded-full py-3 font-bold text-white hover:brightness-110"
+          className="bg-correct mt-6 cursor-pointer rounded-full px-10 py-3 font-bold text-white hover:brightness-110"
         >
           Channel Stats
         </button>
+        <div className="text-muted mt-6 text-xs leading-relaxed">
+          <div>{formatDisplayDate(date)}</div>
+          <div>No. {puzzleNumber}</div>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-muted hover:text-foreground mt-4 cursor-pointer text-sm font-semibold"
+        >
+          Back to puzzle
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={onDismiss}
-        className="text-muted hover:text-foreground w-full cursor-pointer py-3 text-center text-sm font-semibold"
-      >
-        Back to puzzle
-      </button>
+      <div className="border-tileborder mt-8 flex items-center justify-center gap-2 border-t pt-5">
+        {/* Self-hosted avatar, same as the win/lose gifs — works in the iframe. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/sundei.png" alt="" className="h-6 w-6 rounded-full" />
+        <span className="text-sm font-semibold">made by sundei</span>
+      </div>
     </ScreenShell>
   );
 }

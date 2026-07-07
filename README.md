@@ -162,6 +162,43 @@ same General Information page; see [.env.example](.env.example)). Set that
 env var (in Vercel too) *before* trying to save the Interactions Endpoint
 URL, or the Portal will reject it. Both scripts are safe to re-run any time.
 
+### Making Bitedle installable in any server
+
+Discord has two independent install models, and Bitedle supports both:
+
+- **Guild install** — a server admin adds Bitedle; the **bot joins** the
+  server. This is required for the [daily results summary](#daily-results-summary)
+  to post (the bot has to be a member to send a channel message).
+- **User install** — an individual adds Bitedle to their own account and can
+  then launch the Activity in **any** server, even one that hasn't added the
+  app. The bot is **not** a member of those servers, so the daily summary
+  can't post there — but the Activity, avatars, per-server leaderboards, and
+  `/share` all work fine.
+
+If the app only supports guild install, opening it from the Activities
+button in a server that hasn't added it fails with *"Your app has enabled
+Activities but has no commands registered to launch them."* Enabling user
+install fixes that.
+
+Setup (**do the portal step first** — Discord rejects `integration_type 1`
+on a command if the app itself doesn't support user install yet):
+
+1. Developer Portal → **Installation** tab → **Installation Contexts**:
+   enable **both** Guild Install and User Install.
+2. **Install Link** → "Discord Provided Link" (a shareable link people use to
+   add Bitedle to their server or account).
+3. **Default Install Settings**:
+   - Guild Install → scopes `applications.commands` + `bot`; bot permissions
+     **View Channels, Send Messages, Attach Files** (for the daily summary).
+   - User Install → scope `applications.commands`.
+4. Developer Portal → **Bot** tab → turn **Public Bot** on so anyone with the
+   link can add it.
+5. Re-run both command scripts above. They now register the entry point
+   command and `/bitedle` / `/share` with `integration_types [0, 1]` and
+   `contexts [0, 1, 2]`, making them available in both install models.
+   Confirm with `node scripts/list-discord-commands.mjs` — the entry point
+   command should show `integration_types` `[0, 1]`.
+
 ### Daily results summary
 
 Once a day, Bitedle automatically posts a recap into each Discord server
