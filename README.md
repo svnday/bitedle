@@ -92,20 +92,40 @@ played inside one server only ever shows up on that server's leaderboard,
 never on the public website's, and never on another server's
 ([src/lib/discord.ts](src/lib/discord.ts)).
 
-### Renaming the entry point command
+### Slash commands: `/play` and `/share`
 
-Enabling Activities auto-creates a default slash command named "Launch" —
-this is how the Activity gets started from Discord's App Launcher. There's
-no Developer Portal field to rename it, so
-[scripts/set-entry-point-command.mjs](scripts/set-entry-point-command.mjs)
-does it via Discord's API instead, renaming it to `/bitedle`.
+Two commands, two different mechanisms:
 
-Run it locally (not from Vercel — it's a one-time admin action, not part of
-the deployed app):
+- **`/play`** launches the Activity inline, visible to everyone in the
+  channel. This is Discord's **entry point command** — enabling Activities
+  auto-creates a default one named "Launch" (type `PRIMARY_ENTRY_POINT`,
+  handled entirely by Discord's own servers via `DISCORD_LAUNCH_ACTIVITY`;
+  no code on this backend runs). There's no Developer Portal field to rename
+  it, so [scripts/set-entry-point-command.mjs](scripts/set-entry-point-command.mjs)
+  does it via Discord's API instead, renaming it to `/play`.
+- **`/share`** posts that player's already-finished result for today's
+  puzzle (same non-spoiling text as the site's own Share button), publicly
+  in the channel. Unlike `/play`, this is an ordinary `CHAT_INPUT` command
+  that Discord forwards to Bitedle's own backend —
+  [scripts/register-discord-commands.mjs](scripts/register-discord-commands.mjs)
+  registers it, and [src/app/api/discord/interactions/route.ts](src/app/api/discord/interactions/route.ts)
+  handles it, looking the caller up by their linked Discord id (see
+  "avatar-linking" below — a player must have opened `/play` at least once
+  for that link to exist) and their game for today.
+
+Run both scripts locally (not from Vercel — one-time admin actions, not
+part of the deployed app):
 
 ```bash
 DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... node scripts/set-entry-point-command.mjs
+DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... node scripts/register-discord-commands.mjs
 ```
+
+(Order doesn't matter — `register-discord-commands.mjs` also cleans up a
+stray ordinary `/play` command left over from before `/play` became the
+entry point command's name.) Optionally add `DISCORD_GUILD_ID=...` to the
+second command so it appears in one server immediately instead of waiting
+for global propagation.
 
 - `DISCORD_CLIENT_ID` is the same value as `NEXT_PUBLIC_DISCORD_CLIENT_ID`.
 - `DISCORD_BOT_TOKEN` comes from the Developer Portal's **Bot** tab (Reset
@@ -113,29 +133,25 @@ DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... node scripts/set-entry-point-command
   it, never prefix it `NEXT_PUBLIC_`, and only pass it as a one-off
   environment variable in your own terminal.
 
-Safe to re-run any time you want to change the name or description again.
+`register-discord-commands.mjs` also prints an install URL using Discord's
+`applications.commands` scope. Open that URL and add the app to the server
+so the slash commands are actually exposed there — a `bot`-scope-only
+invite is not enough; **no slash command (including `/play`) shows up in a
+server unless the app was added there with the `applications.commands`
+scope**.
 
-### Adding slash commands
-
-To register the new Discord slash commands for `/play` and `/share`, run:
-
-```bash
-DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... node scripts/register-discord-commands.mjs
-```
-
-If you want the commands to appear in a specific Discord server immediately, include the server ID:
-
-```bash
-DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... DISCORD_GUILD_ID=123456789012345678 node scripts/register-discord-commands.mjs
-```
-
-The script also prints an install URL that uses Discord's `applications.commands` scope. Open that URL and add the app to the server so the slash commands are actually exposed there — a `bot`-scope-only invite is not enough; **no slash command (including `/bitedle`) shows up in a server unless the app was added there with the `applications.commands` scope**.
-
-Then, in the Developer Portal's **General Information** tab, set the Interactions Endpoint URL to:
+Then, in the Developer Portal's **General Information** tab, set the
+Interactions Endpoint URL to:
 
 ```text
 https://<your-domain>/api/discord/interactions
 ```
 
-Discord immediately sends a signed test request to that URL and refuses to save it unless the response proves it came from a verified Discord request — [src/app/api/discord/interactions/route.ts](src/app/api/discord/interactions/route.ts) checks this using `DISCORD_PUBLIC_KEY` (the **Public Key** field on that same General Information page; see [.env.example](.env.example)). Set that env var (in Vercel too) *before* trying to save the Interactions Endpoint URL, or the Portal will reject it.
+Discord immediately sends a signed test request to that URL and refuses to
+save it unless the response proves it came from a verified Discord request
+— [src/app/api/discord/interactions/route.ts](src/app/api/discord/interactions/route.ts)
+checks this using `DISCORD_PUBLIC_KEY` (the **Public Key** field on that
+same General Information page; see [.env.example](.env.example)). Set that
+env var (in Vercel too) *before* trying to save the Interactions Endpoint
+URL, or the Portal will reject it. Both scripts are safe to re-run any time.
 

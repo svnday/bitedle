@@ -91,6 +91,13 @@ export class FileStore implements Store {
     }
   }
 
+  async getUserIdByDiscordId(discordUserId: string): Promise<string | null> {
+    for (const [id, u] of Object.entries(this.db.users)) {
+      if (u.discordUserId === discordUserId) return id;
+    }
+    return null;
+  }
+
   async getGame(date: string, userId: string): Promise<GameRecord | null> {
     const g = this.db.games[date]?.[userId];
     // Deep-copy so callers can't mutate stored state without putGame.

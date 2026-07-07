@@ -46,6 +46,8 @@ export interface Store {
   setUserName(id: string, name: string): Promise<void>;
   /** Links a player's real Discord identity (for avatar display only). */
   setDiscordIdentity(userId: string, discordUserId: string, discordAvatar: string | null): Promise<void>;
+  /** Reverse lookup: a Discord interaction only carries the caller's Discord id, not a Bitedle cookie. */
+  getUserIdByDiscordId(discordUserId: string): Promise<string | null>;
   getGame(date: string, userId: string): Promise<GameRecord | null>;
   /** Upserts; must never overwrite a game that is already finished, and must
    *  never change guildId once a game row exists (set once, at creation). */

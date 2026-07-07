@@ -18,14 +18,10 @@ const headers = {
   "Content-Type": "application/json",
 };
 
+// "play" is deliberately not in this list — that name belongs to the
+// PRIMARY_ENTRY_POINT command (see set-entry-point-command.mjs), which
+// launches the Activity inline instead of just replying with a link.
 const commands = [
-  {
-    name: "play",
-    description: "Open today's Bitedle",
-    type: 1,
-    integration_types: [0],
-    contexts: [0, 1],
-  },
   {
     name: "share",
     description: "Share Bitedle from Discord",
@@ -69,6 +65,21 @@ async function main() {
   }
 
   const existing = await listRes.json();
+
+  // Clean up the ordinary CHAT_INPUT "/play" command from an earlier setup —
+  // that name now belongs to the PRIMARY_ENTRY_POINT command instead (see
+  // set-entry-point-command.mjs), and Discord won't allow both at once.
+  const stalePlay = existing.find((c) => c.type === 1 && c.name === "play");
+  if (stalePlay) {
+    const deleteRes = await fetch(commandUrl(stalePlay.id), { method: "DELETE", headers });
+    if (!deleteRes.ok) {
+      console.error(
+        `Failed to remove the stale /play command (${deleteRes.status}): ${await deleteRes.text()}`,
+      );
+      process.exit(1);
+    }
+    console.log("Removed the stale ordinary /play command.");
+  }
 
   for (const command of commands) {
     const match = existing.find((c) => c.name === command.name);

@@ -9,6 +9,10 @@
  * the existing one and PATCHes its name/description in place; type and
  * handler (DISCORD_LAUNCH_ACTIVITY) are left untouched.
  *
+ * This claims the name "play", so run register-discord-commands.mjs
+ * (which deletes any stray ordinary /play command left over from before)
+ * either before or after this — order doesn't matter.
+ *
  * Usage:
  *   DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... node scripts/set-entry-point-command.mjs
  *
@@ -19,8 +23,8 @@
 
 const API_BASE = "https://discord.com/api/v10";
 
-const NEW_NAME = "bitedle";
-const NEW_DESCRIPTION = "Find the check, dodge the bombs — play today's Bitedle";
+const NEW_NAME = "play";
+const NEW_DESCRIPTION = "Open today's Bitedle";
 
 const clientId = process.env.DISCORD_CLIENT_ID;
 const botToken = process.env.DISCORD_BOT_TOKEN;

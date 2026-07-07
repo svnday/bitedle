@@ -80,6 +80,12 @@ export class NeonStore implements Store {
       WHERE id = ${userId}`;
   }
 
+  async getUserIdByDiscordId(discordUserId: string): Promise<string | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`SELECT id FROM users WHERE discord_user_id = ${discordUserId}`;
+    return rows.length === 0 ? null : (rows[0].id as string);
+  }
+
   async getGame(date: string, userId: string): Promise<GameRecord | null> {
     await this.ensureSchema();
     const rows = await this.sql`

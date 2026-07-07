@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/client-api";
+import { shareText } from "@/lib/share-text";
 import type { GameState, UserStats } from "@/lib/types";
 import Board from "./Board";
 import Countdown from "./Countdown";
@@ -22,14 +23,9 @@ interface Toast {
   text: string;
 }
 
-function shareText(state: GameState): string {
+function gameShareText(state: GameState): string {
   const misses = state.clicks.filter((c) => c.result === "x").length;
-  const trail = "🟥".repeat(misses) + (state.status === "won" ? "🟩" : "💥");
-  const scoreLine =
-    state.status === "won"
-      ? `${state.score} ${state.score === 1 ? "click" : "clicks"}`
-      : "boom 💣";
-  return `Bitedle #${state.puzzleNumber} · ${scoreLine}\n${trail}`;
+  return shareText({ puzzleNumber: state.puzzleNumber, status: state.status, score: state.score, misses });
 }
 
 export default function Game() {
@@ -140,7 +136,7 @@ export default function Game() {
   const handleShare = () => {
     if (!state) return;
     navigator.clipboard
-      .writeText(shareText(state))
+      .writeText(gameShareText(state))
       .then(() => toast("Results copied to clipboard"))
       .catch(() => toast("Couldn't copy to clipboard"));
   };
