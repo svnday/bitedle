@@ -8,7 +8,7 @@ import type { GameState, TodayEntry, UserStats } from "@/lib/types";
 import Board from "./Board";
 import Countdown from "./Countdown";
 import {
-  ChannelStatsModal,
+  ChannelStatsScreen,
   HelpModal,
   LeaderboardModal,
   LOSE_GIF,
@@ -16,7 +16,7 @@ import {
   PlayerResultCard,
   ResultModal,
   StatsModal,
-  WelcomeBackModal,
+  WelcomeBackScreen,
   WIN_GIF,
 } from "./modals";
 
@@ -185,6 +185,49 @@ export default function Game() {
     refresh();
   }, [refresh]);
 
+  const toastsEl = (
+    <div className="pointer-events-none fixed top-16 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className="animate-pop bg-foreground text-surface rounded px-4 py-2 text-sm font-bold whitespace-nowrap shadow-lg"
+        >
+          {t.text}
+        </div>
+      ))}
+    </div>
+  );
+
+  // Channel Stats and the welcome-back splash are full-page takeovers (like
+  // Wordle's own Activity), not overlays on top of the board — they replace
+  // the whole screen instead of floating over it. Toasts still need to be
+  // visible during them (Share triggers one), so they're rendered as a
+  // sibling either way rather than nested inside this swap.
+  if (modal === "welcomeBack") {
+    return (
+      <>
+        <WelcomeBackScreen
+          onChannelStats={() => setModal("channelStats")}
+          onDismiss={() => setModal(null)}
+        />
+        {toastsEl}
+      </>
+    );
+  }
+  if (modal === "channelStats") {
+    return (
+      <>
+        <ChannelStatsScreen
+          entries={guildEntries}
+          stats={stats}
+          onShare={handleShare}
+          onBack={() => setModal(null)}
+        />
+        {toastsEl}
+      </>
+    );
+  }
+
   return (
     <div className="flex min-h-screen w-full flex-col items-center">
       <header className="border-tileborder w-full border-b">
@@ -326,16 +369,7 @@ export default function Game() {
         )}
       </main>
 
-      <div className="pointer-events-none fixed top-16 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className="animate-pop bg-foreground text-surface rounded px-4 py-2 text-sm font-bold whitespace-nowrap shadow-lg"
-          >
-            {t.text}
-          </div>
-        ))}
-      </div>
+      {toastsEl}
 
       {modal === "result" && finished && state && (
         <ResultModal
@@ -345,20 +379,6 @@ export default function Game() {
           guildEntries={guildEntries}
           onShare={handleShare}
           onContinue={handleResultContinue}
-        />
-      )}
-      {modal === "welcomeBack" && (
-        <WelcomeBackModal
-          onChannelStats={() => setModal("channelStats")}
-          onDismiss={() => setModal(null)}
-        />
-      )}
-      {modal === "channelStats" && (
-        <ChannelStatsModal
-          entries={guildEntries}
-          stats={stats}
-          onShare={handleShare}
-          onClose={() => setModal(null)}
         />
       )}
       {modal === "name" && (

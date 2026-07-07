@@ -153,6 +153,19 @@ export function NameModal({ mode, currentName, onSubmit, onClose, error }: NameM
   );
 }
 
+/* --------------------------------------------------------- screen shell */
+
+/** Full-page takeover for screens that should feel like a distinct page
+ *  within the Activity (Wordle's "Channel Stats"/welcome-back pattern),
+ *  not a floating dialog like Modal. No backdrop, no dialog chrome. */
+function ScreenShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="animate-fadein bg-surface fixed inset-0 z-40 flex justify-center overflow-y-auto px-4 py-8">
+      <div className="flex w-full max-w-md flex-1 flex-col">{children}</div>
+    </div>
+  );
+}
+
 /* --------------------------------------------------------------- result */
 
 export const WIN_GIF = "/win.gif";
@@ -166,8 +179,9 @@ function praiseFor(score: number): string {
 }
 
 /** One player's avatar + non-spoiling result trail + name, for the guild
- *  results carousel and the persistent board sidebar alike. */
-export function PlayerResultCard({ entry }: { entry: TodayEntry }) {
+ *  results carousel and the persistent board sidebar alike. `onShare` is
+ *  only ever rendered for the viewer's own ("me") card. */
+export function PlayerResultCard({ entry, onShare }: { entry: TodayEntry; onShare?: () => void }) {
   return (
     <div
       className={`flex w-16 shrink-0 flex-col items-center gap-1 rounded p-1.5 ${
@@ -188,10 +202,20 @@ export function PlayerResultCard({ entry }: { entry: TodayEntry }) {
       ) : (
         <div className="bg-tile h-8 w-8 rounded-full" />
       )}
-      <div className="text-center text-sm leading-tight whitespace-nowrap">
-        {entry.status === "won" ? "✅" : "💥"} {entry.clicks}
+      <div className="flex items-center justify-center gap-1 text-sm">
+        <span>{entry.status === "won" ? "✅" : "💥"}</span>
+        <span className="font-semibold">{entry.clicks}</span>
       </div>
       <div className="w-full truncate text-center text-[10px] font-semibold">{entry.name}</div>
+      {entry.me && onShare && (
+        <button
+          type="button"
+          onClick={onShare}
+          className="bg-correct mt-1 cursor-pointer rounded-full px-2.5 py-0.5 text-[10px] font-bold text-white hover:brightness-110"
+        >
+          Share
+        </button>
+      )}
     </div>
   );
 }
@@ -212,33 +236,29 @@ export function GuildResultsPanel({
       {entries.length > 0 && (
         <div className="flex gap-3 overflow-x-auto pb-1">
           {entries.map((entry, i) => (
-            <PlayerResultCard key={i} entry={entry} />
+            <PlayerResultCard key={i} entry={entry} onShare={entry.me ? onShare : undefined} />
           ))}
         </div>
       )}
-      {onShare && entries.length > 0 && (
-        <button
-          type="button"
-          onClick={onShare}
-          className="bg-correct mt-3 w-full cursor-pointer rounded py-2 text-sm font-bold text-white hover:brightness-110"
-        >
-          Share your result 📋
-        </button>
-      )}
       {stats && (
-        <div className="border-tileborder mt-4 grid grid-cols-3 gap-2 border-t pt-4 text-center">
-          {(
-            [
-              [`${stats.winPct}%`, "Win rate"],
-              [stats.currentStreak, "Current streak"],
-              [stats.maxStreak, "Best streak"],
-            ] as const
-          ).map(([value, label]) => (
-            <div key={label}>
-              <div className="text-2xl font-semibold">{value}</div>
-              <div className="text-muted mt-0.5 text-[11px] leading-tight">{label}</div>
-            </div>
-          ))}
+        <div className="mt-6">
+          <h3 className="text-muted mb-2 text-center text-xs font-bold tracking-widest uppercase">
+            General Statistics
+          </h3>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            {(
+              [
+                [`${stats.winPct}%`, "Win rate"],
+                [stats.currentStreak, "Current streak"],
+                [stats.maxStreak, "Best streak"],
+              ] as const
+            ).map(([value, label]) => (
+              <div key={label}>
+                <div className="text-2xl font-semibold">{value}</div>
+                <div className="text-muted mt-0.5 text-[11px] leading-tight">{label}</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -299,41 +319,52 @@ interface WelcomeBackModalProps {
   onDismiss: () => void;
 }
 
-export function WelcomeBackModal({ onChannelStats, onDismiss }: WelcomeBackModalProps) {
+export function WelcomeBackScreen({ onChannelStats, onDismiss }: WelcomeBackModalProps) {
   return (
-    <Modal title="Welcome back" onClose={onDismiss}>
-      <p className="text-center font-bold">Nice work on today&apos;s Bitedle!</p>
-      <p className="text-muted mt-2 text-center text-sm">Check out how your server did today.</p>
-      <button
-        type="button"
-        onClick={onChannelStats}
-        className="bg-correct mt-4 w-full cursor-pointer rounded py-2.5 font-bold text-white hover:brightness-110"
-      >
-        Channel Stats
-      </button>
+    <ScreenShell>
+      <div className="flex flex-1 flex-col items-center justify-center text-center">
+        <h1 className="text-xl font-extrabold tracking-[0.15em]">BITEDLE</h1>
+        <p className="mt-6 text-lg font-bold">Nice work on today&apos;s Bitedle!</p>
+        <p className="text-muted mt-2 text-sm">Check out how your server did today.</p>
+        <button
+          type="button"
+          onClick={onChannelStats}
+          className="bg-correct mt-8 w-full max-w-xs cursor-pointer rounded-full py-3 font-bold text-white hover:brightness-110"
+        >
+          Channel Stats
+        </button>
+      </div>
       <button
         type="button"
         onClick={onDismiss}
-        className="text-muted hover:text-foreground mt-2 w-full cursor-pointer py-1.5 text-sm font-semibold"
+        className="text-muted hover:text-foreground w-full cursor-pointer py-3 text-center text-sm font-semibold"
       >
         Back to puzzle
       </button>
-    </Modal>
+    </ScreenShell>
   );
 }
 
 /* -------------------------------------------------------- channel stats */
 
-interface ChannelStatsModalProps {
+interface ChannelStatsScreenProps {
   entries: TodayEntry[] | null;
   stats: UserStats | null;
   onShare: () => void;
-  onClose: () => void;
+  onBack: () => void;
 }
 
-export function ChannelStatsModal({ entries, stats, onShare, onClose }: ChannelStatsModalProps) {
+export function ChannelStatsScreen({ entries, stats, onShare, onBack }: ChannelStatsScreenProps) {
   return (
-    <Modal title="Channel Stats" onClose={onClose}>
+    <ScreenShell>
+      <button
+        type="button"
+        onClick={onBack}
+        className="text-muted hover:text-foreground mb-6 w-fit cursor-pointer text-sm font-semibold"
+      >
+        ← Back to puzzle
+      </button>
+      <h1 className="mb-6 text-center text-lg font-extrabold tracking-wide">Channel Stats</h1>
       {!entries ? (
         <p className="text-muted py-8 text-center">Loading…</p>
       ) : entries.length === 0 ? (
@@ -343,7 +374,7 @@ export function ChannelStatsModal({ entries, stats, onShare, onClose }: ChannelS
       ) : (
         <GuildResultsPanel entries={entries} stats={stats} onShare={onShare} />
       )}
-    </Modal>
+    </ScreenShell>
   );
 }
 
