@@ -250,7 +250,6 @@ export function GuildResultsPanel({
               [
                 [`${stats.winPct}%`, "Win rate"],
                 [stats.currentStreak, "Current streak"],
-                [stats.maxStreak, "Best streak"],
               ] as const
             ).map(([value, label]) => (
               <div key={label}>

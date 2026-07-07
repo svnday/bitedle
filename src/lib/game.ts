@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { discordAvatarUrl } from "./discord";
-import { getStore, type FinishedGame } from "./store";
+import { getStore, type AllTimeRow, type FinishedGame } from "./store";
 import { nextResetAt, todayStr } from "./time";
 import {
   BOARD_SIZE,
@@ -106,6 +106,12 @@ export function bucketFor(status: GameStatus, score: number | null): string {
   return score <= 5 ? String(score) : "6+";
 }
 
+function distributionFromEntries(entries: { status: GameStatus; score: number | null }[]): Record<string, number> {
+  const distribution: Record<string, number> = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6+": 0, X: 0 };
+  for (const e of entries) distribution[bucketFor(e.status, e.score)]++;
+  return distribution;
+}
+
 /** Aggregates a player's finished games (any order) into their stats. */
 export function statsFromGames(games: FinishedGame[], today: string): UserStats {
   const entries = games
@@ -113,8 +119,7 @@ export function statsFromGames(games: FinishedGame[], today: string): UserStats 
     .sort((a, b) => a.day - b.day);
   const winScores = entries.filter((e) => e.status === "won").map((e) => e.score ?? 0);
 
-  const distribution: Record<string, number> = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6+": 0, X: 0 };
-  for (const e of entries) distribution[bucketFor(e.status, e.score)]++;
+  const distribution = distributionFromEntries(entries);
 
   // Max streak: longest run of wins on consecutive calendar days.
   let maxStreak = 0;
@@ -152,6 +157,44 @@ export function statsFromGames(games: FinishedGame[], today: string): UserStats 
     maxStreak,
     bestScore: wins === 0 ? null : Math.min(...winScores),
     avgScore: wins === 0 ? null : Math.round((winScores.reduce((a, b) => a + b, 0) / wins) * 10) / 10,
+    distribution,
+  };
+}
+
+export function channelStatsFromGames(games: AllTimeRow[], today: string): UserStats {
+  const entries = games
+    .map((g) => ({ day: dayNum(g.date), status: g.status, score: g.score }))
+    .sort((a, b) => a.day - b.day);
+
+  const byUser = new Map<string, FinishedGame[]>();
+  for (const row of games) {
+    const userGames = byUser.get(row.userId) ?? [];
+    userGames.push(row);
+    byUser.set(row.userId, userGames);
+  }
+
+  const userStats = Array.from(byUser.values()).map((userGames) => statsFromGames(userGames, today));
+  const played = userStats.reduce((sum, s) => sum + s.played, 0);
+  const wins = userStats.reduce((sum, s) => sum + s.wins, 0);
+  const distribution = distributionFromEntries(entries);
+
+  const byDay = new Set(entries.map((e) => e.day));
+  let d = dayNum(today);
+  if (!byDay.has(d)) d -= 1;
+  let currentStreak = 0;
+  while (byDay.has(d)) {
+    currentStreak++;
+    d--;
+  }
+
+  return {
+    played,
+    wins,
+    winPct: userStats.length === 0 ? 0 : Math.round(userStats.reduce((sum, s) => sum + s.winPct, 0) / userStats.length),
+    currentStreak,
+    maxStreak: 0,
+    bestScore: null,
+    avgScore: null,
     distribution,
   };
 }
@@ -231,5 +274,7 @@ export async function computeLeaderboard(
     return a.name.localeCompare(b.name);
   });
 
-  return { date: today, today: todayEntries, allTime: allTime.slice(0, 100) };
+  const channelStats = channelStatsFromGames(allRows, today);
+
+  return { date: today, today: todayEntries, allTime: allTime.slice(0, 100), channelStats };
 }

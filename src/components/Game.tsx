@@ -43,6 +43,7 @@ function gameShareText(state: GameState): string {
 export default function Game() {
   const [state, setState] = useState<GameState | null>(null);
   const [stats, setStats] = useState<UserStats | null>(null);
+  const [channelStats, setChannelStats] = useState<UserStats | null>(null);
   const [guildEntries, setGuildEntries] = useState<TodayEntry[] | null>(null);
   const [modal, setModal] = useState<ModalKind>(null);
   const [nameMode, setNameMode] = useState<"post" | "edit">("edit");
@@ -102,17 +103,24 @@ export default function Game() {
     }
   }, []);
 
+  const loadChannelData = useCallback(() => {
+    api
+      .leaderboard()
+      .then((data) => {
+        setGuildEntries(data.today);
+        setChannelStats(data.channelStats ?? null);
+      })
+      .catch(() => {});
+  }, []);
+
   // The results carousel/sidebar/stats need this data as soon as the game is
   // finished, since it's shown in three places: the win/lose splash, the
   // standalone Channel Stats screen, and the persistent board sidebar.
   useEffect(() => {
     if (!isDiscordEmbed() || !finished) return;
     api.stats().then(setStats).catch(() => {});
-    api
-      .leaderboard()
-      .then((data) => setGuildEntries(data.today))
-      .catch(() => {});
-  }, [finished]);
+    loadChannelData();
+  }, [finished, loadChannelData]);
 
   const openStats = useCallback(async () => {
     setModal("stats");
@@ -172,6 +180,13 @@ export default function Game() {
     }
   };
 
+  const openChannelStats = useCallback(() => {
+    setModal("channelStats");
+    if (guildEntries === null && channelStats === null) {
+      loadChannelData();
+    }
+  }, [channelStats, guildEntries, loadChannelData]);
+
   const handleShare = () => {
     if (!state) return;
     navigator.clipboard
@@ -206,10 +221,7 @@ export default function Game() {
   if (modal === "welcomeBack") {
     return (
       <>
-        <WelcomeBackScreen
-          onChannelStats={() => setModal("channelStats")}
-          onDismiss={() => setModal(null)}
-        />
+        <WelcomeBackScreen onChannelStats={openChannelStats} onDismiss={() => setModal(null)} />
         {toastsEl}
       </>
     );
@@ -219,7 +231,7 @@ export default function Game() {
       <>
         <ChannelStatsScreen
           entries={guildEntries}
-          stats={stats}
+          stats={channelStats}
           onShare={handleShare}
           onBack={() => setModal(null)}
         />
@@ -245,7 +257,7 @@ export default function Game() {
             {isDiscordEmbed() && (
               <button
                 type="button"
-                onClick={() => setModal("channelStats")}
+                onClick={openChannelStats}
                 aria-label="Channel Stats"
                 className="text-muted hover:text-foreground cursor-pointer p-1.5"
               >

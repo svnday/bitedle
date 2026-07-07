@@ -73,6 +73,7 @@ export interface Leaderboard {
   date: string;
   today: TodayEntry[];
   allTime: AllTimeEntry[];
+  channelStats: UserStats;
 }
 
 export const BOARD_SIZE = 25;
