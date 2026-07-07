@@ -155,8 +155,8 @@ export function NameModal({ mode, currentName, onSubmit, onClose, error }: NameM
 
 /* --------------------------------------------------------------- result */
 
-export const WIN_GIF = "https://media1.tenor.com/m/YMG3l8xlJwYAAAAd/sushichaeng-dj-khaled.gif";
-export const LOSE_GIF = "https://media1.tenor.com/m/Odzr8rBoAsgAAAAd/dj-khaled.gif";
+export const WIN_GIF = "/win.gif";
+export const LOSE_GIF = "/lose.gif";
 
 function praiseFor(score: number): string {
   if (score === 1) return "UNREAL — first click!";
@@ -174,7 +174,7 @@ interface ResultModalProps {
 export function ResultModal({ won, score, onContinue }: ResultModalProps) {
   return (
     <Modal title={won ? "You found it!" : "Game over"} onClose={onContinue}>
-      {/* Plain <img>: an animated gif from Tenor, not a next/image candidate. */}
+      {/* Plain <img>: self-hosted animated gif, not a next/image candidate. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={won ? WIN_GIF : LOSE_GIF}

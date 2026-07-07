@@ -14,18 +14,14 @@ export default function DiscordBootstrap() {
 
     let cancelled = false;
     (async () => {
-      const { DiscordSDK, patchUrlMappings } = await import("@discord/embedded-app-sdk");
+      const { DiscordSDK } = await import("@discord/embedded-app-sdk");
       const clientId = process.env.NEXT_PUBLIC_DISCORD_CLIENT_ID;
       if (!clientId) {
         console.warn("Bitedle: running inside Discord but NEXT_PUBLIC_DISCORD_CLIENT_ID is unset");
         return;
       }
-      // Allow-lists the hotlinked win/lose GIFs so they load through Discord's proxy.
-      // patchSrcAttributes defaults to false — without it, only fetch/WebSocket/XHR
-      // get rewritten, and the <img> tags' requests are left blocked by Discord's CSP.
-      patchUrlMappings([{ prefix: "/tenor", target: "media1.tenor.com" }], {
-        patchSrcAttributes: true,
-      });
+      // The win/lose gifs are self-hosted (same-origin), so no URL mapping is
+      // needed for them — the only remaining setup is the ready() handshake.
       const discordSdk = new DiscordSDK(clientId);
       if (!cancelled) await discordSdk.ready();
     })();

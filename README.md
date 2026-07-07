@@ -70,9 +70,7 @@ and CSP settings in [src/lib/identity.ts](src/lib/identity.ts) and
 Developer Portal and can't be done from this repo:
 
 1. Create an Application at the [Discord Developer Portal](https://discord.com/developers/applications) and enable **Activities** for it.
-2. Under **Activities → URL Mappings**, add:
-   - Root mapping — PREFIX `/`, TARGET `bitedle.vercel.app`
-   - PREFIX `/tenor`, TARGET `media1.tenor.com` (so the win/lose GIFs, hotlinked from Tenor, load through Discord's proxy)
+2. Under **Activities → URL Mappings**, add the root mapping — PREFIX `/`, TARGET `bitedle.vercel.app`. (The win/lose GIFs are self-hosted, so no extra mapping is needed for them.)
 3. Under **General Information**, set:
    - Terms of Service URL: `https://bitedle.vercel.app/terms`
    - Privacy Policy URL: `https://bitedle.vercel.app/privacy`
