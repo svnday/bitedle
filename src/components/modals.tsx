@@ -77,35 +77,25 @@ function MiniTile({ kind }: { kind: "x" | "bomb" | "check" | "hidden" }) {
   );
 }
 
-function MiniBoardPreview({ entry }: { entry: TodayEntry }) {
-  // Render a 5x5 tiny preview. We don't have per-tile data here, so
-  // visually represent the player's progress by filling the first N cells
-  // where N = min(clicks, 25). If won, the last filled cell is green.
-  const total = Math.max(0, Math.min(25, entry.clicks));
-  const cells = Array.from({ length: 25 }, (_, i) => (i < total ? true : false));
+function MiniResultTrail({ entry }: { entry: TodayEntry }) {
+  // A horizontal Wordle-style trail: one square per click. We don't have
+  // per-tile data here, so misses read as muted squares and the final square
+  // is the outcome — green for the check, red for the bomb. Wraps if a player
+  // took many clicks.
+  const total = Math.max(1, Math.min(25, entry.clicks));
   const last = total - 1;
+  const won = entry.status === "won";
   return (
-    <div className="mt-2 grid h-12 w-12 grid-cols-5 gap-[2px]">
-      {cells.map((filled, i) => {
-        if (!filled) {
-          return <span key={i} aria-hidden className="inline-block h-2 w-2 rounded bg-[#111]" />;
-        }
-        // Final filled cell: show emoji for win/loss
-        if (i === last) {
-          const emoji = entry.status === "won" ? "✓" : "💥";
-          return (
-            <span
-              key={i}
-              aria-hidden
-              className={`inline-flex h-2 w-2 items-center justify-center rounded text-[10px] leading-none`}
-            >
-              <span className="-translate-y-[1px]">{emoji}</span>
-            </span>
-          );
-        }
-        // Intermediate filled cells: neutral squares
-        return <span key={i} aria-hidden className="inline-block h-2 w-2 rounded bg-gray-700" />;
-      })}
+    <div className="mt-1 flex max-w-full flex-wrap justify-center gap-[3px]">
+      {Array.from({ length: total }, (_, i) => (
+        <span
+          key={i}
+          aria-hidden
+          className={`h-2.5 w-2.5 rounded-[2px] ${
+            i === last ? (won ? "bg-correct" : "bg-danger") : "bg-tileborder"
+          }`}
+        />
+      ))}
     </div>
   );
 }
@@ -199,6 +189,19 @@ function ScreenShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Attribution footer, shared across the puzzle page and the full-page
+ *  Discord screens. */
+export function MadeByFooter() {
+  return (
+    <div className="border-tileborder mt-8 flex w-full items-center justify-center gap-2 border-t pt-5">
+      {/* Self-hosted avatar, same as the win/lose gifs — works in the iframe. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/sundei.png" alt="" className="h-6 w-6 rounded-full" />
+      <span className="text-sm font-semibold">made by sundei for his friend bite</span>
+    </div>
+  );
+}
+
 /* --------------------------------------------------------------- result */
 
 export const WIN_GIF = "/win.gif";
@@ -216,10 +219,11 @@ function praiseFor(score: number): string {
  *  only ever rendered for the viewer's own ("me") card. */
 export function PlayerResultCard({ entry, onShare }: { entry: TodayEntry; onShare?: () => void }) {
   return (
-    <div className={`flex w-20 shrink-0 flex-col items-center gap-2 rounded-lg p-2 bg-surface`}>
-      <div
-        className={`w-full rounded-lg overflow-hidden border ${entry.me ? "border-white bg-tile/60 shadow-md" : "border-tileborder bg-surface"} px-2 py-3 flex flex-col items-center`}
-      >
+    <div
+      className={`flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-lg border px-2 py-3 ${
+        entry.me ? "border-white/80 bg-tile/50" : "border-transparent bg-raised/60"
+      }`}
+    >
       {entry.discordAvatarUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -234,25 +238,22 @@ export function PlayerResultCard({ entry, onShare }: { entry: TodayEntry; onShar
       ) : (
         <div className="bg-tile h-10 w-10 rounded-full" />
       )}
-      <div className="flex items-center justify-center gap-1 text-sm mt-1">
+      <div className="flex items-center justify-center gap-1 text-sm">
         <span className="text-base">{entry.status === "won" ? "✅" : "💥"}</span>
         <span className="font-semibold">{entry.clicks}</span>
       </div>
-      <div className="w-full truncate text-center text-xs font-semibold mt-1">{entry.name}</div>
+      <div className="w-full truncate text-center text-xs font-semibold">{entry.name}</div>
+      <MiniResultTrail entry={entry} />
       {entry.me && onShare && (
         <button
           type="button"
           onClick={onShare}
-          className="bg-correct mt-2 cursor-pointer rounded-full px-3 py-0.5 text-xs font-bold text-white hover:brightness-110"
+          className="bg-correct mt-1 cursor-pointer rounded-full px-3 py-0.5 text-xs font-bold text-white hover:brightness-110"
         >
           Share
         </button>
       )}
-      <div className="mt-3">
-        <MiniBoardPreview entry={entry} />
-      </div>
     </div>
-  </div>
   );
 }
 
@@ -419,12 +420,7 @@ export function WelcomeBackScreen({
           Back to puzzle
         </button>
       </div>
-      <div className="border-tileborder mt-8 flex items-center justify-center gap-2 border-t pt-5">
-        {/* Self-hosted avatar, same as the win/lose gifs — works in the iframe. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/sundei.png" alt="" className="h-6 w-6 rounded-full" />
-        <span className="text-sm font-semibold">made by sundei</span>
-      </div>
+      <MadeByFooter />
     </ScreenShell>
   );
 }
@@ -458,6 +454,8 @@ export function ChannelStatsScreen({ entries, stats, onShare, onBack }: ChannelS
       ) : (
         <GuildResultsPanel entries={entries} stats={stats} onShare={onShare} />
       )}
+      <div className="flex-1" />
+      <MadeByFooter />
     </ScreenShell>
   );
 }

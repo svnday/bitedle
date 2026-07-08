@@ -13,6 +13,7 @@ import {
   HelpModal,
   LeaderboardModal,
   LOSE_GIF,
+  MadeByFooter,
   NameModal,
   PlayerResultCard,
   ResultModal,
@@ -330,7 +331,7 @@ export default function Game() {
 
         {isDiscordEmbed() && finished && guildEntries && guildEntries.length > 0 ? (
           <div className="flex w-full max-w-2xl items-start justify-center gap-4">
-            <div className="hidden max-h-[420px] w-20 shrink-0 flex-col gap-2 overflow-y-auto sm:flex">
+            <div className="scrollbar-slim hidden max-h-[440px] w-28 shrink-0 flex-col gap-2 overflow-y-auto pr-1 sm:flex">
               {guildEntries.map((entry, i) => (
                 <PlayerResultCard key={i} entry={entry} />
               ))}
@@ -384,6 +385,9 @@ export default function Game() {
             </div>
           </div>
         )}
+        <div className="w-full max-w-[360px]">
+          <MadeByFooter />
+        </div>
       </main>
 
       {toastsEl}
