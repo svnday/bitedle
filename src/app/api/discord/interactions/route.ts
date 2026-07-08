@@ -8,10 +8,10 @@ import { getStore } from "@/lib/store";
 // Imports next/og (via discord-summary) for the preview image — needs Node.
 export const runtime = "nodejs";
 
-// At most one on-demand channel-stats preview per guild per hour, so repeated
-// Activity launches don't spam the channel the way Discord's default
+// At most one on-demand channel-stats preview per guild every 20 minutes, so
+// repeated Activity launches don't spam the channel the way Discord's default
 // "Game Invitation" card did.
-const PREVIEW_COOLDOWN_MS = 60 * 60 * 1000;
+const PREVIEW_COOLDOWN_MS = 20 * 60 * 1000;
 
 function siteUrl(): string {
   // VERCEL_URL is the unique URL of *this* deployment, not the stable

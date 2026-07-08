@@ -127,11 +127,11 @@ mechanisms are involved:
 **Throttled launch preview.** Instead of Discord's per-launch invitation
 card, launching via `/play` or `/bitedle` posts a channel-stats preview image
 (the same render as the daily summary) to the channel — but at most **once
-per hour per server** (`PREVIEW_COOLDOWN_MS` in the interactions route), and
-only once someone has actually finished today's puzzle. The image render and
-post run in a Next.js [`after()`](https://nextjs.org/docs/app/api-reference/functions/after)
+every 20 minutes per server** (`PREVIEW_COOLDOWN_MS` in the interactions
+route), and only once someone has actually finished today's puzzle. The image
+render and post run in a Next.js [`after()`](https://nextjs.org/docs/app/api-reference/functions/after)
 callback so they never delay the launch response past Discord's 3-second
-window. The one-hour cooldown lives in a `last_preview_at` column on the
+window. The cooldown lives in a `last_preview_at` column on the
 `guild_channels` table.
 
 Run both scripts locally (not from Vercel — one-time admin actions, not
