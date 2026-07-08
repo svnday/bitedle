@@ -1,9 +1,12 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest, after } from "next/server";
 import { guildIdFromRequest } from "@/lib/discord";
+import { updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { layoutFor, stateFor, todayStr } from "@/lib/game";
 import { getStore } from "@/lib/store";
 import { BOARD_SIZE, type GameRecord } from "@/lib/types";
+
+export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
@@ -50,6 +53,14 @@ export async function POST(request: NextRequest) {
     game.finishedAt = Date.now();
   }
   await store.putGame(date, identity.id, game);
+  if (game.guildId) {
+    const guildId = game.guildId;
+    after(() =>
+      updateLivePreviewMessage({ guildId }).catch((e) => {
+        console.error(`click: live preview update failed for guild ${guildId}`, e);
+      }),
+    );
+  }
 
   return attachIdentity(
     NextResponse.json({ result, state: await stateFor(identity.id, date) }),

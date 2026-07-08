@@ -1,13 +1,16 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { SNOWFLAKE_RE } from "@/lib/discord";
+import { NextResponse, type NextRequest, after } from "next/server";
+import { guildIdFromRequest, SNOWFLAKE_RE } from "@/lib/discord";
+import { updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { getStore } from "@/lib/store";
 
 /**
  * Links a player's real Discord identity (for avatar display only) to their
- * existing anonymous Bitedle player. Never posts anywhere, never affects
- * gameplay — purely a display enhancement for the leaderboard.
+ * existing anonymous Bitedle player. Never affects gameplay — purely a
+ * display enhancement for Discord surfaces and the leaderboard.
  */
+export const runtime = "nodejs";
+
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const discordUserId = body?.discordUserId;
@@ -30,5 +33,13 @@ export async function POST(request: NextRequest) {
   // always takes over as the display name — every session, in case the
   // player has since changed their Discord name.
   await store.setUserName(identity.id, discordName);
+  const guildId = guildIdFromRequest(request);
+  if (guildId) {
+    after(() =>
+      updateLivePreviewMessage({ guildId }).catch((e) => {
+        console.error(`discord-identify: live preview update failed for guild ${guildId}`, e);
+      }),
+    );
+  }
   return attachIdentity(NextResponse.json({ ok: true }), identity);
 }

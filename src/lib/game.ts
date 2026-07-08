@@ -166,16 +166,8 @@ export function channelStatsFromGames(games: AllTimeRow[], today: string): UserS
     .map((g) => ({ day: dayNum(g.date), status: g.status, score: g.score }))
     .sort((a, b) => a.day - b.day);
 
-  const byUser = new Map<string, FinishedGame[]>();
-  for (const row of games) {
-    const userGames = byUser.get(row.userId) ?? [];
-    userGames.push(row);
-    byUser.set(row.userId, userGames);
-  }
-
-  const userStats = Array.from(byUser.values()).map((userGames) => statsFromGames(userGames, today));
-  const played = userStats.reduce((sum, s) => sum + s.played, 0);
-  const wins = userStats.reduce((sum, s) => sum + s.wins, 0);
+  const played = entries.length;
+  const wins = entries.filter((e) => e.status === "won").length;
   const distribution = distributionFromEntries(entries);
 
   const byDay = new Set(entries.map((e) => e.day));
@@ -190,7 +182,7 @@ export function channelStatsFromGames(games: AllTimeRow[], today: string): UserS
   return {
     played,
     wins,
-    winPct: userStats.length === 0 ? 0 : Math.round(userStats.reduce((sum, s) => sum + s.winPct, 0) / userStats.length),
+    winPct: played === 0 ? 0 : Math.round((wins / played) * 100),
     currentStreak,
     maxStreak: 0,
     bestScore: null,

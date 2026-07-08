@@ -12,7 +12,7 @@ export default function PrivacyPage() {
         ← Back to Bitedle
       </Link>
       <h1 className="mt-6 mb-6 text-2xl font-bold">Privacy Policy</h1>
-      <p className="text-muted mb-3 leading-relaxed">Last updated: July 7, 2026</p>
+      <p className="text-muted mb-3 leading-relaxed">Last updated: July 8, 2026</p>
 
       <p className="text-muted mb-3 leading-relaxed">
         Bitedle is built to collect as little as possible. Here&apos;s exactly what happens with
@@ -59,15 +59,20 @@ export default function PrivacyPage() {
         &quot;identify&quot; permission when prompted, Bitedle asks Discord for your Discord user
         ID and a reference to your avatar image. Both are stored linked to your existing anonymous
         Bitedle ID, solely so your real Discord avatar can be shown next to your name on the
-        leaderboard <em>inside that Discord server</em>. This never happens on the public website
-        (bitedle.vercel.app), and Bitedle never posts anything back to Discord or to any channel —
-        the only use is displaying your avatar within Bitedle&apos;s own leaderboard.
+        leaderboard <em>inside that Discord server</em>. This identity link never happens on the
+        public website (bitedle.vercel.app).
       </p>
       <p className="text-muted mb-3 leading-relaxed">
         Games played through a specific Discord server are also tagged with that server&apos;s ID,
         so the leaderboard shown inside a server only ever includes players and games from that
         same server — never the public website&apos;s leaderboard, and never another server&apos;s.
         The public website leaderboard only ever shows games played directly on the website.
+      </p>
+      <p className="text-muted mb-3 leading-relaxed">
+        Bitedle may post non-spoiling Discord messages in servers where it is used, such as launch
+        previews, requested shares, requested results, and daily summaries. Those posts can include
+        display names, Discord avatars when linked, and result/progress summaries, but never reveal
+        the hidden board positions.
       </p>
       <p className="text-muted mb-3 leading-relaxed">
         Separately, and outside Bitedle&apos;s control, Discord itself may collect its own data

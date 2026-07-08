@@ -109,14 +109,14 @@ mechanisms are involved:
   *every* launch — spammy. With `APP_HANDLER`, the launch interaction reaches
   [src/app/api/discord/interactions/route.ts](src/app/api/discord/interactions/route.ts)
   instead, which launches the Activity (response type `12`, `LAUNCH_ACTIVITY`)
-  and posts a **throttled channel-stats preview** rather than a card on every
+  and refreshes a **throttled live preview** rather than a card on every
   launch (see below). An app can only have **one** entry point command, so
   this mechanism can't be reused for a second name.
 - **`/bitedle`** is an ordinary `CHAT_INPUT` command (registered by
   [scripts/register-discord-commands.mjs](scripts/register-discord-commands.mjs))
   that gets the same result a different way: the same interactions route
   replies with interaction response type `12` (`LAUNCH_ACTIVITY`) to launch
-  the Activity, and likewise posts the throttled preview.
+  the Activity, and likewise refreshes the throttled live preview.
 - **`/share`** posts that player's already-finished result for today's
   puzzle (same non-spoiling text as the site's own Share button), publicly
   in the channel. Also an ordinary `CHAT_INPUT` command handled by the same
@@ -125,7 +125,7 @@ mechanisms are involved:
   to exist, since that's when Discord identity gets linked) and their game
   for today.
 - **`/results`** renders the server's whole-day results image on demand — the
-  same style as the daily summary and launch preview, but **not** throttled
+  same style as the daily summary, but **not** throttled
   (the caller asked for it). It replies deferred (response type `5`), then an
   [`after()`](https://nextjs.org/docs/app/api-reference/functions/after)
   callback edits in the rendered image via the interaction webhook (`PATCH
@@ -133,15 +133,16 @@ mechanisms are involved:
   webhook rather than a bot channel post means it also works where the app is
   user-installed and the bot isn't a channel member.
 
-**Throttled launch preview.** Instead of Discord's per-launch invitation
-card, launching via `/play` or `/bitedle` posts a channel-stats preview image
-(the same render as the daily summary) to the channel — but at most **once
-every 20 minutes per server** (`PREVIEW_COOLDOWN_MS` in the interactions
-route), and only once someone has actually finished today's puzzle. The image
-render and post run in a Next.js [`after()`](https://nextjs.org/docs/app/api-reference/functions/after)
-callback so they never delay the launch response past Discord's 3-second
-window. The cooldown lives in a `last_preview_at` column on the
-`guild_channels` table.
+**Live launch preview.** Instead of Discord's per-launch invitation card,
+launching via `/play` or `/bitedle` refreshes one editable live preview image
+for that server, at most **once every 5 minutes per server** on launch
+(`LIVE_PREVIEW_COOLDOWN_MS` in [src/lib/discord-live-preview.ts](src/lib/discord-live-preview.ts)).
+When someone opens the Activity, Bitedle creates an in-progress row; each later
+click edits the same Discord message immediately with all current players'
+non-spoiling progress. The image render and post/edit run in a Next.js
+[`after()`](https://nextjs.org/docs/app/api-reference/functions/after)
+callback so they never delay the launch or click response. The cooldown and
+live message ids live on the `guild_channels` table.
 
 Run both scripts locally (not from Vercel — one-time admin actions, not
 part of the deployed app):

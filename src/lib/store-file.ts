@@ -1,7 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { GameRecord } from "./types";
-import type { AllTimeRow, FinishedGame, GuildChannel, Store, TodayRow, UserInfo } from "./store";
+import type {
+  AllTimeRow,
+  FinishedGame,
+  GuildChannel,
+  LivePreviewMessage,
+  LivePreviewRow,
+  Store,
+  TodayRow,
+  UserInfo,
+} from "./store";
 
 interface FileDb {
   users: Record<
@@ -17,7 +26,18 @@ interface FileDb {
   /** games[date][userId] */
   games: Record<string, Record<string, GameRecord>>;
   /** guildChannels[guildId] — auto-detected daily-summary target channel. */
-  guildChannels: Record<string, { channelId: string; updatedAt: number; lastPreviewAt?: number }>;
+  guildChannels: Record<
+    string,
+    {
+      channelId: string;
+      updatedAt: number;
+      lastPreviewAt?: number;
+      livePreviewDate?: string;
+      livePreviewChannelId?: string;
+      livePreviewMessageId?: string;
+      livePreviewUpdatedAt?: number;
+    }
+  >;
 }
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -168,8 +188,18 @@ export class FileStore implements Store {
   }
 
   async setGuildChannel(guildId: string, channelId: string): Promise<void> {
-    this.db.guildChannels[guildId] = { channelId, updatedAt: Date.now() };
+    const existing = this.db.guildChannels[guildId];
+    this.db.guildChannels[guildId] = {
+      ...(existing ?? {}),
+      channelId,
+      updatedAt: Date.now(),
+    };
     this.persist();
+  }
+
+  async getGuildChannel(guildId: string): Promise<GuildChannel | null> {
+    const channel = this.db.guildChannels[guildId];
+    return channel ? { guildId, channelId: channel.channelId } : null;
   }
 
   async allGuildChannels(): Promise<GuildChannel[]> {
@@ -187,6 +217,63 @@ export class FileStore implements Store {
     const existing = this.db.guildChannels[guildId];
     if (existing) existing.lastPreviewAt = at;
     else this.db.guildChannels[guildId] = { channelId: "", updatedAt: Date.now(), lastPreviewAt: at };
+    this.persist();
+  }
+
+  async livePreviewGamesOn(date: string, guildId: string): Promise<LivePreviewRow[]> {
+    const out: LivePreviewRow[] = [];
+    for (const [userId, g] of Object.entries(this.db.games[date] ?? {})) {
+      if ((g.guildId ?? null) !== guildId) continue;
+      const user = this.db.users[userId];
+      if (!user) continue;
+      out.push({
+        userId,
+        name: user.name,
+        discordUserId: user.discordUserId ?? null,
+        discordAvatar: user.discordAvatar ?? null,
+        status: g.status,
+        score: g.score,
+        clicks: g.clicks,
+        finishedAt: g.finishedAt,
+      });
+    }
+    return out.sort((a, b) => {
+      if (a.status !== b.status) return a.status === "playing" ? -1 : 1;
+      if (a.clicks.length !== b.clicks.length) return b.clicks.length - a.clicks.length;
+      return (a.finishedAt ?? Number.MAX_SAFE_INTEGER) - (b.finishedAt ?? Number.MAX_SAFE_INTEGER);
+    });
+  }
+
+  async getLivePreviewMessage(guildId: string, date: string): Promise<LivePreviewMessage | null> {
+    const channel = this.db.guildChannels[guildId];
+    if (
+      !channel ||
+      channel.livePreviewDate !== date ||
+      !channel.livePreviewChannelId ||
+      !channel.livePreviewMessageId
+    ) {
+      return null;
+    }
+    return {
+      guildId,
+      date,
+      channelId: channel.livePreviewChannelId,
+      messageId: channel.livePreviewMessageId,
+      updatedAt: channel.livePreviewUpdatedAt ?? 0,
+    };
+  }
+
+  async setLivePreviewMessage(message: LivePreviewMessage): Promise<void> {
+    const existing = this.db.guildChannels[message.guildId];
+    this.db.guildChannels[message.guildId] = {
+      ...(existing ?? {}),
+      channelId: existing?.channelId ?? message.channelId,
+      updatedAt: existing?.updatedAt ?? Date.now(),
+      livePreviewDate: message.date,
+      livePreviewChannelId: message.channelId,
+      livePreviewMessageId: message.messageId,
+      livePreviewUpdatedAt: message.updatedAt,
+    };
     this.persist();
   }
 }

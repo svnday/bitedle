@@ -1,4 +1,4 @@
-import type { GameRecord, GameStatus } from "./types";
+import type { ClickRecord, GameRecord, GameStatus } from "./types";
 import { FileStore } from "./store-file";
 import { NeonStore } from "./store-neon";
 
@@ -29,6 +29,17 @@ export interface AllTimeRow extends FinishedGame {
   discordAvatar: string | null;
 }
 
+export interface LivePreviewRow {
+  userId: string;
+  name: string;
+  discordUserId: string | null;
+  discordAvatar: string | null;
+  status: GameStatus;
+  score: number | null;
+  clicks: ClickRecord[];
+  finishedAt: number | null;
+}
+
 export interface UserInfo {
   name: string;
   /** True once the player has chosen a name (vs the auto-generated one). */
@@ -42,6 +53,14 @@ export interface UserInfo {
 export interface GuildChannel {
   guildId: string;
   channelId: string;
+}
+
+export interface LivePreviewMessage {
+  guildId: string;
+  date: string;
+  channelId: string;
+  messageId: string;
+  updatedAt: number;
 }
 
 export interface Store {
@@ -70,13 +89,17 @@ export interface Store {
    *  captured automatically from inbound slash-command interactions
    *  (channel_id), never configured manually. Last-used-wins. */
   setGuildChannel(guildId: string, channelId: string): Promise<void>;
+  getGuildChannel(guildId: string): Promise<GuildChannel | null>;
   /** Every registered guild→channel pair, for the daily summary cron to loop over. */
   allGuildChannels(): Promise<GuildChannel[]>;
-  /** Epoch ms of the last on-demand channel-stats preview posted for a guild
-   *  (0 if never). Throttles the preview so repeated Activity launches don't
-   *  spam the channel. */
+  /** Epoch ms of the last launch-triggered live preview refresh for a guild
+   *  (0 if never). Throttles repeated Activity launches; clicks still update
+   *  the live preview immediately. */
   getLastPreviewAt(guildId: string): Promise<number>;
   setLastPreviewAt(guildId: string, at: number): Promise<void>;
+  livePreviewGamesOn(date: string, guildId: string): Promise<LivePreviewRow[]>;
+  getLivePreviewMessage(guildId: string, date: string): Promise<LivePreviewMessage | null>;
+  setLivePreviewMessage(message: LivePreviewMessage): Promise<void>;
 }
 
 // Cached on globalThis so dev HMR reloads keep one instance per process.

@@ -1,6 +1,15 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import type { GameRecord } from "./types";
-import type { AllTimeRow, FinishedGame, GuildChannel, Store, TodayRow, UserInfo } from "./store";
+import type {
+  AllTimeRow,
+  FinishedGame,
+  GuildChannel,
+  LivePreviewMessage,
+  LivePreviewRow,
+  Store,
+  TodayRow,
+  UserInfo,
+} from "./store";
 
 /**
  * Postgres (Neon) storage. The schema is created lazily on first use, so a
@@ -46,6 +55,10 @@ export class NeonStore implements Store {
           updated_at bigint NOT NULL
         )`;
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS last_preview_at bigint`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_date text`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_channel_id text`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_message_id text`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_updated_at bigint`;
     })();
     return this.ready;
   }
@@ -184,6 +197,14 @@ export class NeonStore implements Store {
       ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id, updated_at = EXCLUDED.updated_at`;
   }
 
+  async getGuildChannel(guildId: string): Promise<GuildChannel | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT guild_id, channel_id FROM guild_channels WHERE guild_id = ${guildId}`;
+    if (rows.length === 0) return null;
+    return { guildId: rows[0].guild_id as string, channelId: rows[0].channel_id as string };
+  }
+
   async allGuildChannels(): Promise<GuildChannel[]> {
     await this.ensureSchema();
     const rows = await this.sql`SELECT guild_id, channel_id FROM guild_channels`;
@@ -204,5 +225,69 @@ export class NeonStore implements Store {
     // this runs, so a plain UPDATE is sufficient.
     await this.sql`
       UPDATE guild_channels SET last_preview_at = ${at} WHERE guild_id = ${guildId}`;
+  }
+
+  async livePreviewGamesOn(date: string, guildId: string): Promise<LivePreviewRow[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar,
+             g.status, g.score, g.clicks, g.finished_at
+      FROM games g JOIN users u ON u.id = g.user_id
+      WHERE g.date = ${date} AND g.guild_id = ${guildId}
+      ORDER BY
+        CASE WHEN g.status = 'playing' THEN 0 ELSE 1 END,
+        jsonb_array_length(g.clicks) DESC,
+        COALESCE(g.finished_at, 9223372036854775807),
+        u.name`;
+    return rows.map((r) => ({
+      userId: r.user_id as string,
+      name: r.name as string,
+      discordUserId: r.discord_user_id as string | null,
+      discordAvatar: r.discord_avatar as string | null,
+      status: r.status as LivePreviewRow["status"],
+      score: r.score === null ? null : Number(r.score),
+      clicks: r.clicks as LivePreviewRow["clicks"],
+      finishedAt: r.finished_at === null ? null : Number(r.finished_at),
+    }));
+  }
+
+  async getLivePreviewMessage(guildId: string, date: string): Promise<LivePreviewMessage | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT live_preview_channel_id, live_preview_message_id, live_preview_updated_at
+      FROM guild_channels
+      WHERE guild_id = ${guildId} AND live_preview_date = ${date}`;
+    if (
+      rows.length === 0 ||
+      rows[0].live_preview_channel_id === null ||
+      rows[0].live_preview_message_id === null
+    ) {
+      return null;
+    }
+    return {
+      guildId,
+      date,
+      channelId: rows[0].live_preview_channel_id as string,
+      messageId: rows[0].live_preview_message_id as string,
+      updatedAt: rows[0].live_preview_updated_at === null ? 0 : Number(rows[0].live_preview_updated_at),
+    };
+  }
+
+  async setLivePreviewMessage(message: LivePreviewMessage): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO guild_channels (
+        guild_id, channel_id, updated_at,
+        live_preview_date, live_preview_channel_id, live_preview_message_id, live_preview_updated_at
+      )
+      VALUES (
+        ${message.guildId}, ${message.channelId}, ${Date.now()},
+        ${message.date}, ${message.channelId}, ${message.messageId}, ${message.updatedAt}
+      )
+      ON CONFLICT (guild_id) DO UPDATE
+      SET live_preview_date = EXCLUDED.live_preview_date,
+          live_preview_channel_id = EXCLUDED.live_preview_channel_id,
+          live_preview_message_id = EXCLUDED.live_preview_message_id,
+          live_preview_updated_at = EXCLUDED.live_preview_updated_at`;
   }
 }
