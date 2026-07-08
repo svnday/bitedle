@@ -4,6 +4,7 @@ import { puzzleNumber, todayStr } from "@/lib/game";
 import { shareText } from "@/lib/share-text";
 import { renderSummaryImage, sortTodayRows } from "@/lib/discord-summary";
 import { LAUNCH_BUTTON_ID, updateLivePreviewMessage } from "@/lib/discord-live-preview";
+import { isBlockedDiscordId } from "@/lib/discord";
 import { getStore } from "@/lib/store";
 
 // Imports next/og (via discord-summary) for the preview image — needs Node.
@@ -166,6 +167,16 @@ export async function POST(request: NextRequest) {
 
   if (body?.type === 1) {
     return NextResponse.json({ type: 1 });
+  }
+
+  // Blocklist gate: reject every command/component interaction (launch,
+  // /bitedle, "Play now!" button, /share, /results) before recording the
+  // guild channel or launching, so a blocked user can't play or interfere.
+  if (body?.type === 2 || body?.type === 3) {
+    const callerId = body.member?.user?.id ?? body.user?.id;
+    if (isBlockedDiscordId(callerId)) {
+      return reply("🚫 You don't have access to Bitedle.", true);
+    }
   }
 
   if ((body?.type === 2 || body?.type === 3) && body.guild_id && body.channel_id) {

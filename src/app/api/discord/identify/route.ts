@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest, after } from "next/server";
-import { guildIdFromRequest, SNOWFLAKE_RE } from "@/lib/discord";
+import { guildIdFromRequest, isBlockedDiscordId, SNOWFLAKE_RE } from "@/lib/discord";
 import { updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { todayStr } from "@/lib/game";
@@ -19,6 +19,10 @@ export async function POST(request: NextRequest) {
   const discordName = body?.discordName;
   if (typeof discordUserId !== "string" || !SNOWFLAKE_RE.test(discordUserId)) {
     return NextResponse.json({ error: "Invalid Discord user id" }, { status: 400 });
+  }
+  // A blocked user never links an avatar/name or merges devices.
+  if (isBlockedDiscordId(discordUserId)) {
+    return NextResponse.json({ error: "You don't have access to Bitedle." }, { status: 403 });
   }
   if (discordAvatar !== null && typeof discordAvatar !== "string") {
     return NextResponse.json({ error: "Invalid avatar" }, { status: 400 });

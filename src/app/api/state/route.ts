@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest, after } from "next/server";
-import { guildIdFromRequest } from "@/lib/discord";
+import { guildIdFromRequest, isBlockedDiscordId } from "@/lib/discord";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { stateFor, todayStr } from "@/lib/game";
 import { updateLivePreviewMessage } from "@/lib/discord-live-preview";
@@ -11,9 +11,16 @@ export async function GET(request: NextRequest) {
   const identity = await ensureUser(request);
   const date = todayStr();
   const guildId = guildIdFromRequest(request);
+  const store = getStore();
+
+  // Defense-in-depth: catch a session opened before the block whose player is
+  // linked to a blocked Discord id (the interaction gate stops fresh launches).
+  const me = await store.getUser(identity.id);
+  if (isBlockedDiscordId(me?.discordUserId)) {
+    return NextResponse.json({ error: "You don't have access to Bitedle." }, { status: 403 });
+  }
 
   if (guildId) {
-    const store = getStore();
     const game = await store.getGame(date, identity.id);
     if (!game) {
       await store.putGame(date, identity.id, {

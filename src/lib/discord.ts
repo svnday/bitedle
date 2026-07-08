@@ -5,6 +5,22 @@ export const GUILD_HEADER_NAME = "X-Bitedle-Guild-Id";
 
 export const SNOWFLAKE_RE = /^\d{5,25}$/;
 
+/**
+ * Discord user IDs barred from Bitedle, from the BITEDLE_BLOCKED_DISCORD_IDS
+ * env var (comma/whitespace-separated snowflakes). Parsed once at module load
+ * — a redeploy/restart picks up changes. Malformed entries are ignored.
+ */
+const BLOCKED_DISCORD_IDS = new Set(
+  (process.env.BITEDLE_BLOCKED_DISCORD_IDS ?? "")
+    .split(/[\s,]+/)
+    .filter((id) => SNOWFLAKE_RE.test(id)),
+);
+
+/** True if this Discord user is on the blocklist (never for null/empty). */
+export function isBlockedDiscordId(id: string | null | undefined): boolean {
+  return typeof id === "string" && BLOCKED_DISCORD_IDS.has(id);
+}
+
 export function guildIdFromRequest(request: NextRequest): string | null {
   const raw = request.headers.get(GUILD_HEADER_NAME);
   return raw && SNOWFLAKE_RE.test(raw) ? raw : null;
