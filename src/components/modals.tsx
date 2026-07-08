@@ -271,7 +271,7 @@ export function GuildResultsPanel({
   return (
     <div>
       {entries.length > 0 && (
-        <div className="flex gap-3 overflow-x-auto pb-1">
+        <div className="scrollbar-slim flex gap-3 overflow-x-auto pb-2">
           {entries.map((entry, i) => (
             <PlayerResultCard key={i} entry={entry} onShare={entry.me ? onShare : undefined} />
           ))}

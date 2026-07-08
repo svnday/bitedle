@@ -119,14 +119,15 @@ body {
   opacity: 0.45;
 }
 
-/* --- Slim themed scrollbar (player results sidebar) -------------------- */
+/* --- Slim themed scrollbar (player results sidebar, channel stats row) -- */
 
 .scrollbar-slim {
   scrollbar-width: thin;
   scrollbar-color: var(--color-tileborder) transparent;
 }
 .scrollbar-slim::-webkit-scrollbar {
-  width: 6px;
+  width: 6px; /* vertical */
+  height: 6px; /* horizontal */
 }
 .scrollbar-slim::-webkit-scrollbar-track {
   background: transparent;
