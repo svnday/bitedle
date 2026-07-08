@@ -133,7 +133,9 @@ export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
   const cardGap = 18;
   const margin = 40;
   const titleBlock = 60;
-  const width = margin * 2 + perRow * cardWidth + (perRow - 1) * cardGap;
+  const cardsWidth = perRow * cardWidth + (perRow - 1) * cardGap;
+  const contentWidth = Math.max(cardsWidth, 260);
+  const width = margin * 2 + contentWidth;
   const height = margin * 2 + titleBlock + rowCount * cardHeight + (rowCount - 1) * cardGap;
 
   return new ImageResponse(
@@ -149,7 +151,15 @@ export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
           padding: margin,
         }}
       >
-        <div style={{ fontSize: 26, fontWeight: 600, color: "#f2f3f5", marginBottom: 30 }}>
+        <div
+          style={{
+            fontSize: 26,
+            fontWeight: 600,
+            color: "#f2f3f5",
+            marginBottom: 30,
+            whiteSpace: "nowrap",
+          }}
+        >
           {`Bitedle No. ${puzzleNumber(date)}`}
         </div>
 
@@ -159,7 +169,7 @@ export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
             flexWrap: "wrap",
             justifyContent: "center",
             gap: cardGap,
-            width: perRow * cardWidth + (perRow - 1) * cardGap,
+            width: contentWidth,
           }}
         >
           {rows.map((row) => {
@@ -325,4 +335,3 @@ export async function patchImageWebhookMessage(opts: {
 
   return { ok: res.ok, status: res.status, body: res.ok ? "" : await res.text() };
 }
-
