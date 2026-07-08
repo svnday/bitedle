@@ -85,8 +85,16 @@ export interface Store {
   setUserName(id: string, name: string): Promise<void>;
   /** Links a player's real Discord identity (for avatar display only). */
   setDiscordIdentity(userId: string, discordUserId: string, discordAvatar: string | null): Promise<void>;
-  /** Reverse lookup: a Discord interaction only carries the caller's Discord id, not a Bitedle cookie. */
+  /** Reverse lookup (Discord interactions carry no Bitedle cookie). The
+   *  oldest matching row wins — it is the canonical player for a Discord id. */
   getUserIdByDiscordId(discordUserId: string): Promise<string | null>;
+  /**
+   * Folds an orphan player into the canonical player for the same Discord
+   * identity: transfers games the canonical player lacks, drops the orphan's
+   * conflicting-date games, then anonymizes the orphan row (kept, never
+   * deleted). Idempotent; re-run freely on every identify.
+   */
+  mergeUsers(fromUserId: string, toUserId: string): Promise<void>;
   getGame(date: string, userId: string): Promise<GameRecord | null>;
   /** Upserts; must never overwrite a game that is already finished, and must
    *  never change guildId once a game row exists (set once, at creation). */

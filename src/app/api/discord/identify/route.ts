@@ -28,11 +28,39 @@ export async function POST(request: NextRequest) {
 
   const identity = await ensureUser(request);
   const store = getStore();
-  await store.setDiscordIdentity(identity.id, discordUserId, discordAvatar);
+
+  // Cross-device dedupe: Discord's desktop, mobile and browser clients have
+  // separate cookie jars, so the same person would otherwise become a new
+  // anonymous player on each device. If this Discord id already belongs to a
+  // (canonical, oldest) player, fold the caller's cookie user into it and
+  // re-point this device's cookie below. A request already in flight with the
+  // old cookie can recreate an orphan game for a few ms; identify runs every
+  // embedded session, so the next launch re-absorbs it.
+  const canonicalId = await store.getUserIdByDiscordId(discordUserId);
+  let effectiveId = identity.id;
+  if (canonicalId !== null && canonicalId !== identity.id) {
+    await store.mergeUsers(identity.id, canonicalId);
+    effectiveId = canonicalId;
+  }
+
+  try {
+    await store.setDiscordIdentity(effectiveId, discordUserId, discordAvatar);
+  } catch (e) {
+    // Unique-index conflict (23505): two devices ran their first-ever
+    // identify concurrently and the other one linked a moment ago — merge
+    // into that winner instead of failing.
+    if ((e as { code?: string })?.code !== "23505") throw e;
+    const winner = await store.getUserIdByDiscordId(discordUserId);
+    if (!winner || winner === effectiveId) throw e;
+    await store.mergeUsers(effectiveId, winner);
+    effectiveId = winner;
+    await store.setDiscordIdentity(effectiveId, discordUserId, discordAvatar);
+  }
+
   // The Discord identity is verified (unlike a free-form chosen name), so it
   // always takes over as the display name — every session, in case the
   // player has since changed their Discord name.
-  await store.setUserName(identity.id, discordName);
+  await store.setUserName(effectiveId, discordName);
   const guildId = guildIdFromRequest(request);
   if (guildId) {
     after(() =>
@@ -41,5 +69,5 @@ export async function POST(request: NextRequest) {
       }),
     );
   }
-  return attachIdentity(NextResponse.json({ ok: true }), identity);
+  return attachIdentity(NextResponse.json({ ok: true }), { id: effectiveId });
 }

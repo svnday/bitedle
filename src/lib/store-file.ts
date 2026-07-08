@@ -117,10 +117,28 @@ export class FileStore implements Store {
   }
 
   async getUserIdByDiscordId(discordUserId: string): Promise<string | null> {
-    for (const [id, u] of Object.entries(this.db.users)) {
-      if (u.discordUserId === discordUserId) return id;
+    // Oldest row wins — canonical player for the Discord id.
+    const matches = Object.entries(this.db.users)
+      .filter(([, u]) => u.discordUserId === discordUserId)
+      .sort(([idA, a], [idB, b]) => a.createdAt - b.createdAt || idA.localeCompare(idB));
+    return matches.length === 0 ? null : matches[0][0];
+  }
+
+  async mergeUsers(fromUserId: string, toUserId: string): Promise<void> {
+    for (const byUser of Object.values(this.db.games)) {
+      const orphanGame = byUser[fromUserId];
+      if (!orphanGame) continue;
+      // Transfer dates the canonical user lacks; conflicting dates: canonical wins.
+      if (!byUser[toUserId]) byUser[toUserId] = orphanGame;
+      delete byUser[fromUserId];
     }
-    return null;
+    const orphan = this.db.users[fromUserId];
+    if (orphan) {
+      orphan.discordUserId = null;
+      orphan.discordAvatar = null;
+      orphan.named = false;
+    }
+    this.persist();
   }
 
   async getGame(date: string, userId: string): Promise<GameRecord | null> {

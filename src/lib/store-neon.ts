@@ -61,6 +61,60 @@ export class NeonStore implements Store {
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_application_id text`;
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_webhook_token text`;
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_token_created_at bigint`;
+
+      // One-time dedupe of players who linked the same Discord id from
+      // several devices before identify learned to merge (cheap no-ops once
+      // clean). Canonical row = oldest per discord_user_id; same shape as
+      // mergeUsers, but set-based across all duplicates at once.
+      // A: give the canonical user the best duplicate game for each date it
+      //    lacks (prefer finished over playing, then earliest finish).
+      await this.sql`
+        WITH canon AS (
+          SELECT DISTINCT ON (discord_user_id) discord_user_id, id
+          FROM users WHERE discord_user_id IS NOT NULL
+          ORDER BY discord_user_id, created_at ASC, id ASC
+        ), dup AS (
+          SELECT u.id AS dup_id, c.id AS canon_id
+          FROM users u JOIN canon c ON c.discord_user_id = u.discord_user_id
+          WHERE u.id <> c.id
+        ), movable AS (
+          SELECT DISTINCT ON (d.canon_id, g.date) g.date, g.user_id AS dup_id, d.canon_id
+          FROM games g JOIN dup d ON d.dup_id = g.user_id
+          WHERE NOT EXISTS (SELECT 1 FROM games g2 WHERE g2.date = g.date AND g2.user_id = d.canon_id)
+          ORDER BY d.canon_id, g.date, (g.status = 'playing') ASC, g.finished_at ASC NULLS LAST, g.user_id
+        )
+        UPDATE games g SET user_id = m.canon_id
+        FROM movable m WHERE g.date = m.date AND g.user_id = m.dup_id`;
+      // B: remaining duplicate-user games all conflict by date; drop them.
+      await this.sql`
+        WITH canon AS (
+          SELECT DISTINCT ON (discord_user_id) discord_user_id, id
+          FROM users WHERE discord_user_id IS NOT NULL
+          ORDER BY discord_user_id, created_at ASC, id ASC
+        )
+        DELETE FROM games g
+        USING users u, canon c
+        WHERE g.user_id = u.id AND u.discord_user_id = c.discord_user_id AND u.id <> c.id`;
+      // C: anonymize the duplicate user rows (same SET as mergeUsers).
+      await this.sql`
+        WITH canon AS (
+          SELECT DISTINCT ON (discord_user_id) discord_user_id, id
+          FROM users WHERE discord_user_id IS NOT NULL
+          ORDER BY discord_user_id, created_at ASC, id ASC
+        )
+        UPDATE users u SET discord_user_id = NULL, discord_avatar = NULL, named = false
+        FROM canon c
+        WHERE u.discord_user_id = c.discord_user_id AND u.id <> c.id`;
+      // Guard against new duplicates. Separate try/catch: if a duplicate
+      // races in mid-migration, a rejected this.ready would otherwise be
+      // cached forever; skipping lets the next cold start dedupe and retry.
+      try {
+        await this.sql`
+          CREATE UNIQUE INDEX IF NOT EXISTS users_discord_user_id_uq
+          ON users (discord_user_id) WHERE discord_user_id IS NOT NULL`;
+      } catch {
+        // Dups exist right now; the next cold start deduplicates and retries.
+      }
     })();
     return this.ready;
   }
@@ -104,8 +158,30 @@ export class NeonStore implements Store {
 
   async getUserIdByDiscordId(discordUserId: string): Promise<string | null> {
     await this.ensureSchema();
-    const rows = await this.sql`SELECT id FROM users WHERE discord_user_id = ${discordUserId}`;
+    const rows = await this.sql`
+      SELECT id FROM users WHERE discord_user_id = ${discordUserId}
+      ORDER BY created_at ASC, id ASC LIMIT 1`;
     return rows.length === 0 ? null : (rows[0].id as string);
+  }
+
+  async mergeUsers(fromUserId: string, toUserId: string): Promise<void> {
+    await this.ensureSchema();
+    // Three auto-committed statements (the Neon HTTP driver has no
+    // transactions), sequenced so a crash between any two leaves the orphan
+    // still Discord-linked — the next identify simply re-runs the merge.
+    // Deliberately no error handling between steps: continuing past a failed
+    // transfer into the DELETE would destroy transferable games.
+    await this.sql`
+      UPDATE games g SET user_id = ${toUserId}
+      WHERE g.user_id = ${fromUserId}
+        AND NOT EXISTS (SELECT 1 FROM games g2 WHERE g2.date = g.date AND g2.user_id = ${toUserId})`;
+    // Whatever remains on the orphan conflicts by date; canonical wins.
+    await this.sql`DELETE FROM games WHERE user_id = ${fromUserId}`;
+    // Anonymize: unlinked (lookup never returns it), unnamed (hidden from
+    // leaderboards), and with no games left it can't reach livePreviewGamesOn.
+    await this.sql`
+      UPDATE users SET discord_user_id = NULL, discord_avatar = NULL, named = false
+      WHERE id = ${fromUserId}`;
   }
 
   async getGame(date: string, userId: string): Promise<GameRecord | null> {
