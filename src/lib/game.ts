@@ -201,10 +201,12 @@ export async function computeLeaderboard(
   guildId: string | null,
 ): Promise<Leaderboard> {
   const store = getStore();
-  const [todayRows, allRows] = await Promise.all([
+  const [todayRows, allRows, myGame] = await Promise.all([
     store.finishedGamesOn(today, guildId),
     store.allFinishedGames(guildId),
+    meId !== null && guildId !== null ? store.getGame(today, meId) : Promise.resolve(null),
   ]);
+  const revealBoards = guildId !== null && myGame !== null && myGame.status !== "playing";
 
   const todayEntries = todayRows
     .sort((a, b) => {
@@ -221,6 +223,7 @@ export async function computeLeaderboard(
         status: r.status,
         score: r.score,
         clicks: r.clickCount,
+        ...(revealBoards ? { board: r.clicks } : {}),
         me: r.userId === meId,
       }),
     );

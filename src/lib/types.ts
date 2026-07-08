@@ -50,6 +50,8 @@ export interface TodayEntry {
   status: "won" | "lost";
   score: number | null;
   clicks: number;
+  /** Ordered click positions, present only for finished Discord-guild viewers. */
+  board?: ClickRecord[];
   /** Whether this row belongs to the requesting player (names aren't unique). */
   me: boolean;
 }

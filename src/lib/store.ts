@@ -17,6 +17,7 @@ export interface TodayRow {
   discordAvatar: string | null;
   status: "won" | "lost";
   score: number | null;
+  clicks: ClickRecord[];
   clickCount: number;
   finishedAt: number;
 }

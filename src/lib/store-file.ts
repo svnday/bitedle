@@ -191,6 +191,7 @@ export class FileStore implements Store {
         discordAvatar: user.discordAvatar ?? null,
         status: g.status,
         score: g.score,
+        clicks: g.clicks,
         clickCount: g.clicks.length,
         finishedAt: g.finishedAt ?? 0,
       });

@@ -242,7 +242,7 @@ export class NeonStore implements Store {
   async finishedGamesOn(date: string, guildId: string | null): Promise<TodayRow[]> {
     await this.ensureSchema();
     const rows = await this.sql`
-      SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar, g.status, g.score,
+      SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar, g.status, g.score, g.clicks,
              jsonb_array_length(g.clicks) AS click_count, g.finished_at
       FROM games g JOIN users u ON u.id = g.user_id
       WHERE g.date = ${date} AND g.status <> 'playing' AND u.named
@@ -254,6 +254,7 @@ export class NeonStore implements Store {
       discordAvatar: r.discord_avatar as string | null,
       status: r.status as TodayRow["status"],
       score: r.score === null ? null : Number(r.score),
+      clicks: r.clicks as TodayRow["clicks"],
       clickCount: Number(r.click_count),
       finishedAt: r.finished_at === null ? 0 : Number(r.finished_at),
     }));

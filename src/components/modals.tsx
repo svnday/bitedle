@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client-api";
-import type { GameState, Leaderboard, TodayEntry, UserStats } from "@/lib/types";
-import { DISTRIBUTION_BUCKETS } from "@/lib/types";
+import type { ClickRecord, GameState, GameStatus, Leaderboard, TodayEntry, UserStats } from "@/lib/types";
+import { BOARD_SIZE, DISTRIBUTION_BUCKETS } from "@/lib/types";
 import Countdown from "./Countdown";
 
 /* ---------------------------------------------------------------- shell */
@@ -74,6 +74,93 @@ function MiniTile({ kind }: { kind: "x" | "bomb" | "check" | "hidden" }) {
     >
       {styles.glyph}
     </span>
+  );
+}
+
+let resultGridFrame = 0;
+let resultGridTimer: ReturnType<typeof setInterval> | null = null;
+const resultGridListeners = new Set<(frame: number) => void>();
+
+function startResultGridTicker() {
+  if (resultGridTimer !== null) return;
+  resultGridTimer = setInterval(() => {
+    resultGridFrame += 1;
+    for (const listener of resultGridListeners) listener(resultGridFrame);
+  }, 250);
+}
+
+function stopResultGridTicker() {
+  if (resultGridTimer === null || resultGridListeners.size > 0) return;
+  clearInterval(resultGridTimer);
+  resultGridTimer = null;
+}
+
+function useResultGridFrame(enabled: boolean) {
+  const [frame, setFrame] = useState(resultGridFrame);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const listener = (nextFrame: number) => setFrame(nextFrame);
+    resultGridListeners.add(listener);
+    startResultGridTicker();
+    return () => {
+      resultGridListeners.delete(listener);
+      stopResultGridTicker();
+    };
+  }, [enabled]);
+
+  return frame;
+}
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReduced(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return reduced;
+}
+
+function AnimatedResultGrid({ board, status }: { board: ClickRecord[]; status: GameStatus }) {
+  const reducedMotion = usePrefersReducedMotion();
+  const frame = useResultGridFrame(!reducedMotion && board.length > 0);
+  const clicks = board.filter((click) => click.index >= 0 && click.index < BOARD_SIZE);
+  const holdSteps = 4;
+  const cycleLength = Math.max(1, clicks.length + holdSteps);
+  const visibleCount = reducedMotion ? clicks.length : Math.min(clicks.length, frame % cycleLength);
+  const revealed = new Map<number, ClickRecord["result"]>();
+
+  for (const click of clicks.slice(0, visibleCount)) {
+    revealed.set(click.index, click.result);
+  }
+
+  const cellClass = (result: ClickRecord["result"] | undefined) => {
+    if (result === "check") return "border-correct bg-correct";
+    if (result === "bomb") return "border-danger bg-danger";
+    if (result === "x") return "border-tileborder bg-tile";
+    return "border-tileborder bg-surface";
+  };
+
+  return (
+    <div
+      role="img"
+      aria-label={`${status === "won" ? "Winning" : "Losing"} result grid with ${clicks.length} clicks`}
+      className="grid grid-cols-5 gap-0.5 rounded-md border border-tileborder/70 bg-black/15 p-1"
+    >
+      {Array.from({ length: BOARD_SIZE }, (_, i) => (
+        <span
+          key={i}
+          aria-hidden
+          className={`h-3 w-3 rounded-[2px] border ${cellClass(revealed.get(i))}`}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -217,7 +304,53 @@ function praiseFor(score: number): string {
 /** One player's avatar + non-spoiling result trail + name, for the guild
  *  results carousel and the persistent board sidebar alike. `onShare` is
  *  only ever rendered for the viewer's own ("me") card. */
-export function PlayerResultCard({ entry, onShare }: { entry: TodayEntry; onShare?: () => void }) {
+export function PlayerResultCard({
+  entry,
+  onShare,
+  variant = "portrait",
+}: {
+  entry: TodayEntry;
+  onShare?: () => void;
+  variant?: "portrait" | "landscape";
+}) {
+  const result = entry.board ? (
+    <AnimatedResultGrid board={entry.board} status={entry.status} />
+  ) : (
+    <MiniResultTrail entry={entry} />
+  );
+  const chrome = entry.me ? "border-white/80 bg-tile/50" : "border-transparent bg-raised/60";
+
+  if (variant === "landscape") {
+    return (
+      <div className={`flex w-52 shrink-0 items-center gap-2 rounded-lg border px-2 py-2 ${chrome}`}>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {entry.discordAvatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={entry.discordAvatarUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              className="h-10 w-10 shrink-0 rounded-full object-cover"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          ) : (
+            <div className="bg-tile h-10 w-10 shrink-0 rounded-full" />
+          )}
+          <div className="min-w-0">
+            <div className="flex items-center gap-1 text-sm">
+              <span className="text-base">{entry.status === "won" ? "\u2705" : "\uD83D\uDCA5"}</span>
+              <span className="font-semibold">{entry.clicks}</span>
+            </div>
+            <div className="truncate text-xs font-semibold">{entry.name}</div>
+          </div>
+        </div>
+        <div className="shrink-0">{result}</div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`flex w-24 shrink-0 flex-col items-center gap-1.5 rounded-lg border px-2 py-3 ${
@@ -243,7 +376,7 @@ export function PlayerResultCard({ entry, onShare }: { entry: TodayEntry; onShar
         <span className="font-semibold">{entry.clicks}</span>
       </div>
       <div className="w-full truncate text-center text-xs font-semibold">{entry.name}</div>
-      <MiniResultTrail entry={entry} />
+      {result}
       {entry.me && onShare && (
         <button
           type="button"
