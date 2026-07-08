@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/client-api";
+import { copyToClipboard } from "@/lib/clipboard";
 import { isDiscordEmbed } from "@/lib/discord-context";
 import { shareText } from "@/lib/share-text";
 import type { GameState, TodayEntry, UserStats } from "@/lib/types";
@@ -187,12 +188,10 @@ export default function Game() {
     }
   }, [channelStats, guildEntries, loadChannelData]);
 
-  const handleShare = () => {
+  const handleShare = async () => {
     if (!state) return;
-    navigator.clipboard
-      .writeText(gameShareText(state))
-      .then(() => toast("Results copied to clipboard"))
-      .catch(() => toast("Couldn't copy to clipboard"));
+    const ok = await copyToClipboard(gameShareText(state));
+    toast(ok ? "Results copied to clipboard" : "Couldn't copy to clipboard");
   };
 
   const handleNewDay = useCallback(() => {
