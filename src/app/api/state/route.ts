@@ -24,6 +24,9 @@ export async function GET(request: NextRequest) {
         guildId,
       });
     }
+    // Opening the Activity is a launch — record it so the live preview scopes
+    // to this window's players. Awaited before the after() render below.
+    await store.stampLaunch(date, identity.id, Date.now());
     // No interaction token here — this can only post/edit through the token
     // stored by the launch that opened the Activity (fine: that launch just
     // happened, so the token is fresh).

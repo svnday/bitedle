@@ -48,6 +48,9 @@ export class NeonStore implements Store {
           PRIMARY KEY (date, user_id)
         )`;
       await this.sql`ALTER TABLE games ADD COLUMN IF NOT EXISTS guild_id text`;
+      // When the player last opened the Activity — scopes the live preview to
+      // one launch window (see stampLaunch / livePreviewGamesOn).
+      await this.sql`ALTER TABLE games ADD COLUMN IF NOT EXISTS launched_at bigint`;
       await this.sql`CREATE INDEX IF NOT EXISTS games_user_idx ON games (user_id)`;
       await this.sql`
         CREATE TABLE IF NOT EXISTS guild_channels (
@@ -215,6 +218,14 @@ export class NeonStore implements Store {
       WHERE games.status = 'playing'`;
   }
 
+  async stampLaunch(date: string, userId: string, at: number): Promise<void> {
+    await this.ensureSchema();
+    // The caller ensures the game row exists first; a no-op otherwise. Allowed
+    // on finished games too — launched_at is launch metadata, not game state.
+    await this.sql`
+      UPDATE games SET launched_at = ${at} WHERE date = ${date} AND user_id = ${userId}`;
+  }
+
   async finishedGamesFor(userId: string): Promise<FinishedGame[]> {
     await this.ensureSchema();
     const rows = await this.sql`
@@ -289,18 +300,19 @@ export class NeonStore implements Store {
     return rows.map((r) => ({ guildId: r.guild_id as string, channelId: r.channel_id as string }));
   }
 
-  async livePreviewGamesOn(date: string, guildId: string): Promise<LivePreviewRow[]> {
+  async livePreviewGamesOn(
+    date: string,
+    guildId: string,
+    sinceLaunchedAt: number,
+  ): Promise<LivePreviewRow[]> {
     await this.ensureSchema();
     const rows = await this.sql`
       SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar,
              g.status, g.score, g.clicks, g.finished_at
       FROM games g JOIN users u ON u.id = g.user_id
       WHERE g.date = ${date} AND g.guild_id = ${guildId}
-      ORDER BY
-        CASE WHEN g.status = 'playing' THEN 0 ELSE 1 END,
-        jsonb_array_length(g.clicks) DESC,
-        COALESCE(g.finished_at, 9223372036854775807),
-        u.name`;
+        AND g.launched_at IS NOT NULL AND g.launched_at >= ${sinceLaunchedAt}
+      ORDER BY g.launched_at ASC, g.user_id`;
     return rows.map((r) => ({
       userId: r.user_id as string,
       name: r.name as string,

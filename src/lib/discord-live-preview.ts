@@ -33,14 +33,6 @@ const LAUNCH_BUTTON_COMPONENTS = [
   },
 ];
 
-function sortLivePreviewRows(rows: LivePreviewRow[]): LivePreviewRow[] {
-  return [...rows].sort((a, b) => {
-    if (a.status !== b.status) return a.status === "playing" ? -1 : 1;
-    if (a.clicks.length !== b.clicks.length) return b.clicks.length - a.clicks.length;
-    return (a.finishedAt ?? Number.MAX_SAFE_INTEGER) - (b.finishedAt ?? Number.MAX_SAFE_INTEGER);
-  });
-}
-
 function previewContent(rows: LivePreviewRow[], date: string): string {
   const others = rows.length - 1;
   const who =
@@ -82,7 +74,10 @@ export async function updateLivePreviewMessage(opts: {
   // Another invocation is mid-POST — it will render the same data anyway.
   if (record.messageId === LIVE_PREVIEW_POSTING) return;
 
-  const rows = sortLivePreviewRows(await store.livePreviewGamesOn(date, opts.guildId));
+  // Scope to this launch window: only players who opened the Activity since
+  // the current message's token was minted. The store returns them
+  // launcher-first, which both the image and previewContent rely on.
+  const rows = await store.livePreviewGamesOn(date, opts.guildId, record.tokenCreatedAt);
   if (rows.length === 0) return;
 
   const pngBuffer = await renderLivePreviewImage(rows, date).arrayBuffer();

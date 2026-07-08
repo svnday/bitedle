@@ -114,7 +114,13 @@ export interface Store {
   getGuildChannel(guildId: string): Promise<GuildChannel | null>;
   /** Every registered guild→channel pair, for the daily summary cron to loop over. */
   allGuildChannels(): Promise<GuildChannel[]>;
-  livePreviewGamesOn(date: string, guildId: string): Promise<LivePreviewRow[]>;
+  /** Games for the guild's current live-preview window: only players who
+   *  opened the Activity at or after `sinceLaunchedAt` (the window's start),
+   *  ordered launcher-first. */
+  livePreviewGamesOn(date: string, guildId: string, sinceLaunchedAt: number): Promise<LivePreviewRow[]>;
+  /** Records that a player opened the Activity at `at` — their launch time,
+   *  used to scope the live preview to one ~13-minute window. */
+  stampLaunch(date: string, userId: string, at: number): Promise<void>;
   getLivePreviewMessage(guildId: string, date: string): Promise<LivePreviewMessage | null>;
   setLivePreviewMessage(message: LivePreviewMessage): Promise<void>;
   /** Atomically claims the right to POST the day's preview message (null

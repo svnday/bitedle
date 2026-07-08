@@ -24,8 +24,9 @@ interface FileDb {
       discordAvatar?: string | null;
     }
   >;
-  /** games[date][userId] */
-  games: Record<string, Record<string, GameRecord>>;
+  /** games[date][userId]; launchedAt is preview-only metadata (last Activity
+   *  open), kept off GameRecord since gameplay never reads it. */
+  games: Record<string, Record<string, GameRecord & { launchedAt?: number }>>;
   /** guildChannels[guildId] — auto-detected daily-summary target channel. */
   guildChannels: Record<
     string,
@@ -151,9 +152,20 @@ export class FileStore implements Store {
     const byUser = (this.db.games[date] ??= {});
     const existing = byUser[userId];
     if (existing && existing.status !== "playing") return;
-    // guildId is set once, at creation — a full-object replace here would
-    // otherwise let a later call silently overwrite it.
-    byUser[userId] = { ...game, guildId: existing ? existing.guildId : game.guildId };
+    // guildId and launchedAt are set once / out of band — a full-object
+    // replace here would otherwise let a later click silently drop them.
+    byUser[userId] = {
+      ...game,
+      guildId: existing ? existing.guildId : game.guildId,
+      launchedAt: existing?.launchedAt,
+    };
+    this.persist();
+  }
+
+  async stampLaunch(date: string, userId: string, at: number): Promise<void> {
+    const game = this.db.games[date]?.[userId];
+    if (!game) return; // caller ensures the row exists first
+    game.launchedAt = at;
     this.persist();
   }
 
@@ -229,28 +241,35 @@ export class FileStore implements Store {
     }));
   }
 
-  async livePreviewGamesOn(date: string, guildId: string): Promise<LivePreviewRow[]> {
-    const out: LivePreviewRow[] = [];
+  async livePreviewGamesOn(
+    date: string,
+    guildId: string,
+    sinceLaunchedAt: number,
+  ): Promise<LivePreviewRow[]> {
+    const rows: { launchedAt: number; row: LivePreviewRow }[] = [];
     for (const [userId, g] of Object.entries(this.db.games[date] ?? {})) {
       if ((g.guildId ?? null) !== guildId) continue;
+      if (g.launchedAt == null || g.launchedAt < sinceLaunchedAt) continue;
       const user = this.db.users[userId];
       if (!user) continue;
-      out.push({
-        userId,
-        name: user.name,
-        discordUserId: user.discordUserId ?? null,
-        discordAvatar: user.discordAvatar ?? null,
-        status: g.status,
-        score: g.score,
-        clicks: g.clicks,
-        finishedAt: g.finishedAt,
+      rows.push({
+        launchedAt: g.launchedAt,
+        row: {
+          userId,
+          name: user.name,
+          discordUserId: user.discordUserId ?? null,
+          discordAvatar: user.discordAvatar ?? null,
+          status: g.status,
+          score: g.score,
+          clicks: g.clicks,
+          finishedAt: g.finishedAt,
+        },
       });
     }
-    return out.sort((a, b) => {
-      if (a.status !== b.status) return a.status === "playing" ? -1 : 1;
-      if (a.clicks.length !== b.clicks.length) return b.clicks.length - a.clicks.length;
-      return (a.finishedAt ?? Number.MAX_SAFE_INTEGER) - (b.finishedAt ?? Number.MAX_SAFE_INTEGER);
-    });
+    // Launcher first (earliest open in the window), then userId for determinism.
+    return rows
+      .sort((a, b) => a.launchedAt - b.launchedAt || a.row.userId.localeCompare(b.row.userId))
+      .map((r) => r.row);
   }
 
   async getLivePreviewMessage(guildId: string, date: string): Promise<LivePreviewMessage | null> {

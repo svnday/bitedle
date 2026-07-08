@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest, after } from "next/server";
 import { guildIdFromRequest, SNOWFLAKE_RE } from "@/lib/discord";
 import { updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { attachIdentity, ensureUser } from "@/lib/identity";
+import { todayStr } from "@/lib/game";
 import { getStore } from "@/lib/store";
 
 /**
@@ -63,6 +64,10 @@ export async function POST(request: NextRequest) {
   await store.setUserName(effectiveId, discordName);
   const guildId = guildIdFromRequest(request);
   if (guildId) {
+    // Stamp the launch onto the CANONICAL id — the cross-device merge above
+    // may have just moved this session's game off the cookie user that
+    // /api/state stamped, so re-stamp here to keep the player in the window.
+    await store.stampLaunch(todayStr(), effectiveId, Date.now());
     after(() =>
       updateLivePreviewMessage({ guildId }).catch((e) => {
         console.error(`discord-identify: live preview update failed for guild ${guildId}`, e);
