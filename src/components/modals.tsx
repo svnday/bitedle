@@ -354,6 +354,8 @@ export function ResultModal({ won, score, stats, guildEntries, onShare, onContin
 interface WelcomeBackModalProps {
   puzzleNumber: number;
   date: string;
+  /** True when the player found the check on their very first click. */
+  firstTry: boolean;
   onChannelStats: () => void;
   onDismiss: () => void;
 }
@@ -384,6 +386,7 @@ function formatDisplayDate(date: string): string {
 export function WelcomeBackScreen({
   puzzleNumber,
   date,
+  firstTry,
   onChannelStats,
   onDismiss,
 }: WelcomeBackModalProps) {
@@ -392,9 +395,10 @@ export function WelcomeBackScreen({
       <div className="flex flex-1 flex-col items-center justify-center text-center">
         <MiniTile kind="check" />
         <h2 className="mt-3 text-sm font-extrabold tracking-[0.2em]">BITEDLE</h2>
-        <h1 className="mt-6 text-2xl font-extrabold">Hi Bitedler</h1>
-        <p className="text-muted mx-auto mt-3 max-w-xs text-base leading-snug">
-          Nice work on today&apos;s puzzle! Check out your channel&apos;s progress.
+        <p className="text-muted mx-auto mt-6 max-w-xs text-base leading-snug">
+          {firstTry
+            ? "Okay so you got lucky… see how everyone else did."
+            : "Could you really do any worse? Check out how much better everyone else did."}
         </p>
         <button
           type="button"

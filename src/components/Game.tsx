@@ -224,6 +224,7 @@ export default function Game() {
         <WelcomeBackScreen
           puzzleNumber={state?.puzzleNumber ?? 0}
           date={state?.date ?? ""}
+          firstTry={state?.status === "won" && state?.score === 1}
           onChannelStats={openChannelStats}
           onDismiss={() => setModal(null)}
         />
