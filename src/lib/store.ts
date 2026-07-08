@@ -55,6 +55,10 @@ export interface GuildChannel {
   channelId: string;
 }
 
+/** Sentinel stored as the live-preview messageId while a POST is in flight,
+ *  so concurrent invocations neither double-post nor try to PATCH it. */
+export const LIVE_PREVIEW_POSTING = "__posting__";
+
 /**
  * The day's live-preview message for one guild, posted/edited via the
  * interaction webhook of whichever launch most recently minted it.
@@ -105,6 +109,16 @@ export interface Store {
   livePreviewGamesOn(date: string, guildId: string): Promise<LivePreviewRow[]>;
   getLivePreviewMessage(guildId: string, date: string): Promise<LivePreviewMessage | null>;
   setLivePreviewMessage(message: LivePreviewMessage): Promise<void>;
+  /** Atomically claims the right to POST the day's preview message (null
+   *  messageId → LIVE_PREVIEW_POSTING). False when another invocation already
+   *  claimed or posted — launch, state, identify and click can all race
+   *  within the same second on serverless. */
+  claimLivePreviewPost(guildId: string, date: string): Promise<boolean>;
+  /** Rolls a failed claim back so a later invocation can retry the POST. */
+  releaseLivePreviewPost(guildId: string, date: string): Promise<void>;
+  /** Forgets a message that no longer exists on Discord (deleted by a mod) —
+   *  only if the stored id still matches, so concurrent 404s reset it once. */
+  clearLivePreviewMessageId(guildId: string, date: string, messageId: string): Promise<void>;
 }
 
 // Cached on globalThis so dev HMR reloads keep one instance per process.

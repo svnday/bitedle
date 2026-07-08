@@ -4,7 +4,7 @@ import {
   postImageWebhookFollowup,
   renderLivePreviewImage,
 } from "./discord-summary";
-import { getStore, type LivePreviewRow } from "./store";
+import { getStore, LIVE_PREVIEW_POSTING, type LivePreviewRow } from "./store";
 
 /**
  * The live preview is posted and edited through *interaction webhooks*
@@ -79,6 +79,9 @@ export async function updateLivePreviewMessage(opts: {
     await store.setLivePreviewMessage(record);
   }
 
+  // Another invocation is mid-POST — it will render the same data anyway.
+  if (record.messageId === LIVE_PREVIEW_POSTING) return;
+
   const rows = sortLivePreviewRows(await store.livePreviewGamesOn(date, opts.guildId));
   if (rows.length === 0) return;
 
@@ -94,15 +97,21 @@ export async function updateLivePreviewMessage(opts: {
       content,
       components: LAUNCH_BUTTON_COMPONENTS,
     });
-    if (patched.ok) {
-      await store.setLivePreviewMessage({ ...record, updatedAt: now });
-    } else {
+    if (patched.ok) return;
+    if (patched.status !== 404) {
       console.error(
         `live-preview: webhook PATCH failed for guild ${opts.guildId} (${patched.status}): ${patched.body}`,
       );
+      return;
     }
-    return;
+    // 404: someone deleted the message. The token still works, so forget the
+    // dead id and fall through to posting a replacement.
+    await store.clearLivePreviewMessageId(opts.guildId, date, record.messageId);
   }
+
+  // launch, state, identify and click invocations race here — exactly one
+  // may POST, or a burst of launches turns into a burst of duplicate messages.
+  if (!(await store.claimLivePreviewPost(opts.guildId, date))) return;
 
   const posted = await postImageWebhookFollowup({
     applicationId: record.applicationId,
@@ -116,6 +125,7 @@ export async function updateLivePreviewMessage(opts: {
     console.error(
       `live-preview: webhook POST failed for guild ${opts.guildId} (${posted.status}): ${posted.body}`,
     );
+    await store.releaseLivePreviewPost(opts.guildId, date);
     return;
   }
 

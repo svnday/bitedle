@@ -1,15 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { GameRecord } from "./types";
-import type {
-  AllTimeRow,
-  FinishedGame,
-  GuildChannel,
-  LivePreviewMessage,
-  LivePreviewRow,
-  Store,
-  TodayRow,
-  UserInfo,
+import {
+  LIVE_PREVIEW_POSTING,
+  type AllTimeRow,
+  type FinishedGame,
+  type GuildChannel,
+  type LivePreviewMessage,
+  type LivePreviewRow,
+  type Store,
+  type TodayRow,
+  type UserInfo,
 } from "./store";
 
 interface FileDb {
@@ -269,5 +270,35 @@ export class FileStore implements Store {
       livePreviewUpdatedAt: message.updatedAt,
     };
     this.persist();
+  }
+
+  async claimLivePreviewPost(guildId: string, date: string): Promise<boolean> {
+    const channel = this.db.guildChannels[guildId];
+    if (!channel || channel.livePreviewDate !== date || channel.livePreviewMessageId != null) {
+      return false;
+    }
+    channel.livePreviewMessageId = LIVE_PREVIEW_POSTING;
+    this.persist();
+    return true;
+  }
+
+  async releaseLivePreviewPost(guildId: string, date: string): Promise<void> {
+    const channel = this.db.guildChannels[guildId];
+    if (
+      channel &&
+      channel.livePreviewDate === date &&
+      channel.livePreviewMessageId === LIVE_PREVIEW_POSTING
+    ) {
+      channel.livePreviewMessageId = null;
+      this.persist();
+    }
+  }
+
+  async clearLivePreviewMessageId(guildId: string, date: string, messageId: string): Promise<void> {
+    const channel = this.db.guildChannels[guildId];
+    if (channel && channel.livePreviewDate === date && channel.livePreviewMessageId === messageId) {
+      channel.livePreviewMessageId = null;
+      this.persist();
+    }
   }
 }

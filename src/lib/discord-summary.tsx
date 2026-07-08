@@ -109,48 +109,32 @@ export function renderSummaryImage(rows: TodayRow[], date: string) {
   );
 }
 
-function liveProgressLabel(row: LivePreviewRow): string {
-  if (row.status === "won") return `found it in ${row.score ?? row.clicks.length}`;
-  if (row.status === "lost") return `boom after ${Math.max(0, row.clicks.length - 1)} misses`;
-  if (row.clicks.length === 0) return "just started";
-  return `${row.clicks.length} ${row.clicks.length === 1 ? "click" : "clicks"} in`;
-}
+/** Wordle-esque tile palette: misses go yellow, the found check green, the
+ *  bomb red; unrevealed cells stay dark. No glyphs — colors carry it all. */
+const LIVE_TILE_COLORS = {
+  x: "#b59f3b",
+  bomb: "#b3392f",
+  check: "#538d4e",
+} as const;
 
-function liveCell(result: LivePreviewRow["clicks"][number]["result"] | null, index: number) {
-  const styles = {
-    x: { backgroundColor: "#475569", color: "#fca5a5", glyph: "x" },
-    bomb: { backgroundColor: "#b3392f", color: "#ffffff", glyph: "!" },
-    check: { backgroundColor: "#538d4e", color: "#ffffff", glyph: "✓" },
-    empty: { backgroundColor: "#111827", color: "#111827", glyph: "" },
-  }[result ?? "empty"];
-
-  return (
-    <div
-      key={index}
-      style={{
-        width: 24,
-        height: 24,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        borderRadius: 3,
-        border: "1px solid #334155",
-        backgroundColor: styles.backgroundColor,
-        color: styles.color,
-        fontSize: 16,
-        fontWeight: 800,
-        lineHeight: 1,
-      }}
-    >
-      {styles.glyph}
-    </div>
-  );
-}
-
+/** Wordle-launch-style card grid: centered title, one rounded card per
+ *  player with their avatar over a 5×5 tile grid showing click order
+ *  left-to-right (never real board positions). */
 export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
-  const width = 900;
-  const rowHeight = 118;
-  const height = Math.max(360, 128 + rows.length * rowHeight + 48);
+  const perRow = Math.max(1, Math.min(rows.length, 5));
+  const rowCount = Math.ceil(rows.length / perRow);
+  const tile = 24;
+  const tileGap = 4;
+  const gridSize = 5 * tile + 4 * tileGap;
+  const avatarSize = 88;
+  const cardPad = 18;
+  const cardWidth = gridSize + cardPad * 2;
+  const cardHeight = cardPad * 2 + avatarSize + 14 + gridSize;
+  const cardGap = 18;
+  const margin = 40;
+  const titleBlock = 60;
+  const width = margin * 2 + perRow * cardWidth + (perRow - 1) * cardGap;
+  const height = margin * 2 + titleBlock + rowCount * cardHeight + (rowCount - 1) * cardGap;
 
   return new ImageResponse(
     (
@@ -161,29 +145,24 @@ export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          backgroundColor: "#101114",
-          color: "#f8fafc",
-          padding: "34px 44px",
+          backgroundColor: "#131316",
+          padding: margin,
         }}
       >
-        <div style={{ fontSize: 24, color: "#cbd5e1", marginBottom: 6 }}>
+        <div style={{ fontSize: 26, fontWeight: 600, color: "#f2f3f5", marginBottom: 30 }}>
           {`Bitedle No. ${puzzleNumber(date)}`}
-        </div>
-        <div style={{ fontSize: 14, color: "#64748b", marginBottom: 26 }}>
-          Live server progress
         </div>
 
         <div
           style={{
-            width: 720,
             display: "flex",
-            flexDirection: "column",
-            border: "1px solid #2f333c",
-            borderRadius: 20,
-            overflow: "hidden",
+            flexWrap: "wrap",
+            justifyContent: "center",
+            gap: cardGap,
+            width: perRow * cardWidth + (perRow - 1) * cardGap,
           }}
         >
-          {rows.map((row, rowIndex) => {
+          {rows.map((row) => {
             const avatarUrl = discordAvatarUrl(row.discordUserId, row.discordAvatar);
             const cells = Array.from({ length: 25 }, (_, i) => row.clicks[i]?.result ?? null);
 
@@ -191,12 +170,15 @@ export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
               <div
                 key={row.userId}
                 style={{
-                  height: rowHeight,
                   display: "flex",
+                  flexDirection: "column",
                   alignItems: "center",
-                  padding: "18px 24px",
-                  backgroundColor: rowIndex % 2 === 0 ? "#171923" : "#141720",
-                  borderTop: rowIndex === 0 ? "0" : "1px solid #252936",
+                  width: cardWidth,
+                  height: cardHeight,
+                  backgroundColor: "#212226",
+                  border: "1px solid #2c2d31",
+                  borderRadius: 26,
+                  padding: cardPad,
                 }}
               >
                 {avatarUrl ? (
@@ -204,22 +186,23 @@ export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
                   <img
                     src={avatarUrl}
                     alt=""
-                    width={72}
-                    height={72}
+                    width={avatarSize}
+                    height={avatarSize}
                     style={{ borderRadius: 9999, objectFit: "cover" }}
                   />
                 ) : (
                   <div
                     style={{
-                      width: 72,
-                      height: 72,
+                      width: avatarSize,
+                      height: avatarSize,
                       borderRadius: 9999,
                       backgroundColor: "#334155",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      fontSize: 30,
-                      fontWeight: 800,
+                      fontSize: 36,
+                      fontWeight: 700,
+                      color: "#f8fafc",
                     }}
                   >
                     {row.name.charAt(0).toUpperCase()}
@@ -228,47 +211,28 @@ export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
 
                 <div
                   style={{
-                    marginLeft: 18,
-                    width: 220,
-                    minWidth: 0,
-                    display: "flex",
-                    flexDirection: "column",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 24,
-                      fontWeight: 800,
-                      overflow: "hidden",
-                      whiteSpace: "nowrap",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {row.name}
-                  </div>
-                  <div style={{ fontSize: 16, color: "#94a3b8", marginTop: 5 }}>
-                    {liveProgressLabel(row)}
-                  </div>
-                </div>
-
-                <div
-                  style={{
                     display: "flex",
                     flexWrap: "wrap",
-                    width: 140,
-                    gap: 4,
-                    marginLeft: "auto",
+                    width: gridSize,
+                    gap: tileGap,
+                    marginTop: 14,
                   }}
                 >
-                  {cells.map((result, i) => liveCell(result, i))}
+                  {cells.map((result, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        width: tile,
+                        height: tile,
+                        borderRadius: 4,
+                        backgroundColor: result ? LIVE_TILE_COLORS[result] : "#3a3b3e",
+                      }}
+                    />
+                  ))}
                 </div>
               </div>
             );
           })}
-        </div>
-
-        <div style={{ fontSize: 13, color: "#64748b", marginTop: 18 }}>
-          Click order is shown left-to-right. Board positions stay hidden.
         </div>
       </div>
     ),

@@ -1,14 +1,15 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import type { GameRecord } from "./types";
-import type {
-  AllTimeRow,
-  FinishedGame,
-  GuildChannel,
-  LivePreviewMessage,
-  LivePreviewRow,
-  Store,
-  TodayRow,
-  UserInfo,
+import {
+  LIVE_PREVIEW_POSTING,
+  type AllTimeRow,
+  type FinishedGame,
+  type GuildChannel,
+  type LivePreviewMessage,
+  type LivePreviewRow,
+  type Store,
+  type TodayRow,
+  type UserInfo,
 } from "./store";
 
 /**
@@ -286,5 +287,31 @@ export class NeonStore implements Store {
           live_preview_token_created_at = EXCLUDED.live_preview_token_created_at,
           live_preview_message_id = EXCLUDED.live_preview_message_id,
           live_preview_updated_at = EXCLUDED.live_preview_updated_at`;
+  }
+
+  async claimLivePreviewPost(guildId: string, date: string): Promise<boolean> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      UPDATE guild_channels SET live_preview_message_id = ${LIVE_PREVIEW_POSTING}
+      WHERE guild_id = ${guildId} AND live_preview_date = ${date}
+        AND live_preview_message_id IS NULL
+      RETURNING guild_id`;
+    return rows.length > 0;
+  }
+
+  async releaseLivePreviewPost(guildId: string, date: string): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      UPDATE guild_channels SET live_preview_message_id = NULL
+      WHERE guild_id = ${guildId} AND live_preview_date = ${date}
+        AND live_preview_message_id = ${LIVE_PREVIEW_POSTING}`;
+  }
+
+  async clearLivePreviewMessageId(guildId: string, date: string, messageId: string): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      UPDATE guild_channels SET live_preview_message_id = NULL
+      WHERE guild_id = ${guildId} AND live_preview_date = ${date}
+        AND live_preview_message_id = ${messageId}`;
   }
 }
