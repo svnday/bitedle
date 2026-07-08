@@ -36,6 +36,9 @@ interface Interaction {
   user?: { id?: string };
   channel_id?: string;
   guild_id?: string;
+  /** Present on all interactions — needed to edit the deferred response. */
+  application_id?: string;
+  token?: string;
 }
 
 async function handleShare(body: Interaction): Promise<NextResponse> {
@@ -106,6 +109,71 @@ async function postChannelPreview(guildId: string, channelId: string): Promise<v
   }
 }
 
+/**
+ * /results — on demand, renders the day's channel-stats summary image (same
+ * style as the daily summary / launch preview) and edits it into the deferred
+ * reply. Unlike the launch preview this is never throttled — the caller asked
+ * for it explicitly. Uses the interaction webhook (not a bot channel post), so
+ * it also works where the app is user-installed and the bot isn't a member.
+ */
+async function postResults(guildId: string, appId: string, token: string): Promise<void> {
+  const editUrl = `https://discord.com/api/v10/webhooks/${appId}/${token}/messages/@original`;
+  try {
+    const date = todayStr();
+    const rows = await getStore().finishedGamesOn(date, guildId);
+
+    if (rows.length === 0) {
+      await fetch(editUrl, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "No one's finished today's Bitedle yet — be the first!" }),
+      });
+      return;
+    }
+
+    const pngBuffer = await renderSummaryImage(sortTodayRows(rows), date).arrayBuffer();
+    const form = new FormData();
+    form.append(
+      "payload_json",
+      JSON.stringify({
+        content: `📊 Bitedle #${puzzleNumber(date)} — today's results`,
+        // Replace the deferred message's (empty) attachment set with our image.
+        attachments: [{ id: 0, filename: "results.png" }],
+      }),
+    );
+    form.append("files[0]", new Blob([pngBuffer], { type: "image/png" }), "results.png");
+
+    const res = await fetch(editUrl, { method: "PATCH", body: form }); // fetch sets the multipart boundary
+    if (!res.ok) {
+      console.error(`/results: webhook edit failed (${res.status}): ${await res.text()}`);
+    }
+  } catch (e) {
+    console.error(`/results: render/edit error for guild ${guildId}`, e);
+    // Best effort: turn the perpetual "thinking…" state into a readable error.
+    await fetch(editUrl, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "Couldn't build today's results just now — try again in a moment." }),
+    }).catch(() => {});
+  }
+}
+
+function handleResults(body: Interaction): NextResponse {
+  if (!body.guild_id) {
+    return reply("Run /results in a server to see that server's Bitedle results for today.", true);
+  }
+  if (!body.application_id || !body.token) {
+    return reply("Couldn't build results right now — try again.", true);
+  }
+  const guildId = body.guild_id;
+  const appId = body.application_id;
+  const token = body.token;
+  // Defer (Discord shows "thinking…"), then edit in the image from after() so
+  // the render/post never blocks past Discord's 3s window.
+  after(() => postResults(guildId, appId, token));
+  return NextResponse.json({ type: 5 }); // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+}
+
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("X-Signature-Ed25519");
   const timestamp = request.headers.get("X-Signature-Timestamp");
@@ -159,6 +227,10 @@ export async function POST(request: NextRequest) {
 
   if (body?.type === 2 && body?.data?.name === "share") {
     return handleShare(body);
+  }
+
+  if (body?.type === 2 && body?.data?.name === "results") {
+    return handleResults(body);
   }
 
   return reply("Unknown command.");

@@ -92,10 +92,11 @@ played inside one server only ever shows up on that server's leaderboard,
 never on the public website's, and never on another server's
 ([src/lib/discord.ts](src/lib/discord.ts)).
 
-### Slash commands: `/play`, `/bitedle`, and `/share`
+### Slash commands: `/play`, `/bitedle`, `/share`, and `/results`
 
 `/play` and `/bitedle` both launch the Activity — they're intentionally
-redundant names for the same action. `/share` posts a result. Two different
+redundant names for the same action. `/share` posts one player's result;
+`/results` posts the whole server's results image. A few different
 mechanisms are involved:
 
 - **`/play`** is Discord's **entry point command** — enabling Activities
@@ -123,6 +124,14 @@ mechanisms are involved:
   player must have opened `/play` or `/bitedle` at least once for that link
   to exist, since that's when Discord identity gets linked) and their game
   for today.
+- **`/results`** renders the server's whole-day results image on demand — the
+  same style as the daily summary and launch preview, but **not** throttled
+  (the caller asked for it). It replies deferred (response type `5`), then an
+  [`after()`](https://nextjs.org/docs/app/api-reference/functions/after)
+  callback edits in the rendered image via the interaction webhook (`PATCH
+  .../webhooks/{app}/{token}/messages/@original`). Using the interaction
+  webhook rather than a bot channel post means it also works where the app is
+  user-installed and the bot isn't a channel member.
 
 **Throttled launch preview.** Instead of Discord's per-launch invitation
 card, launching via `/play` or `/bitedle` posts a channel-stats preview image
