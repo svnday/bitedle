@@ -114,9 +114,244 @@ body {
   transform: scale(0.94);
 }
 
+.tile-shaking .tile-front {
+  animation: tile-shake 260ms ease-in-out both;
+  border-color: var(--color-tilehover);
+  transform-origin: center;
+}
+
+@keyframes tile-shake {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  18% {
+    transform: rotate(-5deg) scale(1.02);
+  }
+  36% {
+    transform: rotate(5deg) scale(1.02);
+  }
+  54% {
+    transform: rotate(-4deg) scale(1.01);
+  }
+  72% {
+    transform: rotate(4deg) scale(1.01);
+  }
+}
+
 /* Tiles the player never clicked, revealed dimmed once the game ends. */
 .tile-dim .tile-back {
   opacity: 0.45;
+}
+
+/* --- Playing feedback effects ------------------------------------------ */
+
+.board-explosion,
+.board-confetti {
+  position: absolute;
+  inset: -18px;
+  z-index: 20;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.board-explosion::before {
+  position: absolute;
+  inset: 10%;
+  content: "";
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgb(255 235 160 / 0.55), rgb(179 57 47 / 0.3) 38%, transparent 70%);
+  animation: explosion-flash 760ms ease-out both;
+}
+
+.board-explosion span {
+  position: absolute;
+  inset: 12%;
+  border-radius: 9999px;
+  border: 3px solid rgb(255 214 102 / 0.85);
+  animation: explosion-ring 820ms ease-out both;
+}
+
+.board-explosion span:nth-child(2) {
+  inset: 22%;
+  border-color: rgb(255 102 82 / 0.75);
+  animation-delay: 80ms;
+}
+
+.board-explosion span:nth-child(3) {
+  inset: 32%;
+  border-color: rgb(255 255 255 / 0.55);
+  animation-delay: 140ms;
+}
+
+.board-confetti span {
+  --x: 0px;
+  --y: -120px;
+  --r: 180deg;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--color-correct);
+  animation: confetti-burst 900ms cubic-bezier(0.15, 0.75, 0.3, 1) both;
+}
+
+.board-confetti span:nth-child(3n) {
+  background: #f2c94c;
+}
+
+.board-confetti span:nth-child(3n + 1) {
+  background: #56ccf2;
+}
+
+.board-confetti span:nth-child(1) {
+  --x: -132px;
+  --y: -112px;
+  --r: -260deg;
+}
+.board-confetti span:nth-child(2) {
+  --x: -96px;
+  --y: -142px;
+  --r: 220deg;
+}
+.board-confetti span:nth-child(3) {
+  --x: -58px;
+  --y: -122px;
+  --r: -180deg;
+}
+.board-confetti span:nth-child(4) {
+  --x: -24px;
+  --y: -154px;
+  --r: 260deg;
+}
+.board-confetti span:nth-child(5) {
+  --x: 24px;
+  --y: -148px;
+  --r: -220deg;
+}
+.board-confetti span:nth-child(6) {
+  --x: 62px;
+  --y: -116px;
+  --r: 190deg;
+}
+.board-confetti span:nth-child(7) {
+  --x: 98px;
+  --y: -138px;
+  --r: -250deg;
+}
+.board-confetti span:nth-child(8) {
+  --x: 134px;
+  --y: -108px;
+  --r: 210deg;
+}
+.board-confetti span:nth-child(9) {
+  --x: -122px;
+  --y: -38px;
+  --r: 170deg;
+}
+.board-confetti span:nth-child(10) {
+  --x: -78px;
+  --y: -64px;
+  --r: -210deg;
+}
+.board-confetti span:nth-child(11) {
+  --x: -34px;
+  --y: -44px;
+  --r: 160deg;
+}
+.board-confetti span:nth-child(12) {
+  --x: 36px;
+  --y: -52px;
+  --r: -170deg;
+}
+.board-confetti span:nth-child(13) {
+  --x: 78px;
+  --y: -70px;
+  --r: 230deg;
+}
+.board-confetti span:nth-child(14) {
+  --x: 124px;
+  --y: -36px;
+  --r: -190deg;
+}
+.board-confetti span:nth-child(15) {
+  --x: -90px;
+  --y: 36px;
+  --r: 250deg;
+}
+.board-confetti span:nth-child(16) {
+  --x: -28px;
+  --y: 54px;
+  --r: -230deg;
+}
+.board-confetti span:nth-child(17) {
+  --x: 34px;
+  --y: 48px;
+  --r: 210deg;
+}
+.board-confetti span:nth-child(18) {
+  --x: 96px;
+  --y: 30px;
+  --r: -240deg;
+}
+
+@keyframes explosion-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.35);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.18);
+  }
+}
+
+@keyframes explosion-ring {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.35);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+@keyframes confetti-burst {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.55) rotate(0deg);
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1) rotate(var(--r));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile-inner {
+    transition: none;
+  }
+
+  .tile-shaking .tile-front,
+  .board-explosion::before,
+  .board-explosion span,
+  .board-confetti span {
+    animation: none;
+  }
+
+  .board-explosion,
+  .board-confetti {
+    display: none;
+  }
 }
 
 /* --- Slim themed scrollbar (player results sidebar, channel stats row) -- */

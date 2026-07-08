@@ -37,6 +37,29 @@ interface Toast {
   text: string;
 }
 
+const TILE_SHAKE_MS = 260;
+const BOARD_EFFECT_MS = 900;
+const RESULT_MODAL_DELAY_MS = 1100;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReduced(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return reduced;
+}
+
 function gameShareText(state: GameState): string {
   const misses = state.clicks.filter((c) => c.result === "x").length;
   return shareText({ puzzleNumber: state.puzzleNumber, status: state.status, score: state.score, misses });
@@ -52,10 +75,22 @@ export default function Game() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [busy, setBusy] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [shakingIndex, setShakingIndex] = useState<number | null>(null);
+  const [boardEffect, setBoardEffect] = useState<"bomb" | "check" | null>(null);
   const toastId = useRef(0);
   const introChecked = useRef(false);
+  const boardEffectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resultModalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reducedMotion = usePrefersReducedMotion();
 
   const finished = state !== null && state.status !== "playing";
+
+  useEffect(() => {
+    return () => {
+      if (boardEffectTimer.current) clearTimeout(boardEffectTimer.current);
+      if (resultModalTimer.current) clearTimeout(resultModalTimer.current);
+    };
+  }, []);
 
   const toast = useCallback((text: string) => {
     const id = ++toastId.current;
@@ -163,14 +198,33 @@ export default function Game() {
   const handleCell = async (index: number) => {
     if (!state || state.status !== "playing" || busy) return;
     setBusy(true);
+    setBoardEffect(null);
+    if (!reducedMotion) setShakingIndex(index);
+    const startedAt = performance.now();
     try {
-      const { state: next } = await api.click(index);
+      const { result, state: next } = await api.click(index);
+      if (!reducedMotion) {
+        const remainingShake = TILE_SHAKE_MS - (performance.now() - startedAt);
+        if (remainingShake > 0) await wait(remainingShake);
+      }
+      setShakingIndex(null);
       setState(next);
+      if (!reducedMotion && (result === "bomb" || result === "check")) {
+        setBoardEffect(result);
+        if (boardEffectTimer.current) clearTimeout(boardEffectTimer.current);
+        boardEffectTimer.current = setTimeout(() => setBoardEffect(null), BOARD_EFFECT_MS);
+      }
       if (next.status !== "playing") {
-        // Let the tile finish flipping before the result splash covers it.
-        setTimeout(() => setModal("result"), 900);
+        // Let the tile flip and board-level effect breathe before the result splash covers it.
+        if (resultModalTimer.current) clearTimeout(resultModalTimer.current);
+        resultModalTimer.current = setTimeout(
+          () => setModal("result"),
+          reducedMotion ? 0 : RESULT_MODAL_DELAY_MS,
+        );
       }
     } catch (e) {
+      setShakingIndex(null);
+      setBoardEffect(null);
       if (e instanceof ApiError) {
         if (e.state) setState(e.state);
         toast(e.message);
@@ -340,6 +394,8 @@ export default function Game() {
               clicks={state?.clicks ?? []}
               layout={state?.layout ?? null}
               disabled={busy || finished || !state}
+              shakingIndex={shakingIndex}
+              effect={boardEffect}
               onCellClick={handleCell}
             />
           </div>
@@ -348,6 +404,8 @@ export default function Game() {
             clicks={state?.clicks ?? []}
             layout={state?.layout ?? null}
             disabled={busy || finished || !state}
+            shakingIndex={shakingIndex}
+            effect={boardEffect}
             onCellClick={handleCell}
           />
         )}
