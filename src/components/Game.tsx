@@ -37,7 +37,7 @@ interface Toast {
   text: string;
 }
 
-const TILE_SHAKE_MS = 380;
+const TILE_SHAKE_MS = 520;
 const BOARD_EFFECT_MS = 1250;
 const RESULT_MODAL_DELAY_MS = 1700;
 
