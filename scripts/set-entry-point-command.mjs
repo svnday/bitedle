@@ -6,11 +6,13 @@
  * in. There's no Developer Portal UI for the name, so this uses the API.
  *
  * An app can have at most one PRIMARY_ENTRY_POINT command. This finds the
- * existing one and updates it in place (keeping type 4 / handler 2,
- * DISCORD_LAUNCH_ACTIVITY). It sets integration_types [0, 1] and contexts
- * [0, 1, 2] so the Activity is launchable both when a server adds Bitedle
- * (guild install) AND when an individual user-installs it — letting them
- * launch it in any server, even ones that haven't added the app.
+ * existing one and updates it (type 4) to handler 1 / APP_HANDLER, so the
+ * launch interaction reaches our app instead of Discord auto-posting a
+ * "Game Invitation" card every time (we post a throttled stats preview
+ * instead). It also sets integration_types [0, 1] and contexts [0, 1, 2] so
+ * the Activity is launchable both when a server adds Bitedle (guild install)
+ * AND when an individual user-installs it — letting them launch it in any
+ * server, even ones that haven't added the app.
  *
  * PREREQUISITE: enable User Install for the app first, in the Developer
  * Portal -> Installation tab -> Installation Contexts (see README). Discord
@@ -32,6 +34,12 @@ const API_BASE = "https://discord.com/api/v10";
 
 const NEW_NAME = "play";
 const NEW_DESCRIPTION = "Open today's Bitedle";
+// handler 1 = APP_HANDLER: our app receives the launch interaction and controls
+// what (if anything) gets posted to the channel. handler 2 = DISCORD_LAUNCH_ACTIVITY
+// makes Discord auto-post a "Game Invitation" card on every launch, which spams
+// the channel — so we use APP_HANDLER and post a throttled stats preview instead
+// (see src/app/api/discord/interactions/route.ts).
+const HANDLER = 1;
 // [0, 1] = guild install + user install; [0, 1, 2] = server, app DM, group DM.
 const INTEGRATION_TYPES = [0, 1];
 const CONTEXTS = [0, 1, 2];
@@ -72,15 +80,17 @@ async function main() {
     process.exit(1);
   }
 
-  // First try to PATCH in place. integration_types/contexts aren't always
-  // editable via PATCH on an existing command; if that's rejected, fall back
-  // to deleting and recreating the (single) entry point command.
+  // First try to PATCH in place. The `handler` (and sometimes
+  // integration_types/contexts) often can't be changed via PATCH on an existing
+  // command; if that's rejected — or if it silently leaves handler unchanged —
+  // fall back to deleting and recreating the (single) entry point command.
   const patchRes = await fetch(`${API_BASE}/applications/${clientId}/commands/${entryPoint.id}`, {
     method: "PATCH",
     headers,
     body: JSON.stringify({
       name: NEW_NAME,
       description: NEW_DESCRIPTION,
+      handler: HANDLER,
       integration_types: INTEGRATION_TYPES,
       contexts: CONTEXTS,
     }),
@@ -89,12 +99,20 @@ async function main() {
   let updated;
   if (patchRes.ok) {
     updated = await patchRes.json();
-  } else {
-    const patchErr = await patchRes.text();
-    console.warn(
-      `PATCH failed (${patchRes.status}): ${patchErr}\n` +
-        "Falling back to delete + recreate of the entry point command…",
-    );
+  }
+
+  if (!updated || updated.handler !== HANDLER) {
+    if (!patchRes.ok) {
+      console.warn(
+        `PATCH failed (${patchRes.status}): ${await patchRes.text()}\n` +
+          "Falling back to delete + recreate of the entry point command…",
+      );
+    } else {
+      console.warn(
+        `PATCH left handler as ${updated.handler} (wanted ${HANDLER}); ` +
+          "recreating the entry point command to change it…",
+      );
+    }
 
     const deleteRes = await fetch(
       `${API_BASE}/applications/${clientId}/commands/${entryPoint.id}`,
@@ -114,7 +132,7 @@ async function main() {
         name: NEW_NAME,
         description: NEW_DESCRIPTION,
         type: 4, // PRIMARY_ENTRY_POINT
-        handler: 2, // DISCORD_LAUNCH_ACTIVITY
+        handler: HANDLER, // APP_HANDLER — app controls channel posts
         integration_types: INTEGRATION_TYPES,
         contexts: CONTEXTS,
       }),
@@ -132,7 +150,8 @@ async function main() {
 
   console.log(
     `Entry point command set: /${updated.name} — "${updated.description}" ` +
-      `(integration_types ${JSON.stringify(updated.integration_types)}, contexts ${JSON.stringify(updated.contexts)})`,
+      `(handler ${updated.handler}, integration_types ${JSON.stringify(updated.integration_types)}, ` +
+      `contexts ${JSON.stringify(updated.contexts)})`,
   );
   console.log("It may take a few minutes (rarely up to an hour) to show up in Discord.");
 }

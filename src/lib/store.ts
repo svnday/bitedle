@@ -72,6 +72,11 @@ export interface Store {
   setGuildChannel(guildId: string, channelId: string): Promise<void>;
   /** Every registered guild→channel pair, for the daily summary cron to loop over. */
   allGuildChannels(): Promise<GuildChannel[]>;
+  /** Epoch ms of the last on-demand channel-stats preview posted for a guild
+   *  (0 if never). Throttles the preview so repeated Activity launches don't
+   *  spam the channel. */
+  getLastPreviewAt(guildId: string): Promise<number>;
+  setLastPreviewAt(guildId: string, at: number): Promise<void>;
 }
 
 // Cached on globalThis so dev HMR reloads keep one instance per process.

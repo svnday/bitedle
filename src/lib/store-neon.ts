@@ -45,6 +45,7 @@ export class NeonStore implements Store {
           channel_id text NOT NULL,
           updated_at bigint NOT NULL
         )`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS last_preview_at bigint`;
     })();
     return this.ready;
   }
@@ -187,5 +188,21 @@ export class NeonStore implements Store {
     await this.ensureSchema();
     const rows = await this.sql`SELECT guild_id, channel_id FROM guild_channels`;
     return rows.map((r) => ({ guildId: r.guild_id as string, channelId: r.channel_id as string }));
+  }
+
+  async getLastPreviewAt(guildId: string): Promise<number> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT last_preview_at FROM guild_channels WHERE guild_id = ${guildId}`;
+    if (rows.length === 0 || rows[0].last_preview_at === null) return 0;
+    return Number(rows[0].last_preview_at);
+  }
+
+  async setLastPreviewAt(guildId: string, at: number): Promise<void> {
+    await this.ensureSchema();
+    // The guild_channels row is written by setGuildChannel (awaited) before
+    // this runs, so a plain UPDATE is sufficient.
+    await this.sql`
+      UPDATE guild_channels SET last_preview_at = ${at} WHERE guild_id = ${guildId}`;
   }
 }

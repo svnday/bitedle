@@ -1,8 +1,17 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest, after } from "next/server";
 import { verifyKey } from "discord-interactions";
 import { puzzleNumber, todayStr } from "@/lib/game";
 import { shareText } from "@/lib/share-text";
+import { renderSummaryImage, sortTodayRows, postImageToChannel } from "@/lib/discord-summary";
 import { getStore } from "@/lib/store";
+
+// Imports next/og (via discord-summary) for the preview image — needs Node.
+export const runtime = "nodejs";
+
+// At most one on-demand channel-stats preview per guild per hour, so repeated
+// Activity launches don't spam the channel the way Discord's default
+// "Game Invitation" card did.
+const PREVIEW_COOLDOWN_MS = 60 * 60 * 1000;
 
 function siteUrl(): string {
   // VERCEL_URL is the unique URL of *this* deployment, not the stable
@@ -54,6 +63,49 @@ async function handleShare(body: Interaction): Promise<NextResponse> {
   );
 }
 
+/**
+ * Posts a channel-stats preview image when someone launches the Activity, but
+ * only once per PREVIEW_COOLDOWN_MS per guild — replacing Discord's default
+ * per-launch "Game Invitation" card with something useful and non-spammy.
+ * Runs via `after()` so it never blocks the launch response.
+ */
+async function postChannelPreview(guildId: string, channelId: string): Promise<void> {
+  const botToken = process.env.DISCORD_BOT_TOKEN;
+  if (!botToken) return; // e.g. user-install contexts where the bot isn't present
+
+  const store = getStore();
+  const now = Date.now();
+  const last = await store.getLastPreviewAt(guildId);
+  if (now - last < PREVIEW_COOLDOWN_MS) return; // still cooling down — stay quiet
+
+  const date = todayStr();
+  const rows = await store.finishedGamesOn(date, guildId);
+  if (rows.length === 0) return; // nothing finished yet — don't post an empty card
+
+  // Claim the cooldown slot before the slow render/post so two near-simultaneous
+  // launches can't both post. Roll back on failure so a transient error (or the
+  // bot not being in this channel) doesn't burn the whole hour.
+  await store.setLastPreviewAt(guildId, now);
+  try {
+    const pngBuffer = await renderSummaryImage(sortTodayRows(rows), date).arrayBuffer();
+    const posted = await postImageToChannel({
+      channelId,
+      botToken,
+      pngBuffer,
+      content: "📊 Someone's playing Bitedle — here's how the channel's doing so far!",
+    });
+    if (!posted.ok) {
+      console.error(
+        `interactions: preview POST failed for guild ${guildId} (${posted.status}): ${posted.body}`,
+      );
+      await store.setLastPreviewAt(guildId, last);
+    }
+  } catch (e) {
+    console.error(`interactions: preview render/post error for guild ${guildId}`, e);
+    await store.setLastPreviewAt(guildId, last);
+  }
+}
+
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("X-Signature-Ed25519");
   const timestamp = request.headers.get("X-Signature-Timestamp");
@@ -89,11 +141,19 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  if (body?.type === 2 && body?.data?.name === "bitedle") {
-    // Response type 12 = LAUNCH_ACTIVITY, so an ordinary CHAT_INPUT command
-    // can launch the Activity inline too — an app can only have one
-    // PRIMARY_ENTRY_POINT command (that's /play), so this is the only way
-    // for a second command to do the same thing.
+  if (body?.type === 2 && (body?.data?.name === "play" || body?.data?.name === "bitedle")) {
+    // Response type 12 = LAUNCH_ACTIVITY launches the Activity. The entry point
+    // command "play" (now APP_HANDLER, so it reaches us here instead of Discord
+    // auto-posting a "Game Invitation" card) and the ordinary /bitedle command
+    // both launch this way — an app can have only one PRIMARY_ENTRY_POINT.
+    // After launching, post a throttled channel-stats preview instead of
+    // Discord's per-launch card. `after` runs it off the response path so the
+    // launch stays well within Discord's 3s window.
+    if (body.guild_id && body.channel_id) {
+      const guildId = body.guild_id;
+      const channelId = body.channel_id;
+      after(() => postChannelPreview(guildId, channelId));
+    }
     return NextResponse.json({ type: 12 });
   }
 

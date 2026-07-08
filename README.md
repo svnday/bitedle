@@ -94,24 +94,28 @@ never on the public website's, and never on another server's
 
 ### Slash commands: `/play`, `/bitedle`, and `/share`
 
-`/play` and `/bitedle` both launch the Activity inline, visible to everyone
-in the channel — they're intentionally redundant names for the same
-action. `/share` posts a result. Two different mechanisms are involved:
+`/play` and `/bitedle` both launch the Activity — they're intentionally
+redundant names for the same action. `/share` posts a result. Two different
+mechanisms are involved:
 
 - **`/play`** is Discord's **entry point command** — enabling Activities
-  auto-creates a default one named "Launch" (type `PRIMARY_ENTRY_POINT`,
-  handled entirely by Discord's own servers via `DISCORD_LAUNCH_ACTIVITY`;
-  no code on this backend runs). There's no Developer Portal field to rename
-  it, so [scripts/set-entry-point-command.mjs](scripts/set-entry-point-command.mjs)
-  does it via Discord's API instead, renaming it to `/play`. An app can only
-  have **one** entry point command, so this mechanism can't be reused for a
-  second name.
+  auto-creates a default one named "Launch" (type `PRIMARY_ENTRY_POINT`).
+  There's no Developer Portal field to rename it, so
+  [scripts/set-entry-point-command.mjs](scripts/set-entry-point-command.mjs)
+  does it via Discord's API, renaming it to `/play` **and** switching its
+  handler from `DISCORD_LAUNCH_ACTIVITY` (2) to **`APP_HANDLER` (1)**. With
+  the default handler, Discord auto-posts a public "Game Invitation" card on
+  *every* launch — spammy. With `APP_HANDLER`, the launch interaction reaches
+  [src/app/api/discord/interactions/route.ts](src/app/api/discord/interactions/route.ts)
+  instead, which launches the Activity (response type `12`, `LAUNCH_ACTIVITY`)
+  and posts a **throttled channel-stats preview** rather than a card on every
+  launch (see below). An app can only have **one** entry point command, so
+  this mechanism can't be reused for a second name.
 - **`/bitedle`** is an ordinary `CHAT_INPUT` command (registered by
   [scripts/register-discord-commands.mjs](scripts/register-discord-commands.mjs))
-  that gets the same visible result a different way: its handler in
-  [src/app/api/discord/interactions/route.ts](src/app/api/discord/interactions/route.ts)
-  replies with interaction response type `12` (`LAUNCH_ACTIVITY`), which
-  tells Discord to launch the Activity as the command's response.
+  that gets the same result a different way: the same interactions route
+  replies with interaction response type `12` (`LAUNCH_ACTIVITY`) to launch
+  the Activity, and likewise posts the throttled preview.
 - **`/share`** posts that player's already-finished result for today's
   puzzle (same non-spoiling text as the site's own Share button), publicly
   in the channel. Also an ordinary `CHAT_INPUT` command handled by the same
@@ -119,6 +123,16 @@ action. `/share` posts a result. Two different mechanisms are involved:
   player must have opened `/play` or `/bitedle` at least once for that link
   to exist, since that's when Discord identity gets linked) and their game
   for today.
+
+**Throttled launch preview.** Instead of Discord's per-launch invitation
+card, launching via `/play` or `/bitedle` posts a channel-stats preview image
+(the same render as the daily summary) to the channel — but at most **once
+per hour per server** (`PREVIEW_COOLDOWN_MS` in the interactions route), and
+only once someone has actually finished today's puzzle. The image render and
+post run in a Next.js [`after()`](https://nextjs.org/docs/app/api-reference/functions/after)
+callback so they never delay the launch response past Discord's 3-second
+window. The one-hour cooldown lives in a `last_preview_at` column on the
+`guild_channels` table.
 
 Run both scripts locally (not from Vercel — one-time admin actions, not
 part of the deployed app):

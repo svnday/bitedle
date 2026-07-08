@@ -17,7 +17,7 @@ interface FileDb {
   /** games[date][userId] */
   games: Record<string, Record<string, GameRecord>>;
   /** guildChannels[guildId] — auto-detected daily-summary target channel. */
-  guildChannels: Record<string, { channelId: string; updatedAt: number }>;
+  guildChannels: Record<string, { channelId: string; updatedAt: number; lastPreviewAt?: number }>;
 }
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -177,5 +177,16 @@ export class FileStore implements Store {
       guildId,
       channelId: v.channelId,
     }));
+  }
+
+  async getLastPreviewAt(guildId: string): Promise<number> {
+    return this.db.guildChannels[guildId]?.lastPreviewAt ?? 0;
+  }
+
+  async setLastPreviewAt(guildId: string, at: number): Promise<void> {
+    const existing = this.db.guildChannels[guildId];
+    if (existing) existing.lastPreviewAt = at;
+    else this.db.guildChannels[guildId] = { channelId: "", updatedAt: Date.now(), lastPreviewAt: at };
+    this.persist();
   }
 }
