@@ -46,3 +46,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# local planning notes, kept out of git
+.bitedle-plans/
