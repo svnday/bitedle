@@ -300,31 +300,65 @@ export async function postImageToChannel(opts: {
   return { ok: true, status: res.status, body: "", messageId: body?.id };
 }
 
-export async function patchImageMessage(opts: {
-  channelId: string;
-  messageId: string;
-  botToken: string;
+/**
+ * Posts an image as an interaction-webhook followup message. Works with only
+ * the `applications.commands` scope — no bot membership needed — but the
+ * interaction token it rides on expires 15 minutes after the interaction.
+ */
+export async function postImageWebhookFollowup(opts: {
+  applicationId: string;
+  webhookToken: string;
   pngBuffer: ArrayBuffer;
   content: string;
+  filename?: string;
+  components?: unknown[];
+}): Promise<{ ok: boolean; status: number; body: string; messageId?: string }> {
+  const form = new FormData();
+  const filename = opts.filename ?? "preview.png";
+  form.append(
+    "payload_json",
+    JSON.stringify({ content: opts.content, ...(opts.components ? { components: opts.components } : {}) }),
+  );
+  form.append("files[0]", new Blob([opts.pngBuffer], { type: "image/png" }), filename);
+
+  const res = await fetch(
+    `https://discord.com/api/v10/webhooks/${opts.applicationId}/${opts.webhookToken}`,
+    { method: "POST", body: form }, // token authenticates via the URL; fetch sets the multipart boundary
+  );
+
+  if (!res.ok) return { ok: false, status: res.status, body: await res.text() };
+
+  const body = await res.json().catch(() => null);
+  return { ok: true, status: res.status, body: "", messageId: body?.id };
+}
+
+/** Edits a followup previously posted with postImageWebhookFollowup. Only
+ *  works while that message's interaction token is still valid (15 min). */
+export async function patchImageWebhookMessage(opts: {
+  applicationId: string;
+  webhookToken: string;
+  messageId: string;
+  pngBuffer: ArrayBuffer;
+  content: string;
+  components?: unknown[];
 }): Promise<{ ok: boolean; status: number; body: string }> {
   const form = new FormData();
   form.append(
     "payload_json",
     JSON.stringify({
       content: opts.content,
+      // Replace the previous attachment set with the fresh image.
       attachments: [{ id: 0, filename: "preview.png" }],
+      ...(opts.components ? { components: opts.components } : {}),
     }),
   );
   form.append("files[0]", new Blob([opts.pngBuffer], { type: "image/png" }), "preview.png");
 
   const res = await fetch(
-    `https://discord.com/api/v10/channels/${opts.channelId}/messages/${opts.messageId}`,
-    {
-      method: "PATCH",
-      headers: { Authorization: `Bot ${opts.botToken}` },
-      body: form,
-    },
+    `https://discord.com/api/v10/webhooks/${opts.applicationId}/${opts.webhookToken}/messages/${opts.messageId}`,
+    { method: "PATCH", body: form },
   );
 
   return { ok: res.ok, status: res.status, body: res.ok ? "" : await res.text() };
 }
+

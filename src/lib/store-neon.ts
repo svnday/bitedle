@@ -54,11 +54,12 @@ export class NeonStore implements Store {
           channel_id text NOT NULL,
           updated_at bigint NOT NULL
         )`;
-      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS last_preview_at bigint`;
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_date text`;
-      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_channel_id text`;
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_message_id text`;
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_updated_at bigint`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_application_id text`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_webhook_token text`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_token_created_at bigint`;
     })();
     return this.ready;
   }
@@ -211,22 +212,6 @@ export class NeonStore implements Store {
     return rows.map((r) => ({ guildId: r.guild_id as string, channelId: r.channel_id as string }));
   }
 
-  async getLastPreviewAt(guildId: string): Promise<number> {
-    await this.ensureSchema();
-    const rows = await this.sql`
-      SELECT last_preview_at FROM guild_channels WHERE guild_id = ${guildId}`;
-    if (rows.length === 0 || rows[0].last_preview_at === null) return 0;
-    return Number(rows[0].last_preview_at);
-  }
-
-  async setLastPreviewAt(guildId: string, at: number): Promise<void> {
-    await this.ensureSchema();
-    // The guild_channels row is written by setGuildChannel (awaited) before
-    // this runs, so a plain UPDATE is sufficient.
-    await this.sql`
-      UPDATE guild_channels SET last_preview_at = ${at} WHERE guild_id = ${guildId}`;
-  }
-
   async livePreviewGamesOn(date: string, guildId: string): Promise<LivePreviewRow[]> {
     await this.ensureSchema();
     const rows = await this.sql`
@@ -254,39 +239,51 @@ export class NeonStore implements Store {
   async getLivePreviewMessage(guildId: string, date: string): Promise<LivePreviewMessage | null> {
     await this.ensureSchema();
     const rows = await this.sql`
-      SELECT live_preview_channel_id, live_preview_message_id, live_preview_updated_at
+      SELECT live_preview_application_id, live_preview_webhook_token,
+             live_preview_token_created_at, live_preview_message_id, live_preview_updated_at
       FROM guild_channels
       WHERE guild_id = ${guildId} AND live_preview_date = ${date}`;
     if (
       rows.length === 0 ||
-      rows[0].live_preview_channel_id === null ||
-      rows[0].live_preview_message_id === null
+      rows[0].live_preview_application_id === null ||
+      rows[0].live_preview_webhook_token === null
     ) {
       return null;
     }
     return {
       guildId,
       date,
-      channelId: rows[0].live_preview_channel_id as string,
-      messageId: rows[0].live_preview_message_id as string,
+      applicationId: rows[0].live_preview_application_id as string,
+      webhookToken: rows[0].live_preview_webhook_token as string,
+      tokenCreatedAt:
+        rows[0].live_preview_token_created_at === null
+          ? 0
+          : Number(rows[0].live_preview_token_created_at),
+      messageId: rows[0].live_preview_message_id as string | null,
       updatedAt: rows[0].live_preview_updated_at === null ? 0 : Number(rows[0].live_preview_updated_at),
     };
   }
 
   async setLivePreviewMessage(message: LivePreviewMessage): Promise<void> {
     await this.ensureSchema();
+    // channel_id '' only matters on the INSERT path — in practice the row
+    // already exists, written by setGuildChannel before any preview update.
     await this.sql`
       INSERT INTO guild_channels (
         guild_id, channel_id, updated_at,
-        live_preview_date, live_preview_channel_id, live_preview_message_id, live_preview_updated_at
+        live_preview_date, live_preview_application_id, live_preview_webhook_token,
+        live_preview_token_created_at, live_preview_message_id, live_preview_updated_at
       )
       VALUES (
-        ${message.guildId}, ${message.channelId}, ${Date.now()},
-        ${message.date}, ${message.channelId}, ${message.messageId}, ${message.updatedAt}
+        ${message.guildId}, '', ${Date.now()},
+        ${message.date}, ${message.applicationId}, ${message.webhookToken},
+        ${message.tokenCreatedAt}, ${message.messageId}, ${message.updatedAt}
       )
       ON CONFLICT (guild_id) DO UPDATE
       SET live_preview_date = EXCLUDED.live_preview_date,
-          live_preview_channel_id = EXCLUDED.live_preview_channel_id,
+          live_preview_application_id = EXCLUDED.live_preview_application_id,
+          live_preview_webhook_token = EXCLUDED.live_preview_webhook_token,
+          live_preview_token_created_at = EXCLUDED.live_preview_token_created_at,
           live_preview_message_id = EXCLUDED.live_preview_message_id,
           live_preview_updated_at = EXCLUDED.live_preview_updated_at`;
   }

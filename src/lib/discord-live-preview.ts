@@ -1,12 +1,37 @@
 import { puzzleNumber, todayStr } from "./game";
 import {
-  patchImageMessage,
-  postImageToChannel,
+  patchImageWebhookMessage,
+  postImageWebhookFollowup,
   renderLivePreviewImage,
 } from "./discord-summary";
 import { getStore, type LivePreviewRow } from "./store";
 
-export const LIVE_PREVIEW_COOLDOWN_MS = 5 * 60 * 1000;
+/**
+ * The live preview is posted and edited through *interaction webhooks*
+ * (`/webhooks/{application_id}/{interaction_token}`), never through a bot
+ * channel post — Bitedle is installed via the Activities launcher with only
+ * the `applications.commands` scope, so there is no bot member to post as.
+ * Every launch (entry-point command or the message's "Play now!" button)
+ * hands us a token that can post followups and edit them for 15 minutes.
+ * While the stored token is fresh we keep editing one message; once it goes
+ * stale the next launch starts a new message. Between launches, clicks reuse
+ * the stored token, so the image updates live for the length of a session.
+ */
+
+/** Interaction tokens are valid for 15 minutes; stop using one with margin. */
+export const WEBHOOK_TOKEN_TTL_MS = 13 * 60 * 1000;
+
+/** custom_id of the preview message's launch button (interaction type 3). */
+export const LAUNCH_BUTTON_ID = "bitedle-launch";
+
+/** ACTION_ROW with one PRIMARY button; clicking it sends our app a
+ *  MESSAGE_COMPONENT interaction, answered with LAUNCH_ACTIVITY. */
+const LAUNCH_BUTTON_COMPONENTS = [
+  {
+    type: 1,
+    components: [{ type: 2, style: 1, label: "Play now!", custom_id: LAUNCH_BUTTON_ID }],
+  },
+];
 
 function sortLivePreviewRows(rows: LivePreviewRow[]): LivePreviewRow[] {
   return [...rows].sort((a, b) => {
@@ -16,92 +41,83 @@ function sortLivePreviewRows(rows: LivePreviewRow[]): LivePreviewRow[] {
   });
 }
 
+function previewContent(rows: LivePreviewRow[], date: string): string {
+  const others = rows.length - 1;
+  const who =
+    others === 0
+      ? `**${rows[0].name}** is playing`
+      : `**${rows[0].name}** and ${others} other${others === 1 ? "" : "s"} are playing`;
+  return `🎮 ${who} Bitedle #${puzzleNumber(date)}`;
+}
+
 export async function updateLivePreviewMessage(opts: {
   guildId: string;
-  channelId?: string | null;
-}): Promise<boolean> {
-  const botToken = process.env.DISCORD_BOT_TOKEN;
-  if (!botToken) return false;
-
+  /** Credentials of a just-received interaction (launch or button click),
+   *  when there is one — click/state refreshes have none and can only reuse
+   *  the stored token. */
+  interaction?: { applicationId: string; token: string };
+}): Promise<void> {
   const store = getStore();
   const date = todayStr();
-  const rows = sortLivePreviewRows(await store.livePreviewGamesOn(date, opts.guildId));
-  if (rows.length === 0) return false;
-
-  const existing = await store.getLivePreviewMessage(opts.guildId, date);
-  const fallbackChannel = opts.channelId
-    ? { guildId: opts.guildId, channelId: opts.channelId }
-    : await store.getGuildChannel(opts.guildId);
-  const channelId = existing?.channelId ?? fallbackChannel?.channelId;
-  if (!channelId) return false;
-
-  const pngBuffer = await renderLivePreviewImage(rows, date).arrayBuffer();
-  const content = `Bitedle #${puzzleNumber(date)} is live — current server progress`;
   const now = Date.now();
 
-  if (existing) {
-    const patched = await patchImageMessage({
-      channelId: existing.channelId,
-      messageId: existing.messageId,
-      botToken,
-      pngBuffer,
-      content,
-    });
-
-    if (patched.ok) {
-      await store.setLivePreviewMessage({ ...existing, updatedAt: now });
-      return true;
-    }
-
-    if (patched.status !== 404 && patched.status !== 403) {
-      console.error(
-        `live-preview: PATCH failed for guild ${opts.guildId} (${patched.status}): ${patched.body}`,
-      );
-      return false;
-    }
+  let record = await store.getLivePreviewMessage(opts.guildId, date);
+  if (!record || now - record.tokenCreatedAt >= WEBHOOK_TOKEN_TTL_MS) {
+    // Stored token stale (or none yet today): only a fresh interaction can
+    // start a new message. Persist the token even before any game rows exist
+    // — the launcher's /api/state call arrives moments later and posts with it.
+    if (!opts.interaction) return;
+    record = {
+      guildId: opts.guildId,
+      date,
+      applicationId: opts.interaction.applicationId,
+      webhookToken: opts.interaction.token,
+      tokenCreatedAt: now,
+      messageId: null,
+      updatedAt: now,
+    };
+    await store.setLivePreviewMessage(record);
   }
 
-  const postChannelId = opts.channelId ?? channelId;
-  const posted = await postImageToChannel({
-    channelId: postChannelId,
-    botToken,
+  const rows = sortLivePreviewRows(await store.livePreviewGamesOn(date, opts.guildId));
+  if (rows.length === 0) return;
+
+  const pngBuffer = await renderLivePreviewImage(rows, date).arrayBuffer();
+  const content = previewContent(rows, date);
+
+  if (record.messageId) {
+    const patched = await patchImageWebhookMessage({
+      applicationId: record.applicationId,
+      webhookToken: record.webhookToken,
+      messageId: record.messageId,
+      pngBuffer,
+      content,
+      components: LAUNCH_BUTTON_COMPONENTS,
+    });
+    if (patched.ok) {
+      await store.setLivePreviewMessage({ ...record, updatedAt: now });
+    } else {
+      console.error(
+        `live-preview: webhook PATCH failed for guild ${opts.guildId} (${patched.status}): ${patched.body}`,
+      );
+    }
+    return;
+  }
+
+  const posted = await postImageWebhookFollowup({
+    applicationId: record.applicationId,
+    webhookToken: record.webhookToken,
     pngBuffer,
     content,
     filename: "preview.png",
+    components: LAUNCH_BUTTON_COMPONENTS,
   });
   if (!posted.ok || !posted.messageId) {
     console.error(
-      `live-preview: POST failed for guild ${opts.guildId} (${posted.status}): ${posted.body}`,
+      `live-preview: webhook POST failed for guild ${opts.guildId} (${posted.status}): ${posted.body}`,
     );
-    return false;
+    return;
   }
 
-  await store.setLivePreviewMessage({
-    guildId: opts.guildId,
-    date,
-    channelId: postChannelId,
-    messageId: posted.messageId,
-    updatedAt: now,
-  });
-  return true;
-}
-
-export async function updateLivePreviewMessageWithCooldown(opts: {
-  guildId: string;
-  channelId?: string | null;
-}): Promise<void> {
-  let last = 0;
-  try {
-    const store = getStore();
-    const now = Date.now();
-    last = await store.getLastPreviewAt(opts.guildId);
-    if (now - last < LIVE_PREVIEW_COOLDOWN_MS) return;
-
-    await store.setLastPreviewAt(opts.guildId, now);
-    const updated = await updateLivePreviewMessage(opts);
-    if (!updated) await store.setLastPreviewAt(opts.guildId, last);
-  } catch (e) {
-    console.error(`live-preview: update error for guild ${opts.guildId}`, e);
-    await getStore().setLastPreviewAt(opts.guildId, last).catch(() => {});
-  }
+  await store.setLivePreviewMessage({ ...record, messageId: posted.messageId, updatedAt: now });
 }

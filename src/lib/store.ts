@@ -55,11 +55,21 @@ export interface GuildChannel {
   channelId: string;
 }
 
+/**
+ * The day's live-preview message for one guild, posted/edited via the
+ * interaction webhook of whichever launch most recently minted it.
+ */
 export interface LivePreviewMessage {
   guildId: string;
   date: string;
-  channelId: string;
-  messageId: string;
+  /** Webhook route: /webhooks/{applicationId}/{webhookToken}. */
+  applicationId: string;
+  webhookToken: string;
+  /** Epoch ms the interaction token was received — valid for 15 minutes. */
+  tokenCreatedAt: number;
+  /** Null while the token is stored but no message has been posted yet
+   *  (a launch lands before the launcher's game row exists). */
+  messageId: string | null;
   updatedAt: number;
 }
 
@@ -92,11 +102,6 @@ export interface Store {
   getGuildChannel(guildId: string): Promise<GuildChannel | null>;
   /** Every registered guild→channel pair, for the daily summary cron to loop over. */
   allGuildChannels(): Promise<GuildChannel[]>;
-  /** Epoch ms of the last launch-triggered live preview refresh for a guild
-   *  (0 if never). Throttles repeated Activity launches; clicks still update
-   *  the live preview immediately. */
-  getLastPreviewAt(guildId: string): Promise<number>;
-  setLastPreviewAt(guildId: string, at: number): Promise<void>;
   livePreviewGamesOn(date: string, guildId: string): Promise<LivePreviewRow[]>;
   getLivePreviewMessage(guildId: string, date: string): Promise<LivePreviewMessage | null>;
   setLivePreviewMessage(message: LivePreviewMessage): Promise<void>;

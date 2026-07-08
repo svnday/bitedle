@@ -3,7 +3,7 @@ import { verifyKey } from "discord-interactions";
 import { puzzleNumber, todayStr } from "@/lib/game";
 import { shareText } from "@/lib/share-text";
 import { renderSummaryImage, sortTodayRows } from "@/lib/discord-summary";
-import { updateLivePreviewMessageWithCooldown } from "@/lib/discord-live-preview";
+import { LAUNCH_BUTTON_ID, updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { getStore } from "@/lib/store";
 
 // Imports next/og (via discord-summary) for the preview image — needs Node.
@@ -27,12 +27,12 @@ function reply(content: string, ephemeral = false) {
 
 interface Interaction {
   type: number;
-  data?: { name?: string };
+  data?: { name?: string; custom_id?: string };
   member?: { user?: { id?: string } };
   user?: { id?: string };
   channel_id?: string;
   guild_id?: string;
-  /** Present on all interactions — needed to edit the deferred response. */
+  /** Present on all interactions — needed for interaction-webhook posts/edits. */
   application_id?: string;
   token?: string;
 }
@@ -62,8 +62,23 @@ async function handleShare(body: Interaction): Promise<NextResponse> {
   );
 }
 
-async function postChannelPreview(guildId: string, channelId: string): Promise<void> {
-  await updateLivePreviewMessageWithCooldown({ guildId, channelId });
+/**
+ * Launches the Activity (response type 12) and refreshes the live channel
+ * preview off the response path, riding this interaction's webhook token —
+ * Bitedle has no bot member in these servers, so the interaction webhook is
+ * the only way to put a message in the channel (same trick as /results).
+ */
+function launchActivity(body: Interaction): NextResponse {
+  if (body.guild_id && body.application_id && body.token) {
+    const guildId = body.guild_id;
+    const interaction = { applicationId: body.application_id, token: body.token };
+    after(() =>
+      updateLivePreviewMessage({ guildId, interaction }).catch((e) => {
+        console.error(`interactions: live preview update failed for guild ${guildId}`, e);
+      }),
+    );
+  }
+  return NextResponse.json({ type: 12 }); // LAUNCH_ACTIVITY
 }
 
 /**
@@ -153,7 +168,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ type: 1 });
   }
 
-  if (body?.type === 2 && body.guild_id && body.channel_id) {
+  if ((body?.type === 2 || body?.type === 3) && body.guild_id && body.channel_id) {
     // Auto-detect the daily summary's target channel from real usage —
     // whichever channel a command was most recently run in becomes that
     // server's target. Must be awaited (not fire-and-forget): a serverless
@@ -167,19 +182,18 @@ export async function POST(request: NextRequest) {
   }
 
   if (body?.type === 2 && (body?.data?.name === "play" || body?.data?.name === "bitedle")) {
-    // Response type 12 = LAUNCH_ACTIVITY launches the Activity. The entry point
-    // command "play" (now APP_HANDLER, so it reaches us here instead of Discord
-    // auto-posting a "Game Invitation" card) and the ordinary /bitedle command
-    // both launch this way — an app can have only one PRIMARY_ENTRY_POINT.
-    // After launching, refresh the throttled live preview instead of Discord's
-    // per-launch card. `after` runs it off the response path so the launch
-    // stays well within Discord's 3s window.
-    if (body.guild_id && body.channel_id) {
-      const guildId = body.guild_id;
-      const channelId = body.channel_id;
-      after(() => postChannelPreview(guildId, channelId));
-    }
-    return NextResponse.json({ type: 12 });
+    // The entry point command "play" (APP_HANDLER, so it reaches us here
+    // instead of Discord auto-posting a "Game Invitation" card) and the
+    // ordinary /bitedle command both launch the same way — an app can have
+    // only one PRIMARY_ENTRY_POINT.
+    return launchActivity(body);
+  }
+
+  if (body?.type === 3 && body?.data?.custom_id === LAUNCH_BUTTON_ID) {
+    // "Play now!" button on the live preview message. Launching from it also
+    // mints a fresh interaction token, extending how long the preview stays
+    // editable.
+    return launchActivity(body);
   }
 
   if (body?.type === 2 && body?.data?.name === "share") {

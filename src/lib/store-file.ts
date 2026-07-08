@@ -31,10 +31,11 @@ interface FileDb {
     {
       channelId: string;
       updatedAt: number;
-      lastPreviewAt?: number;
       livePreviewDate?: string;
-      livePreviewChannelId?: string;
-      livePreviewMessageId?: string;
+      livePreviewApplicationId?: string;
+      livePreviewWebhookToken?: string;
+      livePreviewTokenCreatedAt?: number;
+      livePreviewMessageId?: string | null;
       livePreviewUpdatedAt?: number;
     }
   >;
@@ -209,17 +210,6 @@ export class FileStore implements Store {
     }));
   }
 
-  async getLastPreviewAt(guildId: string): Promise<number> {
-    return this.db.guildChannels[guildId]?.lastPreviewAt ?? 0;
-  }
-
-  async setLastPreviewAt(guildId: string, at: number): Promise<void> {
-    const existing = this.db.guildChannels[guildId];
-    if (existing) existing.lastPreviewAt = at;
-    else this.db.guildChannels[guildId] = { channelId: "", updatedAt: Date.now(), lastPreviewAt: at };
-    this.persist();
-  }
-
   async livePreviewGamesOn(date: string, guildId: string): Promise<LivePreviewRow[]> {
     const out: LivePreviewRow[] = [];
     for (const [userId, g] of Object.entries(this.db.games[date] ?? {})) {
@@ -249,16 +239,18 @@ export class FileStore implements Store {
     if (
       !channel ||
       channel.livePreviewDate !== date ||
-      !channel.livePreviewChannelId ||
-      !channel.livePreviewMessageId
+      !channel.livePreviewApplicationId ||
+      !channel.livePreviewWebhookToken
     ) {
       return null;
     }
     return {
       guildId,
       date,
-      channelId: channel.livePreviewChannelId,
-      messageId: channel.livePreviewMessageId,
+      applicationId: channel.livePreviewApplicationId,
+      webhookToken: channel.livePreviewWebhookToken,
+      tokenCreatedAt: channel.livePreviewTokenCreatedAt ?? 0,
+      messageId: channel.livePreviewMessageId ?? null,
       updatedAt: channel.livePreviewUpdatedAt ?? 0,
     };
   }
@@ -267,10 +259,12 @@ export class FileStore implements Store {
     const existing = this.db.guildChannels[message.guildId];
     this.db.guildChannels[message.guildId] = {
       ...(existing ?? {}),
-      channelId: existing?.channelId ?? message.channelId,
+      channelId: existing?.channelId ?? "",
       updatedAt: existing?.updatedAt ?? Date.now(),
       livePreviewDate: message.date,
-      livePreviewChannelId: message.channelId,
+      livePreviewApplicationId: message.applicationId,
+      livePreviewWebhookToken: message.webhookToken,
+      livePreviewTokenCreatedAt: message.tokenCreatedAt,
       livePreviewMessageId: message.messageId,
       livePreviewUpdatedAt: message.updatedAt,
     };

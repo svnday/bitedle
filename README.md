@@ -109,14 +109,14 @@ mechanisms are involved:
   *every* launch — spammy. With `APP_HANDLER`, the launch interaction reaches
   [src/app/api/discord/interactions/route.ts](src/app/api/discord/interactions/route.ts)
   instead, which launches the Activity (response type `12`, `LAUNCH_ACTIVITY`)
-  and refreshes a **throttled live preview** rather than a card on every
+  and refreshes the **live preview** rather than posting a card on every
   launch (see below). An app can only have **one** entry point command, so
   this mechanism can't be reused for a second name.
 - **`/bitedle`** is an ordinary `CHAT_INPUT` command (registered by
   [scripts/register-discord-commands.mjs](scripts/register-discord-commands.mjs))
   that gets the same result a different way: the same interactions route
   replies with interaction response type `12` (`LAUNCH_ACTIVITY`) to launch
-  the Activity, and likewise refreshes the throttled live preview.
+  the Activity, and likewise refreshes the live preview.
 - **`/share`** posts that player's already-finished result for today's
   puzzle (same non-spoiling text as the site's own Share button), publicly
   in the channel. Also an ordinary `CHAT_INPUT` command handled by the same
@@ -134,15 +134,24 @@ mechanisms are involved:
   user-installed and the bot isn't a channel member.
 
 **Live launch preview.** Instead of Discord's per-launch invitation card,
-launching via `/play` or `/bitedle` refreshes one editable live preview image
-for that server, at most **once every 5 minutes per server** on launch
-(`LIVE_PREVIEW_COOLDOWN_MS` in [src/lib/discord-live-preview.ts](src/lib/discord-live-preview.ts)).
-When someone opens the Activity, Bitedle creates an in-progress row; each later
-click edits the same Discord message immediately with all current players'
-non-spoiling progress. The image render and post/edit run in a Next.js
+launching via `/play` or `/bitedle` posts one live preview image for that
+server and keeps editing it as players click. Like `/results`, it's delivered
+entirely through **interaction webhooks**
+(`POST/PATCH /webhooks/{application_id}/{interaction_token}/…`), so it works
+with only the `applications.commands` scope — **no bot member needed**, which
+matters because Bitedle is typically added through the Activities launcher,
+not a bot invite. The catch: an interaction token only lives **15 minutes**.
+So each launch (entry-point command, `/bitedle`, or the preview message's own
+"Play now!" button — a `MESSAGE_COMPONENT` interaction answered with
+`LAUNCH_ACTIVITY`) stores its token on the `guild_channels` table; while the
+stored token is fresher than `WEBHOOK_TOKEN_TTL_MS`
+([src/lib/discord-live-preview.ts](src/lib/discord-live-preview.ts)) every
+click edits the same message through it, and once it goes stale the next
+launch starts a new message (the old one simply stops updating — the same
+behavior other activity apps like Wordle show). The image render and
+post/edit run in a Next.js
 [`after()`](https://nextjs.org/docs/app/api-reference/functions/after)
-callback so they never delay the launch or click response. The cooldown and
-live message ids live on the `guild_channels` table.
+callback so they never delay the launch or click response.
 
 Run both scripts locally (not from Vercel — one-time admin actions, not
 part of the deployed app):
@@ -266,4 +275,3 @@ Two things still need setting up (see [.env.example](.env.example)):
 - `CRON_SECRET` — any long random string. Vercel automatically sends this
   back as `Authorization: Bearer <value>` on requests it makes to trigger
   the cron job, which the route checks to reject any other caller.
-
