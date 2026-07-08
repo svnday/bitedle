@@ -115,7 +115,7 @@ body {
 }
 
 .tile-shaking .tile-front {
-  animation: tile-shake 260ms ease-in-out both;
+  animation: tile-shake 380ms cubic-bezier(0.55, 0.02, 0.95, 0.55) both;
   border-color: var(--color-tilehover);
   transform-origin: center;
 }
@@ -125,16 +125,22 @@ body {
   100% {
     transform: rotate(0deg) scale(1);
   }
-  18% {
-    transform: rotate(-5deg) scale(1.02);
+  24% {
+    transform: rotate(-1.5deg) scale(1.005);
   }
-  36% {
+  43% {
+    transform: rotate(2.5deg) scale(1.01);
+  }
+  58% {
+    transform: rotate(-4deg) scale(1.015);
+  }
+  70% {
     transform: rotate(5deg) scale(1.02);
   }
-  54% {
-    transform: rotate(-4deg) scale(1.01);
+  81% {
+    transform: rotate(-5deg) scale(1.02);
   }
-  72% {
+  91% {
     transform: rotate(4deg) scale(1.01);
   }
 }
@@ -161,7 +167,7 @@ body {
   content: "";
   border-radius: 9999px;
   background: radial-gradient(circle, rgb(255 235 160 / 0.55), rgb(179 57 47 / 0.3) 38%, transparent 70%);
-  animation: explosion-flash 760ms ease-out both;
+  animation: explosion-flash 1100ms ease-out both;
 }
 
 .board-explosion span {
@@ -169,7 +175,7 @@ body {
   inset: 12%;
   border-radius: 9999px;
   border: 3px solid rgb(255 214 102 / 0.85);
-  animation: explosion-ring 820ms ease-out both;
+  animation: explosion-ring 1200ms ease-out both;
 }
 
 .board-explosion span:nth-child(2) {
@@ -195,7 +201,7 @@ body {
   height: 13px;
   border-radius: 2px;
   background: var(--color-correct);
-  animation: confetti-burst 900ms cubic-bezier(0.15, 0.75, 0.3, 1) both;
+  animation: confetti-burst 1250ms cubic-bezier(0.15, 0.75, 0.3, 1) both;
 }
 
 .board-confetti span:nth-child(3n) {

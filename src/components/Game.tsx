@@ -37,9 +37,9 @@ interface Toast {
   text: string;
 }
 
-const TILE_SHAKE_MS = 260;
-const BOARD_EFFECT_MS = 900;
-const RESULT_MODAL_DELAY_MS = 1100;
+const TILE_SHAKE_MS = 380;
+const BOARD_EFFECT_MS = 1250;
+const RESULT_MODAL_DELAY_MS = 1700;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
