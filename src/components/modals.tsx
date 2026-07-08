@@ -80,13 +80,15 @@ function MiniTile({ kind }: { kind: "x" | "bomb" | "check" | "hidden" }) {
 let resultGridFrame = 0;
 let resultGridTimer: ReturnType<typeof setInterval> | null = null;
 const resultGridListeners = new Set<(frame: number) => void>();
+const RESULT_GRID_FRAME_MS = 400;
+const RESULT_GRID_HOLD_MS = 2000;
 
 function startResultGridTicker() {
   if (resultGridTimer !== null) return;
   resultGridTimer = setInterval(() => {
     resultGridFrame += 1;
     for (const listener of resultGridListeners) listener(resultGridFrame);
-  }, 250);
+  }, RESULT_GRID_FRAME_MS);
 }
 
 function stopResultGridTicker() {
@@ -131,7 +133,7 @@ function AnimatedResultGrid({ board, status }: { board: ClickRecord[]; status: G
   const reducedMotion = usePrefersReducedMotion();
   const frame = useResultGridFrame(!reducedMotion && board.length > 0);
   const clicks = board.filter((click) => click.index >= 0 && click.index < BOARD_SIZE);
-  const holdSteps = 4;
+  const holdSteps = Math.ceil(RESULT_GRID_HOLD_MS / RESULT_GRID_FRAME_MS);
   const cycleLength = Math.max(1, clicks.length + holdSteps);
   const visibleCount = reducedMotion ? clicks.length : Math.min(clicks.length, frame % cycleLength);
   const revealed = new Map<number, ClickRecord["result"]>();
@@ -322,7 +324,7 @@ export function PlayerResultCard({
 
   if (variant === "landscape") {
     return (
-      <div className={`flex w-52 shrink-0 items-center gap-2 rounded-lg border px-2 py-2 ${chrome}`}>
+      <div className={`flex w-full max-w-full items-center gap-2 rounded-lg border px-2 py-2 ${chrome}`}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {entry.discordAvatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element

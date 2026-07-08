@@ -331,7 +331,7 @@ export default function Game() {
 
         {isDiscordEmbed() && finished && guildEntries && guildEntries.length > 0 ? (
           <div className="flex w-full max-w-2xl items-start justify-center gap-4">
-            <div className="scrollbar-slim hidden max-h-[440px] w-52 shrink-0 flex-col gap-2 overflow-y-auto pr-1 sm:flex">
+            <div className="scrollbar-slim hidden max-h-[440px] w-52 shrink-0 flex-col gap-2 overflow-x-hidden overflow-y-auto pr-1 sm:flex">
               {guildEntries.map((entry, i) => (
                 <PlayerResultCard key={i} entry={entry} variant="landscape" />
               ))}
