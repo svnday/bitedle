@@ -113,8 +113,8 @@ export default function Game() {
           }
         }
       },
-      () => {
-        toast("Couldn't reach the server");
+      (e) => {
+        toast(e instanceof Error ? e.message : "Couldn't reach the server");
       },
     );
   }, [toast]);

@@ -5,6 +5,7 @@
  * re-render when this changes.
  */
 let guildId: string | null = null;
+let discordUserId: string | null = null;
 
 // Resolves once DiscordBootstrap's handshake has settled — either a real
 // guildId, or a definitive null (missing client id, failed ready(), or the
@@ -15,6 +16,12 @@ let settled = false;
 let resolveSettled: () => void;
 const settledPromise = new Promise<void>((resolve) => {
   resolveSettled = resolve;
+});
+
+let identitySettled = false;
+let resolveIdentitySettled: () => void;
+const identitySettledPromise = new Promise<void>((resolve) => {
+  resolveIdentitySettled = resolve;
 });
 
 export function setGuildId(id: string | null): void {
@@ -31,6 +38,22 @@ export function getGuildId(): string | null {
 
 export function guildContextSettled(): Promise<void> {
   return settledPromise;
+}
+
+export function setDiscordUserId(id: string | null): void {
+  discordUserId = id;
+  if (!identitySettled) {
+    identitySettled = true;
+    resolveIdentitySettled();
+  }
+}
+
+export function getDiscordUserId(): string | null {
+  return discordUserId;
+}
+
+export function discordIdentitySettled(): Promise<void> {
+  return identitySettledPromise;
 }
 
 /** True when running inside Discord's Activity iframe (vs. plain web play). */

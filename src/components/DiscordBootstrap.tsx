@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import type { DiscordSDK } from "@discord/embedded-app-sdk";
 import { api } from "@/lib/client-api";
-import { isDiscordEmbed, setGuildId } from "@/lib/discord-context";
+import { isDiscordEmbed, setDiscordUserId, setGuildId } from "@/lib/discord-context";
 
 /**
  * Handshakes with the Discord client when Bitedle is loaded as a Discord
@@ -22,6 +22,7 @@ export default function DiscordBootstrap() {
     const timeout = setTimeout(() => {
       console.warn("Bitedle: Discord handshake timed out after 5s, defaulting guildId to null");
       setGuildId(null);
+      setDiscordUserId(null);
     }, 5000);
 
     (async () => {
@@ -31,6 +32,7 @@ export default function DiscordBootstrap() {
         if (!clientId) {
           console.warn("Bitedle: running inside Discord but NEXT_PUBLIC_DISCORD_CLIENT_ID is unset");
           setGuildId(null);
+          setDiscordUserId(null);
           return;
         }
         const discordSdk = new DiscordSDK(clientId);
@@ -46,10 +48,12 @@ export default function DiscordBootstrap() {
         // awaited — a slow or declined consent prompt must not block anything.
         void linkDiscordIdentity(discordSdk, clientId).catch((e) => {
           console.warn("Bitedle: Discord identity link failed", e);
+          setDiscordUserId(null);
         });
       } catch (e) {
         console.warn("Bitedle: Discord handshake failed", e);
         setGuildId(null);
+        setDiscordUserId(null);
       } finally {
         clearTimeout(timeout);
       }
@@ -79,6 +83,7 @@ async function linkDiscordIdentity(discordSdk: DiscordSDK, clientId: string): Pr
     discordAvatar: user.avatar ?? null,
     discordName: user.global_name ?? user.username,
   });
+  setDiscordUserId(user.id);
   // Game.tsx already fetched state before this (async, separate component)
   // finished — nudge it to refetch so the header picks up the synced name.
   window.dispatchEvent(new Event("bitedle:discord-identity-synced"));

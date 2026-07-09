@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest, after } from "next/server";
 import { guildIdFromRequest, isBlockedDiscordId } from "@/lib/discord";
-import { attachIdentity, ensureUser } from "@/lib/identity";
+import { attachIdentity, requireDiscordUser } from "@/lib/identity";
 import { stateFor, todayStr } from "@/lib/game";
 import { updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { getStore } from "@/lib/store";
@@ -8,9 +8,15 @@ import { getStore } from "@/lib/store";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const identity = await ensureUser(request);
   const date = todayStr();
   const guildId = guildIdFromRequest(request);
+  const identity = await requireDiscordUser(request);
+  if (!identity) {
+    return NextResponse.json(
+      { error: "Couldn't link your Discord identity. Close Bitedle and launch it again." },
+      { status: 428 },
+    );
+  }
   const store = getStore();
 
   // Defense-in-depth: catch a session opened before the block whose player is

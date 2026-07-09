@@ -1,5 +1,15 @@
-import { getGuildId, guildContextSettled, isDiscordEmbed } from "./discord-context";
+import {
+  discordIdentitySettled,
+  getDiscordUserId,
+  getGuildId,
+  guildContextSettled,
+  isDiscordEmbed,
+} from "./discord-context";
 import type { CellResult, GameState, Leaderboard, UserStats } from "./types";
+
+const DISCORD_USER_HEADER_NAME = "X-Bitedle-Discord-User-Id";
+const IDENTITY_BOOTSTRAP_PATHS = new Set(["/api/discord/token", "/api/discord/identify"]);
+const IDENTITY_REQUIRED_PATHS = new Set(["/api/state", "/api/click"]);
 
 export class ApiError extends Error {
   status: number;
@@ -25,11 +35,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // routed through /.proxy. Never applied outside the Discord iframe.
   const url = embedded ? `/.proxy${path}` : path;
   const guildId = embedded ? getGuildId() : null;
+  let discordUserId: string | null = null;
+  if (embedded && guildId && !IDENTITY_BOOTSTRAP_PATHS.has(path)) {
+    await discordIdentitySettled();
+    discordUserId = getDiscordUserId();
+    if (!discordUserId && IDENTITY_REQUIRED_PATHS.has(path)) {
+      throw new ApiError("Couldn't link your Discord identity. Close Bitedle and launch it again.", 428);
+    }
+  }
   const res = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
       ...(guildId ? { "X-Bitedle-Guild-Id": guildId } : {}),
+      ...(discordUserId ? { [DISCORD_USER_HEADER_NAME]: discordUserId } : {}),
       ...init?.headers,
     },
   });

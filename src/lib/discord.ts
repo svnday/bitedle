@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 
 /** Header the client attaches (only when embedded in Discord) carrying the current guild id. */
 export const GUILD_HEADER_NAME = "X-Bitedle-Guild-Id";
+/** Header the Discord Activity client attaches after SDK auth, as a fallback when mobile drops cookies. */
+export const DISCORD_USER_HEADER_NAME = "X-Bitedle-Discord-User-Id";
 
 export const SNOWFLAKE_RE = /^\d{5,25}$/;
 

@@ -1,4 +1,5 @@
 import type { NextRequest, NextResponse } from "next/server";
+import { DISCORD_USER_HEADER_NAME, guildIdFromRequest, SNOWFLAKE_RE } from "./discord";
 import { getStore } from "./store";
 
 export const AUTH_COOKIE = "bitedle_id";
@@ -31,9 +32,15 @@ export function sanitizeName(raw: unknown): string | null {
 /** The caller's player id if their cookie names a known player, else null. */
 export async function resolveUser(request: NextRequest): Promise<string | null> {
   const value = request.cookies.get(AUTH_COOKIE)?.value;
-  if (!value || !UUID_RE.test(value)) return null;
-  const user = await getStore().getUser(value);
-  return user === null ? null : value;
+  const store = getStore();
+  if (value && UUID_RE.test(value)) {
+    const user = await store.getUser(value);
+    if (user !== null) return value;
+  }
+
+  const discordUserId = request.headers.get(DISCORD_USER_HEADER_NAME);
+  if (!discordUserId || !SNOWFLAKE_RE.test(discordUserId)) return null;
+  return store.getUserIdByDiscordId(discordUserId);
 }
 
 /**
@@ -47,6 +54,16 @@ export async function ensureUser(request: NextRequest): Promise<Identity> {
   const id = crypto.randomUUID();
   await getStore().createUser(id, defaultName(id));
   return { id };
+}
+
+/** Discord guild gameplay must be tied to a real Discord identity. */
+export async function requireDiscordUser(request: NextRequest): Promise<Identity | null> {
+  if (!guildIdFromRequest(request)) return ensureUser(request);
+
+  const id = await resolveUser(request);
+  if (!id) return null;
+  const user = await getStore().getUser(id);
+  return user?.discordUserId ? { id } : null;
 }
 
 /**

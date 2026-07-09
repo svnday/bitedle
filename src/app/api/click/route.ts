@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest, after } from "next/server";
 import { guildIdFromRequest, isBlockedDiscordId } from "@/lib/discord";
 import { updateLivePreviewMessage } from "@/lib/discord-live-preview";
-import { attachIdentity, ensureUser } from "@/lib/identity";
+import { attachIdentity, requireDiscordUser } from "@/lib/identity";
 import { layoutFor, stateFor, todayStr } from "@/lib/game";
 import { getStore } from "@/lib/store";
 import { BOARD_SIZE, type GameRecord } from "@/lib/types";
@@ -15,7 +15,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid cell" }, { status: 400 });
   }
 
-  const identity = await ensureUser(request);
+  const identity = await requireDiscordUser(request);
+  if (!identity) {
+    return NextResponse.json(
+      { error: "Couldn't link your Discord identity. Close Bitedle and launch it again." },
+      { status: 428 },
+    );
+  }
   const store = getStore();
   const date = todayStr();
 

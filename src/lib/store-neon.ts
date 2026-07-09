@@ -312,6 +312,7 @@ export class NeonStore implements Store {
              g.status, g.score, g.clicks, g.finished_at
       FROM games g JOIN users u ON u.id = g.user_id
       WHERE g.date = ${date} AND g.guild_id = ${guildId}
+        AND u.discord_user_id IS NOT NULL
         AND g.launched_at IS NOT NULL AND g.launched_at >= ${sinceLaunchedAt}
       ORDER BY g.launched_at ASC, g.user_id`;
     return rows.map((r) => ({

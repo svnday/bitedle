@@ -252,7 +252,7 @@ export class FileStore implements Store {
       if ((g.guildId ?? null) !== guildId) continue;
       if (g.launchedAt == null || g.launchedAt < sinceLaunchedAt) continue;
       const user = this.db.users[userId];
-      if (!user) continue;
+      if (!user?.discordUserId) continue;
       rows.push({
         launchedAt: g.launchedAt,
         row: {
