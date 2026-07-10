@@ -824,7 +824,7 @@ export function LeaderboardModal({ onClose, nameHint }: LeaderboardModalProps) {
                     </span>
                   ) : (
                     <span className="text-muted shrink-0 text-sm">
-                      💣 after {entry.clicks - 1} {entry.clicks - 1 === 1 ? "click" : "clicks"}
+                      💣 after {entry.clicks} {entry.clicks === 1 ? "click" : "clicks"}
                     </span>
                   )}
                 </li>
