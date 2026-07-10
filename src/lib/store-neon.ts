@@ -301,17 +301,13 @@ export class NeonStore implements Store {
     return rows.map((r) => ({ guildId: r.guild_id as string, channelId: r.channel_id as string }));
   }
 
-  async livePreviewGamesOn(
-    date: string,
-    guildId: string,
-    sinceLaunchedAt: number,
-  ): Promise<LivePreviewRow[]> {
+  async livePreviewGamesOn(guildId: string, sinceLaunchedAt: number): Promise<LivePreviewRow[]> {
     await this.ensureSchema();
     const rows = await this.sql`
       SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar,
              g.status, g.score, g.clicks, g.finished_at
       FROM games g JOIN users u ON u.id = g.user_id
-      WHERE g.date = ${date} AND g.guild_id = ${guildId}
+      WHERE g.guild_id = ${guildId}
         AND u.discord_user_id IS NOT NULL
         AND g.launched_at IS NOT NULL AND g.launched_at >= ${sinceLaunchedAt}
       ORDER BY g.launched_at ASC, g.user_id`;

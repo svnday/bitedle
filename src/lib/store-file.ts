@@ -242,30 +242,30 @@ export class FileStore implements Store {
     }));
   }
 
-  async livePreviewGamesOn(
-    date: string,
-    guildId: string,
-    sinceLaunchedAt: number,
-  ): Promise<LivePreviewRow[]> {
+  async livePreviewGamesOn(guildId: string, sinceLaunchedAt: number): Promise<LivePreviewRow[]> {
     const rows: { launchedAt: number; row: LivePreviewRow }[] = [];
-    for (const [userId, g] of Object.entries(this.db.games[date] ?? {})) {
-      if ((g.guildId ?? null) !== guildId) continue;
-      if (g.launchedAt == null || g.launchedAt < sinceLaunchedAt) continue;
-      const user = this.db.users[userId];
-      if (!user?.discordUserId) continue;
-      rows.push({
-        launchedAt: g.launchedAt,
-        row: {
-          userId,
-          name: user.name,
-          discordUserId: user.discordUserId ?? null,
-          discordAvatar: user.discordAvatar ?? null,
-          status: g.status,
-          score: g.score,
-          clicks: g.clicks,
-          finishedAt: g.finishedAt,
-        },
-      });
+    // Scan every day's games — a cross-timezone player's row lives under their
+    // own local date; the launched_at window is what actually scopes them.
+    for (const byUser of Object.values(this.db.games)) {
+      for (const [userId, g] of Object.entries(byUser)) {
+        if ((g.guildId ?? null) !== guildId) continue;
+        if (g.launchedAt == null || g.launchedAt < sinceLaunchedAt) continue;
+        const user = this.db.users[userId];
+        if (!user?.discordUserId) continue;
+        rows.push({
+          launchedAt: g.launchedAt,
+          row: {
+            userId,
+            name: user.name,
+            discordUserId: user.discordUserId ?? null,
+            discordAvatar: user.discordAvatar ?? null,
+            status: g.status,
+            score: g.score,
+            clicks: g.clicks,
+            finishedAt: g.finishedAt,
+          },
+        });
+      }
     }
     // Launcher first (earliest open in the window), then userId for determinism.
     return rows

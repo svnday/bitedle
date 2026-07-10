@@ -1,9 +1,12 @@
 import type { NextRequest } from "next/server";
+import { clampToUtcDayWindow, gameTimeZone, todayStr } from "./time";
 
 /** Header the client attaches (only when embedded in Discord) carrying the current guild id. */
 export const GUILD_HEADER_NAME = "X-Bitedle-Guild-Id";
 /** Header the Discord Activity client attaches after SDK auth, as a fallback when mobile drops cookies. */
 export const DISCORD_USER_HEADER_NAME = "X-Bitedle-Discord-User-Id";
+/** Header carrying the player's IANA timezone, for a local-midnight board reset. */
+export const TZ_HEADER_NAME = "X-Bitedle-TZ";
 
 export const SNOWFLAKE_RE = /^\d{5,25}$/;
 
@@ -26,6 +29,31 @@ export function isBlockedDiscordId(id: string | null | undefined): boolean {
 export function guildIdFromRequest(request: NextRequest): string | null {
   const raw = request.headers.get(GUILD_HEADER_NAME);
   return raw && SNOWFLAKE_RE.test(raw) ? raw : null;
+}
+
+/**
+ * The player's IANA timezone from the request header, or the game's default
+ * when absent/invalid. Validated by asking Intl to build a formatter for it —
+ * an unknown zone throws, so only real zones (offsets ≤ ±14h) get through.
+ */
+export function playerTimeZone(request: NextRequest): string {
+  const raw = request.headers.get(TZ_HEADER_NAME);
+  if (!raw) return gameTimeZone();
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: raw });
+    return raw;
+  } catch {
+    return gameTimeZone();
+  }
+}
+
+/**
+ * The player's current day (YYYY-MM-DD) for board/leaderboard/stats scoping,
+ * from their timezone and clamped to ±1 of the UTC date. This is the key the
+ * daily board rolls on — at the player's own local midnight.
+ */
+export function playerDate(request: NextRequest, now: Date = new Date()): string {
+  return clampToUtcDayWindow(todayStr(now, playerTimeZone(request)), now);
 }
 
 /** Discord CDN avatar URL, or the deterministic default-avatar fallback. */

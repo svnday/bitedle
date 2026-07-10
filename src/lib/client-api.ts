@@ -8,8 +8,19 @@ import {
 import type { CellResult, GameState, Leaderboard, UserStats } from "./types";
 
 const DISCORD_USER_HEADER_NAME = "X-Bitedle-Discord-User-Id";
+const TZ_HEADER_NAME = "X-Bitedle-TZ";
 const IDENTITY_BOOTSTRAP_PATHS = new Set(["/api/discord/token", "/api/discord/identify"]);
 const IDENTITY_REQUIRED_PATHS = new Set(["/api/state", "/api/click"]);
+
+/** The player's IANA timezone, so the server can roll their board at their own
+ *  local midnight (Wordle-style). Resolved once; empty string if unavailable. */
+function localTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+}
 
 export class ApiError extends Error {
   status: number;
@@ -43,12 +54,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       throw new ApiError("Couldn't link your Discord identity. Close Bitedle and launch it again.", 428);
     }
   }
+  const tz = localTimeZone();
   const res = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
       ...(guildId ? { "X-Bitedle-Guild-Id": guildId } : {}),
       ...(discordUserId ? { [DISCORD_USER_HEADER_NAME]: discordUserId } : {}),
+      ...(tz ? { [TZ_HEADER_NAME]: tz } : {}),
       ...init?.headers,
     },
   });

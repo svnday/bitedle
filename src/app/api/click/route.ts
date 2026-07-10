@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest, after } from "next/server";
-import { guildIdFromRequest, isBlockedDiscordId } from "@/lib/discord";
+import { guildIdFromRequest, isBlockedDiscordId, playerDate, playerTimeZone } from "@/lib/discord";
 import { updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { attachIdentity, requireDiscordUser } from "@/lib/identity";
-import { layoutFor, stateFor, todayStr } from "@/lib/game";
+import { layoutFor, stateFor } from "@/lib/game";
 import { getStore } from "@/lib/store";
 import { BOARD_SIZE, type GameRecord } from "@/lib/types";
 
@@ -23,7 +23,9 @@ export async function POST(request: NextRequest) {
     );
   }
   const store = getStore();
-  const date = todayStr();
+  // Same header the player's /api/state used, so board and clicks agree on day.
+  const timeZone = playerTimeZone(request);
+  const date = playerDate(request);
 
   // Defense-in-depth: a session opened before the block, linked to a blocked
   // Discord id, can't keep playing (the interaction gate stops fresh launches).
@@ -43,7 +45,7 @@ export async function POST(request: NextRequest) {
   if (game.status !== "playing") {
     return attachIdentity(
       NextResponse.json(
-        { error: "You already played today's Bitedle", state: await stateFor(identity.id, date) },
+        { error: "You already played today's Bitedle", state: await stateFor(identity.id, date, timeZone) },
         { status: 409 },
       ),
       identity,
@@ -70,14 +72,14 @@ export async function POST(request: NextRequest) {
   if (game.guildId) {
     const guildId = game.guildId;
     after(() =>
-      updateLivePreviewMessage({ guildId }).catch((e) => {
+      updateLivePreviewMessage({ guildId, date }).catch((e) => {
         console.error(`click: live preview update failed for guild ${guildId}`, e);
       }),
     );
   }
 
   return attachIdentity(
-    NextResponse.json({ result, state: await stateFor(identity.id, date) }),
+    NextResponse.json({ result, state: await stateFor(identity.id, date, timeZone) }),
     identity,
   );
 }

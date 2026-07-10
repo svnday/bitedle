@@ -21,15 +21,36 @@ export function gameTimeZone(): string {
   return cachedTz;
 }
 
-/** Today's date in the game's timezone, as YYYY-MM-DD. */
-export function todayStr(now: Date = new Date()): string {
+/** Today's date as YYYY-MM-DD, in the given timezone (default: the game's). */
+export function todayStr(now: Date = new Date(), timeZone: string = gameTimeZone()): string {
   // en-CA formats as YYYY-MM-DD.
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: gameTimeZone(),
+    timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).format(now);
+}
+
+/**
+ * Clamps a candidate day (from a player-supplied timezone) to within ±1 day of
+ * the current UTC date. A real IANA zone already yields a date in that window
+ * (offsets are ≤ ±14h), so this only guards against malformed/hostile input —
+ * bounding how far a spoofed client could shift its board to at most ~1 day.
+ */
+export function clampToUtcDayWindow(date: string, now: Date = new Date()): string {
+  const utc = todayStr(now, "UTC");
+  const lo = shiftDay(utc, -1);
+  const hi = shiftDay(utc, 1);
+  if (date < lo) return lo;
+  if (date > hi) return hi;
+  return date;
+}
+
+/** YYYY-MM-DD shifted by whole days, via UTC to sidestep any tz/DST math. */
+export function shiftDay(date: string, days: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
 function tzOffsetMs(date: Date, timeZone: string): number {
@@ -59,10 +80,10 @@ function tzOffsetMs(date: Date, timeZone: string): number {
   return Math.round((asUtc - date.getTime()) / 1000) * 1000;
 }
 
-/** Epoch ms of the next midnight in the game's timezone. */
-export function nextResetAt(now: Date = new Date()): number {
-  const tz = gameTimeZone();
-  const [y, m, d] = todayStr(now).split("-").map(Number);
+/** Epoch ms of the next midnight in the given timezone (default: the game's). */
+export function nextResetAt(now: Date = new Date(), timeZone: string = gameTimeZone()): number {
+  const tz = timeZone;
+  const [y, m, d] = todayStr(now, tz).split("-").map(Number);
   const midnightUtc = Date.UTC(y, m - 1, d + 1, 0, 0, 0);
   // Two passes so a DST shift landing exactly on the boundary still resolves.
   let guess = new Date(midnightUtc - tzOffsetMs(now, tz));

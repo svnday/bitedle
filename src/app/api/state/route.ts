@@ -1,14 +1,15 @@
 import { NextResponse, type NextRequest, after } from "next/server";
-import { guildIdFromRequest, isBlockedDiscordId } from "@/lib/discord";
+import { guildIdFromRequest, isBlockedDiscordId, playerDate, playerTimeZone } from "@/lib/discord";
 import { attachIdentity, requireDiscordUser } from "@/lib/identity";
-import { stateFor, todayStr } from "@/lib/game";
+import { stateFor } from "@/lib/game";
 import { updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { getStore } from "@/lib/store";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const date = todayStr();
+  const timeZone = playerTimeZone(request);
+  const date = playerDate(request);
   const guildId = guildIdFromRequest(request);
   const identity = await requireDiscordUser(request);
   if (!identity) {
@@ -42,14 +43,15 @@ export async function GET(request: NextRequest) {
     await store.stampLaunch(date, identity.id, Date.now());
     // No interaction token here — this can only post/edit through the token
     // stored by the launch that opened the Activity (fine: that launch just
-    // happened, so the token is fresh).
+    // happened, so the token is fresh). Pass the player's local date so the
+    // preview follows the board they're actually on.
     after(() =>
-      updateLivePreviewMessage({ guildId }).catch((e) => {
+      updateLivePreviewMessage({ guildId, date }).catch((e) => {
         console.error(`state: live preview update failed for guild ${guildId}`, e);
       }),
     );
   }
 
-  const state = await stateFor(identity.id, date);
+  const state = await stateFor(identity.id, date, timeZone);
   return attachIdentity(NextResponse.json(state), identity);
 }

@@ -115,10 +115,11 @@ export interface Store {
   getGuildChannel(guildId: string): Promise<GuildChannel | null>;
   /** Every registered guild→channel pair, for the daily summary cron to loop over. */
   allGuildChannels(): Promise<GuildChannel[]>;
-  /** Games for the guild's current live-preview window: only players who
-   *  opened the Activity at or after `sinceLaunchedAt` (the window's start),
-   *  ordered launcher-first. */
-  livePreviewGamesOn(date: string, guildId: string, sinceLaunchedAt: number): Promise<LivePreviewRow[]>;
+  /** Games for the guild's current live-preview window: everyone who opened
+   *  the Activity at or after `sinceLaunchedAt` (the window's start), ordered
+   *  launcher-first. Not filtered by day — a recent launch is by definition on
+   *  the player's current board, so cross-timezone players are still included. */
+  livePreviewGamesOn(guildId: string, sinceLaunchedAt: number): Promise<LivePreviewRow[]>;
   /** Records that a player opened the Activity at `at` — their launch time,
    *  used to scope the live preview to one ~13-minute window. */
   stampLaunch(date: string, userId: string, at: number): Promise<void>;

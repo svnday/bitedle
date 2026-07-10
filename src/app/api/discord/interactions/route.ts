@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest, after } from "next/server";
 import { verifyKey } from "discord-interactions";
 import { puzzleNumber, todayStr } from "@/lib/game";
+import { shiftDay } from "@/lib/time";
+import type { GameRecord } from "@/lib/types";
 import { shareText } from "@/lib/share-text";
 import { renderSummaryImage, sortTodayRows } from "@/lib/discord-summary";
 import { LAUNCH_BUTTON_ID, updateLivePreviewMessage } from "@/lib/discord-live-preview";
@@ -51,15 +53,27 @@ async function handleShare(body: Interaction): Promise<NextResponse> {
     );
   }
 
-  const date = todayStr();
-  const game = await store.getGame(date, userId);
-  if (!game || game.status === "playing") {
+  // A Discord interaction carries no browser timezone, so we can't know the
+  // player's local day. Their current puzzle is within ±1 of the server day
+  // (the timezone range), so scan those three and share their newest finished
+  // result — works whatever timezone they reset on.
+  const today = todayStr();
+  let best: GameRecord | null = null;
+  let bestDate = today;
+  for (const d of [shiftDay(today, 1), today, shiftDay(today, -1)]) {
+    const g = await store.getGame(d, userId);
+    if (g && g.status !== "playing" && (!best || (g.finishedAt ?? 0) > (best.finishedAt ?? 0))) {
+      best = g;
+      bestDate = d;
+    }
+  }
+  if (!best) {
     return reply("You haven't finished today's Bitedle yet — run /play!", true);
   }
 
-  const misses = game.clicks.filter((c) => c.result === "x").length;
+  const misses = best.clicks.filter((c) => c.result === "x").length;
   return reply(
-    shareText({ puzzleNumber: puzzleNumber(date), status: game.status, score: game.score, misses }),
+    shareText({ puzzleNumber: puzzleNumber(bestDate), status: best.status, score: best.score, misses }),
   );
 }
 

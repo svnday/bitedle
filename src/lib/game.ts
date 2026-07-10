@@ -81,7 +81,11 @@ export function layoutFor(date: string): CellResult[] {
   return cells;
 }
 
-export async function stateFor(userId: string, date: string): Promise<GameState> {
+export async function stateFor(
+  userId: string,
+  date: string,
+  timeZone?: string,
+): Promise<GameState> {
   const store = getStore();
   const [game, user] = await Promise.all([store.getGame(date, userId), store.getUser(userId)]);
   const status = game?.status ?? "playing";
@@ -93,7 +97,8 @@ export async function stateFor(userId: string, date: string): Promise<GameState>
     status,
     score: game?.score ?? null,
     clicks: game?.clicks ?? [],
-    nextResetAt: nextResetAt(),
+    // Countdown to the player's own local midnight (falls back to game tz).
+    nextResetAt: nextResetAt(new Date(), timeZone),
   };
   if (status !== "playing") {
     state.layout = layoutFor(date);
