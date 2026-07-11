@@ -98,7 +98,7 @@ function launchActivity(body: Interaction): NextResponse {
 
 /**
  * /results — on demand, renders the day's channel-stats summary image (same
- * style as the daily summary) and edits it into the deferred
+ * style as the daily recap) and edits it into the deferred
  * reply. Unlike the launch preview this is never throttled — the caller asked
  * for it explicitly. Uses the interaction webhook (not a bot channel post), so
  * it also works where the app is user-installed and the bot isn't a member.
@@ -194,9 +194,9 @@ export async function POST(request: NextRequest) {
   }
 
   if ((body?.type === 2 || body?.type === 3) && body.guild_id && body.channel_id) {
-    // Auto-detect the daily summary's target channel from real usage —
-    // whichever channel a command was most recently run in becomes that
-    // server's target. Must be awaited (not fire-and-forget): a serverless
+    // Records the guild's most recent command channel and — load-bearing —
+    // guarantees the guild_channels row exists before the preview/recap
+    // upserts touch it. Must be awaited (not fire-and-forget): a serverless
     // function invocation isn't guaranteed to keep running background work
     // after the response is sent.
     try {

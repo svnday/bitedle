@@ -5,7 +5,7 @@ import { discordAvatarUrl } from "./discord";
 import { squareTrail } from "./share-text";
 
 /**
- * Shared Discord image rendering + posting helpers, used by the daily summary,
+ * Shared Discord image rendering + posting helpers, used by the daily recap,
  * /results, and the editable live Activity preview.
  */
 
@@ -250,30 +250,6 @@ export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
   );
 }
 
-export async function postImageToChannel(opts: {
-  channelId: string;
-  botToken: string;
-  pngBuffer: ArrayBuffer;
-  content: string;
-  filename?: string;
-}): Promise<{ ok: boolean; status: number; body: string; messageId?: string }> {
-  const form = new FormData();
-  const filename = opts.filename ?? "results.png";
-  form.append("payload_json", JSON.stringify({ content: opts.content }));
-  form.append("files[0]", new Blob([opts.pngBuffer], { type: "image/png" }), filename);
-
-  const res = await fetch(`https://discord.com/api/v10/channels/${opts.channelId}/messages`, {
-    method: "POST",
-    headers: { Authorization: `Bot ${opts.botToken}` }, // no Content-Type — fetch sets the multipart boundary itself
-    body: form,
-  });
-
-  if (!res.ok) return { ok: false, status: res.status, body: await res.text() };
-
-  const body = await res.json().catch(() => null);
-  return { ok: true, status: res.status, body: "", messageId: body?.id };
-}
-
 /**
  * Posts an image as an interaction-webhook followup message. Works with only
  * the `applications.commands` scope — no bot membership needed — but the
@@ -286,12 +262,18 @@ export async function postImageWebhookFollowup(opts: {
   content: string;
   filename?: string;
   components?: unknown[];
+  /** e.g. { parse: [] } — mentions render as blue tags but notify no one. */
+  allowedMentions?: { parse: string[] };
 }): Promise<{ ok: boolean; status: number; body: string; messageId?: string }> {
   const form = new FormData();
   const filename = opts.filename ?? "preview.png";
   form.append(
     "payload_json",
-    JSON.stringify({ content: opts.content, ...(opts.components ? { components: opts.components } : {}) }),
+    JSON.stringify({
+      content: opts.content,
+      ...(opts.components ? { components: opts.components } : {}),
+      ...(opts.allowedMentions ? { allowed_mentions: opts.allowedMentions } : {}),
+    }),
   );
   form.append("files[0]", new Blob([opts.pngBuffer], { type: "image/png" }), filename);
 

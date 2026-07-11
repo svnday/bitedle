@@ -1,10 +1,19 @@
-import { puzzleNumber, todayStr } from "./game";
+import { channelStatsFromGames, puzzleNumber, todayStr } from "./game";
 import {
   patchImageWebhookMessage,
   postImageWebhookFollowup,
   renderLivePreviewImage,
+  renderSummaryImage,
+  sortTodayRows,
 } from "./discord-summary";
-import { getStore, LIVE_PREVIEW_POSTING, type LivePreviewRow } from "./store";
+import { hourInTz } from "./time";
+import {
+  getStore,
+  LIVE_PREVIEW_POSTING,
+  type LivePreviewMessage,
+  type LivePreviewRow,
+  type TodayRow,
+} from "./store";
 
 /**
  * The live preview is posted and edited through *interaction webhooks*
@@ -16,6 +25,11 @@ import { getStore, LIVE_PREVIEW_POSTING, type LivePreviewRow } from "./store";
  * While the stored token is fresh we keep editing one message; once it goes
  * stale the next launch starts a new message. Between launches, clicks reuse
  * the stored token, so the image updates live for the length of a session.
+ *
+ * The daily recap rides the same tokens: the first qualifying activity after
+ * DAILY_RECAP_HOUR posts a one-off results-so-far followup (see
+ * maybePostDailyRecap) — the only way a token-less wall clock could never
+ * deliver.
  */
 
 /** Interaction tokens are valid for 15 minutes; stop using one with margin. */
@@ -32,6 +46,115 @@ const LAUNCH_BUTTON_COMPONENTS = [
     components: [{ type: 2, style: 1, label: "Play now!", custom_id: LAUNCH_BUTTON_ID }],
   },
 ];
+
+/** Wall-clock hour in the game timezone from which the day's recap may post. */
+const DAILY_RECAP_HOUR = 17; // 5PM
+
+/** Content budget with headroom under Discord's 2000-char message limit. */
+const RECAP_CONTENT_BUDGET = 1900;
+
+/**
+ * Wordle-style recap text: results grouped by score, best group crowned,
+ * losses as one boom line. Linked players are real @mentions (rendered blue;
+ * the caller suppresses notifications via allowed_mentions), unlinked-but-
+ * named players fall back to bold plain text. Truncates to the budget with a
+ * "+N more" tail.
+ */
+export function buildRecapContent(sorted: TodayRow[], date: string, serverStreak: number): string {
+  const lines = [`📊 Bitedle #${puzzleNumber(date)} — today's results so far`];
+  if (serverStreak > 1) lines.push(`🔥 Your server is on a ${serverStreak}-day streak!`);
+
+  const groups: { label: string; players: TodayRow[] }[] = [];
+  for (const row of sorted) {
+    // sorted = wins by score asc, then losses — so groups form in order.
+    const label =
+      row.status === "won"
+        ? `${row.score} click${row.score === 1 ? "" : "s"}:`
+        : "💥 boom:";
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) last.players.push(row);
+    else groups.push({ label, players: [row] });
+  }
+  if (groups.length > 0 && groups[0].label !== "💥 boom:") {
+    groups[0].label = `👑 ${groups[0].label}`;
+  }
+
+  let used = lines.join("\n").length;
+  let truncated = 0;
+  for (const group of groups) {
+    if (truncated > 0) {
+      truncated += group.players.length;
+      continue;
+    }
+    let line = group.label;
+    let added = 0;
+    for (let i = 0; i < group.players.length; i++) {
+      const r = group.players[i];
+      const token = r.discordUserId ? `<@${r.discordUserId}>` : `**${r.name}**`;
+      if (used + line.length + token.length + 1 > RECAP_CONTENT_BUDGET) {
+        truncated = group.players.length - i;
+        break;
+      }
+      line += ` ${token}`;
+      added++;
+    }
+    if (added > 0) {
+      lines.push(line);
+      used += line.length + 1;
+    }
+  }
+  if (truncated > 0) lines.push(`…and ${truncated} more`);
+  return lines.join("\n");
+}
+
+/**
+ * The first qualifying activity after DAILY_RECAP_HOUR (server timezone)
+ * posts the day's results-so-far recap through the in-hand webhook token —
+ * Wordle's own pattern, and the only bot-less option since tokens outlive an
+ * interaction by just 15 minutes. Claim races resolve atomically in the
+ * store; a failed POST releases the claim so a later activity retries. Never
+ * throws: the live preview must always still run. Accepted residuals: a
+ * serverless kill between claim and POST skips that guild's day (same risk
+ * class as LIVE_PREVIEW_POSTING), and post-recap finishers aren't re-posted
+ * (/results covers on demand).
+ */
+async function maybePostDailyRecap(record: LivePreviewMessage, today: string): Promise<void> {
+  try {
+    if (hourInTz() < DAILY_RECAP_HOUR) return;
+    if (record.recapPostedDate === today) return; // free fast-path from getLivePreviewMessage
+    const store = getStore();
+    const rows = await store.finishedGamesOn(today, record.guildId);
+    if (rows.length === 0) return;
+    if (!(await store.claimDailyRecap(record.guildId, today))) return; // claim before the expensive render
+    try {
+      const sorted = sortTodayRows(rows);
+      const streak = channelStatsFromGames(
+        await store.allFinishedGames(record.guildId),
+        today,
+      ).currentStreak;
+      const pngBuffer = await renderSummaryImage(sorted, today).arrayBuffer();
+      const posted = await postImageWebhookFollowup({
+        applicationId: record.applicationId,
+        webhookToken: record.webhookToken,
+        pngBuffer,
+        content: buildRecapContent(sorted, today, streak),
+        filename: "results.png",
+        components: LAUNCH_BUTTON_COMPONENTS,
+        allowedMentions: { parse: [] }, // blue tags, zero pings
+      });
+      if (posted.ok) return;
+      console.error(
+        `daily-recap: webhook POST failed for guild ${record.guildId} (${posted.status}): ${posted.body}`,
+      );
+      await store.releaseDailyRecap(record.guildId, today);
+    } catch (e) {
+      console.error(`daily-recap: render/post error for guild ${record.guildId}`, e);
+      await store.releaseDailyRecap(record.guildId, today);
+    }
+  } catch (e) {
+    console.error(`daily-recap: error for guild ${record.guildId}`, e);
+  }
+}
 
 function previewContent(rows: LivePreviewRow[], date: string): string {
   const others = rows.length - 1;
@@ -76,6 +199,13 @@ export async function updateLivePreviewMessage(opts: {
     };
     await store.setLivePreviewMessage(record);
   }
+
+  // First qualifying activity after the recap hour posts the day's recap,
+  // riding the same fresh token. Runs before the POSTING-sentinel check so a
+  // concurrent preview post can't starve it, and before the preview followup
+  // so the recap lands above it in the channel. `date` here is the server
+  // day (the record key), matching /results.
+  await maybePostDailyRecap(record, date);
 
   // Another invocation is mid-POST — it will render the same data anyway.
   if (record.messageId === LIVE_PREVIEW_POSTING) return;

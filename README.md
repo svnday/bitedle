@@ -125,7 +125,7 @@ mechanisms are involved:
   to exist, since that's when Discord identity gets linked) and their game
   for today.
 - **`/results`** renders the server's whole-day results image on demand — the
-  same style as the daily summary, but **not** throttled
+  same style as the daily recap, but **not** throttled
   (the caller asked for it). It replies deferred (response type `5`), then an
   [`after()`](https://nextjs.org/docs/app/api-reference/functions/after)
   callback edits in the rendered image via the interaction webhook (`PATCH
@@ -199,14 +199,15 @@ URL, or the Portal will reject it. Both scripts are safe to re-run any time.
 
 Discord has two independent install models, and Bitedle supports both:
 
-- **Guild install** — a server admin adds Bitedle; the **bot joins** the
-  server. This is required for the [daily results summary](#daily-results-summary)
-  to post (the bot has to be a member to send a channel message).
+- **Guild install** — a server admin adds Bitedle to the server itself.
 - **User install** — an individual adds Bitedle to their own account and can
   then launch the Activity in **any** server, even one that hasn't added the
-  app. The bot is **not** a member of those servers, so the daily summary
-  can't post there — but the Activity, avatars, per-server leaderboards, and
-  `/share` all work fine.
+  app.
+
+Every feature — the Activity, avatars, per-server leaderboards, `/share`,
+`/results`, the live preview, and the [daily recap](#daily-results-recap) —
+works identically in both models: all channel posting rides interaction
+webhooks, so no bot member is ever needed.
 
 If the app only supports guild install, opening it from the Activities
 button in a server that hasn't added it fails with *"Your app has enabled
@@ -221,8 +222,7 @@ on a command if the app itself doesn't support user install yet):
 2. **Install Link** → "Discord Provided Link" (a shareable link people use to
    add Bitedle to their server or account).
 3. **Default Install Settings**:
-   - Guild Install → scopes `applications.commands` + `bot`; bot permissions
-     **View Channels, Send Messages, Attach Files** (for the daily summary).
+   - Guild Install → scope `applications.commands`.
    - User Install → scope `applications.commands`.
 4. Developer Portal → **Bot** tab → turn **Public Bot** on so anyone with the
    link can add it.
@@ -232,45 +232,30 @@ on a command if the app itself doesn't support user install yet):
    Confirm with `node scripts/list-discord-commands.mjs` — the entry point
    command should show `integration_types` `[0, 1]`.
 
-### Daily results summary
+### Daily results recap
 
-Once a day, Bitedle automatically posts a recap into each Discord server
-that's using it: a plain caption plus a generated image showing every
-player who's finished that day's puzzle in that server, with their Discord
-avatar, name, and a non-spoiling result trail (misses + win/loss — never
-real board positions, same as the site's own Share button). No @mentions,
-no streak stat — just the caption and the image.
+Once a day, Bitedle posts a Wordle-style recap into each active Discord
+server: the day's results grouped by score ("👑 2 clicks: @a @b · 💥 boom:
+@c"), a server-streak line, the generated results image (Discord avatars,
+names, non-spoiling result trails — never real board positions), and a
+"Play now!" button. Mentions are real `<@id>` tags but **never ping** —
+they're posted with `allowed_mentions: { parse: [] }`, so they render blue
+without notifying anyone.
 
-This is handled by a [Vercel Cron Job](https://vercel.com/docs/cron-jobs)
-([vercel.json](vercel.json)) that hits
-[src/app/api/cron/daily-summary/route.tsx](src/app/api/cron/daily-summary/route.tsx)
-once a day at `21:00 UTC` — 5PM in `America/New_York` while daylight saving
-is in effect (most of the year), drifting to 4PM during the winter months,
-since Vercel Cron schedules are fixed UTC times and don't shift for DST.
-It loops over every server independently, so one server
-having no finished games yet (or a Discord error) simply skips that server
-without affecting any others.
+There is **no schedule and no bot**: the app can only write to a channel
+through interaction webhooks, whose tokens die 15 minutes after a launch —
+so a wall-clock cron could never deliver. Instead, the **first player
+activity after 5PM** in `BITEDLE_TZ` (true wall-clock, no DST drift)
+triggers the recap as a followup riding the same token as the
+[live launch preview](#slash-commands-play-bitedle-share-and-results),
+posted just above it (`maybePostDailyRecap` in
+[src/lib/discord-live-preview.ts](src/lib/discord-live-preview.ts)). An
+atomic per-guild-per-day claim on `guild_channels.recap_posted_date` keeps
+concurrent serverless invocations from double-posting; a failed post
+releases the claim so the next activity retries.
 
-**Works across any number of servers with no manual setup** — there's no
-admin command to run and nothing to configure per server. The target
-channel is auto-detected: the first time anyone runs `/bitedle` or `/share`
-in a server, [the interactions route](src/app/api/discord/interactions/route.ts)
-records that channel as the one to post that server's summary into
-(reading `channel_id` off Discord's own interaction payload), and keeps it
-up to date on every later use. The one gap: a server that only ever uses
-`/play` (Discord's native entry-point command, which our backend never
-receives an interaction for at all) won't have a channel registered yet —
-running `/bitedle` or `/share` once fixes that.
-
-Two things still need setting up (see [.env.example](.env.example)):
-
-- `DISCORD_BOT_TOKEN` — same value as used for the admin scripts above, but
-  this is the first feature where the *deployed app* also needs it as a
-  real Vercel environment variable (to actually post messages, not just for
-  local one-off scripts). The bot needs **View Channel**, **Send
-  Messages**, and **Attach Files** permissions in whatever channel ends up
-  auto-detected (a common gotcha even when the bot already has broad server
-  permissions, since channels can have their own permission overwrites).
-- `CRON_SECRET` — any long random string. Vercel automatically sends this
-  back as `Authorization: Bearer <value>` on requests it makes to trigger
-  the cron job, which the route checks to reject any other caller.
+Because it rides the launch token, it posts in whatever channel the game
+was launched from — no per-server setup, no auto-detected target channel,
+and it works in both install models. Two accepted quirks: a server with no
+activity after 5PM simply gets no recap that day, and players who finish
+*after* the recap aren't re-posted — `/results` covers both on demand.

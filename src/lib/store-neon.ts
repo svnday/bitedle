@@ -4,7 +4,6 @@ import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
   type FinishedGame,
-  type GuildChannel,
   type LivePreviewMessage,
   type LivePreviewRow,
   type Store,
@@ -64,6 +63,8 @@ export class NeonStore implements Store {
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_application_id text`;
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_webhook_token text`;
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_token_created_at bigint`;
+      // Server day the guild's daily recap was last posted for.
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS recap_posted_date text`;
 
       // One-time dedupe of players who linked the same Discord id from
       // several devices before identify learned to merge (cheap no-ops once
@@ -287,20 +288,6 @@ export class NeonStore implements Store {
       ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id, updated_at = EXCLUDED.updated_at`;
   }
 
-  async getGuildChannel(guildId: string): Promise<GuildChannel | null> {
-    await this.ensureSchema();
-    const rows = await this.sql`
-      SELECT guild_id, channel_id FROM guild_channels WHERE guild_id = ${guildId}`;
-    if (rows.length === 0) return null;
-    return { guildId: rows[0].guild_id as string, channelId: rows[0].channel_id as string };
-  }
-
-  async allGuildChannels(): Promise<GuildChannel[]> {
-    await this.ensureSchema();
-    const rows = await this.sql`SELECT guild_id, channel_id FROM guild_channels`;
-    return rows.map((r) => ({ guildId: r.guild_id as string, channelId: r.channel_id as string }));
-  }
-
   async livePreviewGamesOn(guildId: string, sinceLaunchedAt: number): Promise<LivePreviewRow[]> {
     await this.ensureSchema();
     const rows = await this.sql`
@@ -327,7 +314,8 @@ export class NeonStore implements Store {
     await this.ensureSchema();
     const rows = await this.sql`
       SELECT live_preview_application_id, live_preview_webhook_token,
-             live_preview_token_created_at, live_preview_message_id, live_preview_updated_at
+             live_preview_token_created_at, live_preview_message_id, live_preview_updated_at,
+             recap_posted_date
       FROM guild_channels
       WHERE guild_id = ${guildId} AND live_preview_date = ${date}`;
     if (
@@ -348,6 +336,7 @@ export class NeonStore implements Store {
           : Number(rows[0].live_preview_token_created_at),
       messageId: rows[0].live_preview_message_id as string | null,
       updatedAt: rows[0].live_preview_updated_at === null ? 0 : Number(rows[0].live_preview_updated_at),
+      recapPostedDate: rows[0].recap_posted_date as string | null,
     };
   }
 
@@ -399,5 +388,24 @@ export class NeonStore implements Store {
       UPDATE guild_channels SET live_preview_message_id = NULL
       WHERE guild_id = ${guildId} AND live_preview_date = ${date}
         AND live_preview_message_id = ${messageId}`;
+  }
+
+  async claimDailyRecap(guildId: string, date: string): Promise<boolean> {
+    await this.ensureSchema();
+    // Auto-committed single statement — the concurrency gate for two members
+    // both active right after the recap hour.
+    const rows = await this.sql`
+      UPDATE guild_channels SET recap_posted_date = ${date}
+      WHERE guild_id = ${guildId}
+        AND (recap_posted_date IS NULL OR recap_posted_date <> ${date})
+      RETURNING guild_id`;
+    return rows.length > 0;
+  }
+
+  async releaseDailyRecap(guildId: string, date: string): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      UPDATE guild_channels SET recap_posted_date = NULL
+      WHERE guild_id = ${guildId} AND recap_posted_date = ${date}`;
   }
 }

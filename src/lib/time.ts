@@ -53,6 +53,16 @@ export function shiftDay(date: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
+/** Wall-clock hour (0–23) right now in the given timezone (default: the game's). */
+export function hourInTz(now: Date = new Date(), timeZone: string = gameTimeZone()): number {
+  const h = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    hour12: false,
+  }).format(now);
+  return Number(h) % 24; // some ICU builds render midnight as "24" with hour12:false
+}
+
 function tzOffsetMs(date: Date, timeZone: string): number {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-US", {

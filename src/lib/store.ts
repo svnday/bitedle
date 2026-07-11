@@ -50,11 +50,6 @@ export interface UserInfo {
   discordAvatar: string | null;
 }
 
-/** A Discord server's auto-detected daily-summary target channel. */
-export interface GuildChannel {
-  guildId: string;
-  channelId: string;
-}
 
 /** Sentinel stored as the live-preview messageId while a POST is in flight,
  *  so concurrent invocations neither double-post nor try to PATCH it. */
@@ -76,6 +71,10 @@ export interface LivePreviewMessage {
    *  (a launch lands before the launcher's game row exists). */
   messageId: string | null;
   updatedAt: number;
+  /** Server day the guild's daily recap was last posted for — populated by
+   *  getLivePreviewMessage as a read fast-path, never written by
+   *  setLivePreviewMessage (only claim/releaseDailyRecap touch it). */
+  recapPostedDate?: string | null;
 }
 
 export interface Store {
@@ -108,13 +107,11 @@ export interface Store {
   /** Leaderboard feed: all finished games, NAMED players only, scoped to one
    *  guild (null = web-only games). */
   allFinishedGames(guildId: string | null): Promise<AllTimeRow[]>;
-  /** Records/updates which channel to post a server's daily summary into —
-   *  captured automatically from inbound slash-command interactions
-   *  (channel_id), never configured manually. Last-used-wins. */
+  /** Records the channel a server most recently used a command in. Nothing
+   *  posts to it anymore (delivery rides interaction webhooks), but the call
+   *  guarantees the guild_channels row exists before preview/recap updates
+   *  touch it, and keeps a useful breadcrumb of where the app is used. */
   setGuildChannel(guildId: string, channelId: string): Promise<void>;
-  getGuildChannel(guildId: string): Promise<GuildChannel | null>;
-  /** Every registered guild→channel pair, for the daily summary cron to loop over. */
-  allGuildChannels(): Promise<GuildChannel[]>;
   /** Games for the guild's current live-preview window: everyone who opened
    *  the Activity at or after `sinceLaunchedAt` (the window's start), ordered
    *  launcher-first. Not filtered by day — a recent launch is by definition on
@@ -135,6 +132,13 @@ export interface Store {
   /** Forgets a message that no longer exists on Discord (deleted by a mod) —
    *  only if the stored id still matches, so concurrent 404s reset it once. */
   clearLivePreviewMessageId(guildId: string, date: string, messageId: string): Promise<void>;
+  /** Atomically claims the right to post the guild's daily recap for `date`
+   *  (the guild_channels row exists by the time this runs). False when
+   *  another invocation already claimed or posted it today. */
+  claimDailyRecap(guildId: string, date: string): Promise<boolean>;
+  /** Rolls a failed recap POST back so a later activity retries today —
+   *  guarded by date so a stale rollback can't clobber a next-day claim. */
+  releaseDailyRecap(guildId: string, date: string): Promise<void>;
 }
 
 // Cached on globalThis so dev HMR reloads keep one instance per process.

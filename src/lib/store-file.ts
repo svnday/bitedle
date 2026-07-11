@@ -5,7 +5,6 @@ import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
   type FinishedGame,
-  type GuildChannel,
   type LivePreviewMessage,
   type LivePreviewRow,
   type Store,
@@ -27,7 +26,7 @@ interface FileDb {
   /** games[date][userId]; launchedAt is preview-only metadata (last Activity
    *  open), kept off GameRecord since gameplay never reads it. */
   games: Record<string, Record<string, GameRecord & { launchedAt?: number }>>;
-  /** guildChannels[guildId] — auto-detected daily-summary target channel. */
+  /** guildChannels[guildId] — per-guild Discord state (live preview, recap). */
   guildChannels: Record<
     string,
     {
@@ -39,6 +38,7 @@ interface FileDb {
       livePreviewTokenCreatedAt?: number;
       livePreviewMessageId?: string | null;
       livePreviewUpdatedAt?: number;
+      recapPostedDate?: string | null;
     }
   >;
 }
@@ -230,18 +230,6 @@ export class FileStore implements Store {
     this.persist();
   }
 
-  async getGuildChannel(guildId: string): Promise<GuildChannel | null> {
-    const channel = this.db.guildChannels[guildId];
-    return channel ? { guildId, channelId: channel.channelId } : null;
-  }
-
-  async allGuildChannels(): Promise<GuildChannel[]> {
-    return Object.entries(this.db.guildChannels).map(([guildId, v]) => ({
-      guildId,
-      channelId: v.channelId,
-    }));
-  }
-
   async livePreviewGamesOn(guildId: string, sinceLaunchedAt: number): Promise<LivePreviewRow[]> {
     const rows: { launchedAt: number; row: LivePreviewRow }[] = [];
     // Scan every day's games — a cross-timezone player's row lives under their
@@ -291,6 +279,7 @@ export class FileStore implements Store {
       tokenCreatedAt: channel.livePreviewTokenCreatedAt ?? 0,
       messageId: channel.livePreviewMessageId ?? null,
       updatedAt: channel.livePreviewUpdatedAt ?? 0,
+      recapPostedDate: channel.recapPostedDate ?? null,
     };
   }
 
@@ -336,6 +325,23 @@ export class FileStore implements Store {
     const channel = this.db.guildChannels[guildId];
     if (channel && channel.livePreviewDate === date && channel.livePreviewMessageId === messageId) {
       channel.livePreviewMessageId = null;
+      this.persist();
+    }
+  }
+
+  async claimDailyRecap(guildId: string, date: string): Promise<boolean> {
+    // No awaits between check and set — atomic within the event-loop tick.
+    const channel = this.db.guildChannels[guildId];
+    if (!channel || channel.recapPostedDate === date) return false;
+    channel.recapPostedDate = date;
+    this.persist();
+    return true;
+  }
+
+  async releaseDailyRecap(guildId: string, date: string): Promise<void> {
+    const channel = this.db.guildChannels[guildId];
+    if (channel && channel.recapPostedDate === date) {
+      channel.recapPostedDate = null;
       this.persist();
     }
   }
