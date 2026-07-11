@@ -244,11 +244,10 @@ no streak stat — just the caption and the image.
 This is handled by a [Vercel Cron Job](https://vercel.com/docs/cron-jobs)
 ([vercel.json](vercel.json)) that hits
 [src/app/api/cron/daily-summary/route.tsx](src/app/api/cron/daily-summary/route.tsx)
-once a day at `20:00 UTC` — approximately 8 hours before the daily reset:
-exactly 8 hours before midnight in `America/New_York` while daylight saving
-is in effect (most of the year), drifting to about 9 hours during the
-winter months, since Vercel Cron schedules are fixed UTC times and don't
-shift for DST. It loops over every server independently, so one server
+once a day at `21:00 UTC` — 5PM in `America/New_York` while daylight saving
+is in effect (most of the year), drifting to 4PM during the winter months,
+since Vercel Cron schedules are fixed UTC times and don't shift for DST.
+It loops over every server independently, so one server
 having no finished games yet (or a Discord error) simply skips that server
 without affecting any others.
 
