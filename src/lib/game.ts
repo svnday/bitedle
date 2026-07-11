@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { discordAvatarUrl } from "./discord";
 import { getStore, type AllTimeRow, type FinishedGame } from "./store";
-import { nextResetAt, todayStr } from "./time";
+import { nextResetAt, shiftDay, todayStr } from "./time";
 import {
   BOARD_SIZE,
   MIN_BOMBS,
@@ -59,12 +59,9 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/**
- * The day's hidden board: exactly one check, 3–5 bombs, red X everywhere else.
- * Deterministic per (secret, date) so every player gets the same board, but
- * unguessable without the server secret.
- */
-export function layoutFor(date: string): CellResult[] {
+/** The day's deterministic draw: a shuffled cell order plus a bomb count.
+ *  The raw check spot is `indices[0]`, bombs are `indices[1..bombCount]`. */
+function boardDraw(date: string): { indices: number[]; bombCount: number } {
   const digest = crypto.createHash("sha256").update(`${boardSecret()}:${date}`).digest();
   const rng = mulberry32(digest.readUInt32LE(0));
 
@@ -74,9 +71,60 @@ export function layoutFor(date: string): CellResult[] {
     const j = Math.floor(rng() * (i + 1));
     [indices[i], indices[j]] = [indices[j], indices[i]];
   }
+  return { indices, bombCount };
+}
 
+/**
+ * Boards from this date on avoid repeating yesterday's check position (a raw
+ * draw repeats ~1 day in 25). Earlier boards keep the raw draw untouched: a
+ * board must never change for a date players may already have clicked on, and
+ * with per-player local resets the furthest-ahead timezone (UTC+14) is more
+ * than a day past the server clock — this date was unreachable by any player
+ * before the rule shipped.
+ */
+const CHECK_MOVE_FROM = "2026-07-13";
+
+/** date -> final check index, so the day-chain below is walked once per process. */
+const checkIndexMemo = new Map<string, number>();
+
+/**
+ * Where the check really lives on a date's board. From CHECK_MOVE_FROM on, a
+ * draw that lands on yesterday's (final) check position moves to the last
+ * shuffled cell instead — always a plain miss, and never yesterday's spot,
+ * since it can't equal the colliding first cell. Yesterday's final position
+ * may itself have been moved, so the chain is computed forward from the
+ * cutoff (memoized; one hash+shuffle per elapsed day, only on first use).
+ */
+function checkIndexFor(date: string): number {
+  if (date < CHECK_MOVE_FROM) return boardDraw(date).indices[0];
+  const cached = checkIndexMemo.get(date);
+  if (cached !== undefined) return cached;
+
+  const chain: string[] = [];
+  let d = date;
+  while (d >= CHECK_MOVE_FROM && !checkIndexMemo.has(d)) {
+    chain.push(d);
+    d = shiftDay(d, -1);
+  }
+  let prev = d < CHECK_MOVE_FROM ? boardDraw(d).indices[0] : checkIndexMemo.get(d)!;
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const { indices } = boardDraw(chain[i]);
+    prev = indices[0] === prev ? indices[BOARD_SIZE - 1] : indices[0];
+    checkIndexMemo.set(chain[i], prev);
+  }
+  return checkIndexMemo.get(date)!;
+}
+
+/**
+ * The day's hidden board: exactly one check, 3–5 bombs, red X everywhere else.
+ * Deterministic per (secret, date) so every player gets the same board, but
+ * unguessable without the server secret. The check never sits where it sat
+ * the day before (from CHECK_MOVE_FROM on).
+ */
+export function layoutFor(date: string): CellResult[] {
+  const { indices, bombCount } = boardDraw(date);
   const cells: CellResult[] = Array(BOARD_SIZE).fill("x");
-  cells[indices[0]] = "check";
+  cells[checkIndexFor(date)] = "check";
   for (let i = 1; i <= bombCount; i++) cells[indices[i]] = "bomb";
   return cells;
 }
