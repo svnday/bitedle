@@ -75,57 +75,97 @@ function boardDraw(date: string): { indices: number[]; bombCount: number } {
 }
 
 /**
- * Boards from this date on avoid repeating yesterday's check position (a raw
- * draw repeats ~1 day in 25). Earlier boards keep the raw draw untouched: a
- * board must never change for a date players may already have clicked on, and
- * with per-player local resets the furthest-ahead timezone (UTC+14) is more
- * than a day past the server clock — this date was unreachable by any player
- * before the rule shipped.
+ * Boards from these dates on avoid day-over-day repetition; earlier boards
+ * keep the raw draw untouched. A board must never change for a date players
+ * may already have clicked on, and with per-player local resets the
+ * furthest-ahead timezone (UTC+14) is more than a day past the server clock —
+ * so each rule anchors at a date that was unreachable by any player before
+ * that rule shipped (the bomb rule shipped a day after the check rule, hence
+ * the two cutoffs).
  */
-const CHECK_MOVE_FROM = "2026-07-13";
+const CHECK_MOVE_FROM = "2026-07-13"; // check never repeats yesterday's cell
+const BOMB_MOVE_FROM = "2026-07-14"; // at most 1 bomb repeats a yesterday-bomb cell
 
-/** date -> final check index, so the day-chain below is walked once per process. */
-const checkIndexMemo = new Map<string, number>();
+/** A date's final board contents after the anti-repeat rules. */
+interface FinalDraw {
+  checkIndex: number;
+  bombIndices: number[];
+}
+
+/** Untouched raw draw — how every board was built before the cutoffs. */
+function rawFinalDraw(date: string): FinalDraw {
+  const { indices, bombCount } = boardDraw(date);
+  return { checkIndex: indices[0], bombIndices: indices.slice(1, bombCount + 1) };
+}
+
+/** date -> final draw, so the day-chain below is walked once per process. */
+const finalDrawMemo = new Map<string, FinalDraw>();
 
 /**
- * Where the check really lives on a date's board. From CHECK_MOVE_FROM on, a
- * draw that lands on yesterday's (final) check position moves to the last
- * shuffled cell instead — always a plain miss, and never yesterday's spot,
- * since it can't equal the colliding first cell. Yesterday's final position
- * may itself have been moved, so the chain is computed forward from the
- * cutoff (memoized; one hash+shuffle per elapsed day, only on first use).
+ * A date's board after the anti-repeat rules:
+ * - Check (from CHECK_MOVE_FROM): a draw landing on yesterday's (final) check
+ *   position moves to the last shuffled cell instead — always a plain miss,
+ *   and never yesterday's spot, since it can't equal the colliding first cell.
+ * - Bombs (from BOMB_MOVE_FROM): bombs fill from the shuffle order, skipping
+ *   the check cell and allowing at most one cell that was a bomb yesterday
+ *   (further repeats are skipped in favor of deeper shuffle cells; 24
+ *   candidates minus ≤1 check and ≤4 skips always leaves enough).
+ * Yesterday's final board may itself have been adjusted, so the chain is
+ * computed forward from the cutoff (memoized; one hash+shuffle per elapsed
+ * day, only on first use).
  */
-function checkIndexFor(date: string): number {
-  if (date < CHECK_MOVE_FROM) return boardDraw(date).indices[0];
-  const cached = checkIndexMemo.get(date);
-  if (cached !== undefined) return cached;
+function finalDrawFor(date: string): FinalDraw {
+  if (date < CHECK_MOVE_FROM) return rawFinalDraw(date);
+  const cached = finalDrawMemo.get(date);
+  if (cached) return cached;
 
   const chain: string[] = [];
   let d = date;
-  while (d >= CHECK_MOVE_FROM && !checkIndexMemo.has(d)) {
+  while (d >= CHECK_MOVE_FROM && !finalDrawMemo.has(d)) {
     chain.push(d);
     d = shiftDay(d, -1);
   }
-  let prev = d < CHECK_MOVE_FROM ? boardDraw(d).indices[0] : checkIndexMemo.get(d)!;
+  let prev = d < CHECK_MOVE_FROM ? rawFinalDraw(d) : finalDrawMemo.get(d)!;
   for (let i = chain.length - 1; i >= 0; i--) {
-    const { indices } = boardDraw(chain[i]);
-    prev = indices[0] === prev ? indices[BOARD_SIZE - 1] : indices[0];
-    checkIndexMemo.set(chain[i], prev);
+    const day = chain[i];
+    const { indices, bombCount } = boardDraw(day);
+    const checkIndex = indices[0] === prev.checkIndex ? indices[BOARD_SIZE - 1] : indices[0];
+
+    let bombIndices: number[];
+    if (day < BOMB_MOVE_FROM) {
+      bombIndices = indices.slice(1, bombCount + 1);
+    } else {
+      const prevBombs = new Set(prev.bombIndices);
+      bombIndices = [];
+      let repeatUsed = false;
+      for (let k = 1; k < BOARD_SIZE && bombIndices.length < bombCount; k++) {
+        const cell = indices[k];
+        if (cell === checkIndex) continue;
+        if (prevBombs.has(cell)) {
+          if (repeatUsed) continue;
+          repeatUsed = true;
+        }
+        bombIndices.push(cell);
+      }
+    }
+
+    prev = { checkIndex, bombIndices };
+    finalDrawMemo.set(day, prev);
   }
-  return checkIndexMemo.get(date)!;
+  return finalDrawMemo.get(date)!;
 }
 
 /**
  * The day's hidden board: exactly one check, 3–5 bombs, red X everywhere else.
  * Deterministic per (secret, date) so every player gets the same board, but
- * unguessable without the server secret. The check never sits where it sat
- * the day before (from CHECK_MOVE_FROM on).
+ * unguessable without the server secret. Day-over-day, the check never sits
+ * where it sat yesterday and at most one bomb does (see finalDrawFor).
  */
 export function layoutFor(date: string): CellResult[] {
-  const { indices, bombCount } = boardDraw(date);
+  const { checkIndex, bombIndices } = finalDrawFor(date);
   const cells: CellResult[] = Array(BOARD_SIZE).fill("x");
-  cells[checkIndexFor(date)] = "check";
-  for (let i = 1; i <= bombCount; i++) cells[indices[i]] = "bomb";
+  cells[checkIndex] = "check";
+  for (const bomb of bombIndices) cells[bomb] = "bomb";
   return cells;
 }
 
