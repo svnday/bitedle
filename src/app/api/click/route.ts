@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
   if (game.guildId) {
     const guildId = game.guildId;
     after(() =>
-      updateLivePreviewMessage({ guildId, date }).catch((e) => {
+      updateLivePreviewMessage({ guildId }).catch((e) => {
         console.error(`click: live preview update failed for guild ${guildId}`, e);
       }),
     );

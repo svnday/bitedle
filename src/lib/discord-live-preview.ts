@@ -1,5 +1,6 @@
 import { channelStatsFromGames, puzzleNumber, todayStr } from "./game";
 import {
+  groupLivePreviewRows,
   patchImageWebhookMessage,
   postImageWebhookFollowup,
   renderLivePreviewImage,
@@ -156,22 +157,23 @@ async function maybePostDailyRecap(record: LivePreviewMessage, today: string): P
   }
 }
 
-function previewContent(rows: LivePreviewRow[], date: string): string {
-  const others = rows.length - 1;
-  const who =
-    others === 0
-      ? `**${rows[0].name}** is playing`
-      : `**${rows[0].name}** and ${others} other${others === 1 ? "" : "s"} are playing`;
-  return `🎮 ${who} Bitedle #${puzzleNumber(date)}`;
+/** One line per puzzle in the window — players' local days can straddle a
+ *  midnight, putting them on different boards. Launcher's puzzle first. */
+export function previewContent(rows: LivePreviewRow[]): string {
+  return groupLivePreviewRows(rows)
+    .map((group) => {
+      const others = group.rows.length - 1;
+      const who =
+        others === 0
+          ? `**${group.rows[0].name}** is playing`
+          : `**${group.rows[0].name}** and ${others} other${others === 1 ? "" : "s"} are playing`;
+      return `🎮 ${who} Bitedle #${puzzleNumber(group.date)}`;
+    })
+    .join("\n");
 }
 
 export async function updateLivePreviewMessage(opts: {
   guildId: string;
-  /** The acting player's local day, for the caption's puzzle number. The
-   *  message *record* is still keyed by the server day (below) so a launch
-   *  and the player's follow-up state call always target the same record,
-   *  even when their local day differs. */
-  date?: string;
   /** Credentials of a just-received interaction (launch or button click),
    *  when there is one — click/state refreshes have none and can only reuse
    *  the stored token. */
@@ -179,7 +181,6 @@ export async function updateLivePreviewMessage(opts: {
 }): Promise<void> {
   const store = getStore();
   const date = todayStr(); // server day — the per-guild record key
-  const captionDate = opts.date ?? date; // acting player's day — caption only
   const now = Date.now();
 
   let record = await store.getLivePreviewMessage(opts.guildId, date);
@@ -213,12 +214,13 @@ export async function updateLivePreviewMessage(opts: {
   // Scope to this launch window: everyone who opened the Activity since the
   // current message's token was minted, regardless of their local day (a
   // recent launched_at can only be on the player's current board). The store
-  // returns them launcher-first, which the image and previewContent rely on.
+  // returns them launcher-first, which the image and previewContent rely on;
+  // each row's own date drives the per-puzzle sections in both.
   const rows = await store.livePreviewGamesOn(opts.guildId, record.tokenCreatedAt);
   if (rows.length === 0) return;
 
-  const pngBuffer = await renderLivePreviewImage(rows, captionDate).arrayBuffer();
-  const content = previewContent(rows, captionDate);
+  const pngBuffer = await renderLivePreviewImage(rows).arrayBuffer();
+  const content = previewContent(rows);
 
   if (record.messageId) {
     const patched = await patchImageWebhookMessage({

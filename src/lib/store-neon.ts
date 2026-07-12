@@ -292,7 +292,7 @@ export class NeonStore implements Store {
     await this.ensureSchema();
     const rows = await this.sql`
       SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar,
-             g.status, g.score, g.clicks, g.finished_at
+             g.date, g.status, g.score, g.clicks, g.finished_at
       FROM games g JOIN users u ON u.id = g.user_id
       WHERE g.guild_id = ${guildId}
         AND u.discord_user_id IS NOT NULL
@@ -303,6 +303,7 @@ export class NeonStore implements Store {
       name: r.name as string,
       discordUserId: r.discord_user_id as string | null,
       discordAvatar: r.discord_avatar as string | null,
+      date: r.date as string,
       status: r.status as LivePreviewRow["status"],
       score: r.score === null ? null : Number(r.score),
       clicks: r.clicks as LivePreviewRow["clicks"],

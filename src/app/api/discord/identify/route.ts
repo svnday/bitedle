@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     // in the window.
     await store.stampLaunch(date, effectiveId, Date.now());
     after(() =>
-      updateLivePreviewMessage({ guildId, date }).catch((e) => {
+      updateLivePreviewMessage({ guildId }).catch((e) => {
         console.error(`discord-identify: live preview update failed for guild ${guildId}`, e);
       }),
     );

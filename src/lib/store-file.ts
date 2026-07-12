@@ -234,7 +234,7 @@ export class FileStore implements Store {
     const rows: { launchedAt: number; row: LivePreviewRow }[] = [];
     // Scan every day's games — a cross-timezone player's row lives under their
     // own local date; the launched_at window is what actually scopes them.
-    for (const byUser of Object.values(this.db.games)) {
+    for (const [date, byUser] of Object.entries(this.db.games)) {
       for (const [userId, g] of Object.entries(byUser)) {
         if ((g.guildId ?? null) !== guildId) continue;
         if (g.launchedAt == null || g.launchedAt < sinceLaunchedAt) continue;
@@ -247,6 +247,7 @@ export class FileStore implements Store {
             name: user.name,
             discordUserId: user.discordUserId ?? null,
             discordAvatar: user.discordAvatar ?? null,
+            date,
             status: g.status,
             score: g.score,
             clicks: g.clicks,

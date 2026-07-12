@@ -43,10 +43,9 @@ export async function GET(request: NextRequest) {
     await store.stampLaunch(date, identity.id, Date.now());
     // No interaction token here — this can only post/edit through the token
     // stored by the launch that opened the Activity (fine: that launch just
-    // happened, so the token is fresh). Pass the player's local date so the
-    // preview follows the board they're actually on.
+    // happened, so the token is fresh).
     after(() =>
-      updateLivePreviewMessage({ guildId, date }).catch((e) => {
+      updateLivePreviewMessage({ guildId }).catch((e) => {
         console.error(`state: live preview update failed for guild ${guildId}`, e);
       }),
     );

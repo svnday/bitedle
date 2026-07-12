@@ -117,12 +117,30 @@ const LIVE_TILE_COLORS = {
   check: "#538d4e",
 } as const;
 
-/** Wordle-launch-style card grid: centered title, one rounded card per
- *  player with their avatar over a 5×5 tile grid showing click order
- *  left-to-right (never real board positions). */
-export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
-  const perRow = Math.max(1, Math.min(rows.length, 5));
-  const rowCount = Math.ceil(rows.length / perRow);
+/**
+ * Splits a launch window's rows into per-puzzle groups, preserving first-seen
+ * order — rows arrive launcher-first (store guarantee), so the launcher's
+ * puzzle is always the first group and launch order holds within each group.
+ * Usually one group; more when players' local days straddle a midnight.
+ */
+export function groupLivePreviewRows(
+  rows: LivePreviewRow[],
+): { date: string; rows: LivePreviewRow[] }[] {
+  const groups: { date: string; rows: LivePreviewRow[] }[] = [];
+  for (const row of rows) {
+    const group = groups.find((g) => g.date === row.date);
+    if (group) group.rows.push(row);
+    else groups.push({ date: row.date, rows: [row] });
+  }
+  return groups;
+}
+
+/** Wordle-launch-style card grid: one titled section per puzzle in the window
+ *  (players on different local days are on different boards), each a centered
+ *  title over rounded per-player cards — avatar above a 5×5 tile grid showing
+ *  click order left-to-right (never real board positions). */
+export function renderLivePreviewImage(rows: LivePreviewRow[]) {
+  const groups = groupLivePreviewRows(rows);
   const tile = 24;
   const tileGap = 4;
   const gridSize = 5 * tile + 4 * tileGap;
@@ -133,10 +151,23 @@ export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
   const cardGap = 18;
   const margin = 40;
   const titleBlock = 60;
-  const cardsWidth = perRow * cardWidth + (perRow - 1) * cardGap;
-  const contentWidth = Math.max(cardsWidth, 260);
+  const sectionGap = 40;
+
+  const sections = groups.map((group) => {
+    const perRow = Math.max(1, Math.min(group.rows.length, 5));
+    const rowCount = Math.ceil(group.rows.length / perRow);
+    return {
+      ...group,
+      cardsWidth: perRow * cardWidth + (perRow - 1) * cardGap,
+      height: titleBlock + rowCount * cardHeight + (rowCount - 1) * cardGap,
+    };
+  });
+  const contentWidth = Math.max(260, ...sections.map((s) => s.cardsWidth));
   const width = margin * 2 + contentWidth;
-  const height = margin * 2 + titleBlock + rowCount * cardHeight + (rowCount - 1) * cardGap;
+  const height =
+    margin * 2 +
+    sections.reduce((sum, s) => sum + s.height, 0) +
+    sectionGap * (sections.length - 1);
 
   return new ImageResponse(
     (
@@ -151,99 +182,111 @@ export function renderLivePreviewImage(rows: LivePreviewRow[], date: string) {
           padding: margin,
         }}
       >
-        <div
-          style={{
-            fontSize: 26,
-            fontWeight: 600,
-            color: "#f2f3f5",
-            marginBottom: 30,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {`Bitedle No. ${puzzleNumber(date)}`}
-        </div>
+        {sections.map((section, sectionIndex) => (
+          <div
+            key={section.date}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              marginTop: sectionIndex > 0 ? sectionGap : 0,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 26,
+                fontWeight: 600,
+                color: "#f2f3f5",
+                marginBottom: 30,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {`Bitedle No. ${puzzleNumber(section.date)}`}
+            </div>
 
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            justifyContent: "center",
-            gap: cardGap,
-            width: contentWidth,
-          }}
-        >
-          {rows.map((row) => {
-            const avatarUrl = discordAvatarUrl(row.discordUserId, row.discordAvatar);
-            const cells = Array.from({ length: 25 }, (_, i) => row.clicks[i]?.result ?? null);
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                justifyContent: "center",
+                gap: cardGap,
+                width: contentWidth,
+              }}
+            >
+              {section.rows.map((row) => {
+                const avatarUrl = discordAvatarUrl(row.discordUserId, row.discordAvatar);
+                const cells = Array.from({ length: 25 }, (_, i) => row.clicks[i]?.result ?? null);
 
-            return (
-              <div
-                key={row.userId}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  width: cardWidth,
-                  height: cardHeight,
-                  backgroundColor: "#212226",
-                  border: "1px solid #2c2d31",
-                  borderRadius: 26,
-                  padding: cardPad,
-                }}
-              >
-                {avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={avatarUrl}
-                    alt=""
-                    width={avatarSize}
-                    height={avatarSize}
-                    style={{ borderRadius: 9999, objectFit: "cover" }}
-                  />
-                ) : (
+                return (
                   <div
+                    key={row.userId}
                     style={{
-                      width: avatarSize,
-                      height: avatarSize,
-                      borderRadius: 9999,
-                      backgroundColor: "#334155",
                       display: "flex",
+                      flexDirection: "column",
                       alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 36,
-                      fontWeight: 700,
-                      color: "#f8fafc",
+                      width: cardWidth,
+                      height: cardHeight,
+                      backgroundColor: "#212226",
+                      border: "1px solid #2c2d31",
+                      borderRadius: 26,
+                      padding: cardPad,
                     }}
                   >
-                    {row.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
+                    {avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={avatarUrl}
+                        alt=""
+                        width={avatarSize}
+                        height={avatarSize}
+                        style={{ borderRadius: 9999, objectFit: "cover" }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: avatarSize,
+                          height: avatarSize,
+                          borderRadius: 9999,
+                          backgroundColor: "#334155",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 36,
+                          fontWeight: 700,
+                          color: "#f8fafc",
+                        }}
+                      >
+                        {row.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
 
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    width: gridSize,
-                    gap: tileGap,
-                    marginTop: 14,
-                  }}
-                >
-                  {cells.map((result, i) => (
                     <div
-                      key={i}
                       style={{
-                        width: tile,
-                        height: tile,
-                        borderRadius: 4,
-                        backgroundColor: result ? LIVE_TILE_COLORS[result] : "#3a3b3e",
+                        display: "flex",
+                        flexWrap: "wrap",
+                        width: gridSize,
+                        gap: tileGap,
+                        marginTop: 14,
                       }}
-                    />
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                    >
+                      {cells.map((result, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            width: tile,
+                            height: tile,
+                            borderRadius: 4,
+                            backgroundColor: result ? LIVE_TILE_COLORS[result] : "#3a3b3e",
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     ),
     { width, height },

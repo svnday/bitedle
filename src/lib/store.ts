@@ -35,6 +35,9 @@ export interface LivePreviewRow {
   name: string;
   discordUserId: string | null;
   discordAvatar: string | null;
+  /** The puzzle this player is on — their local day, which can differ from
+   *  the server day (and from other players in the same launch window). */
+  date: string;
   status: GameStatus;
   score: number | null;
   clicks: ClickRecord[];
@@ -115,7 +118,8 @@ export interface Store {
   /** Games for the guild's current live-preview window: everyone who opened
    *  the Activity at or after `sinceLaunchedAt` (the window's start), ordered
    *  launcher-first. Not filtered by day — a recent launch is by definition on
-   *  the player's current board, so cross-timezone players are still included. */
+   *  the player's current board, so cross-timezone players are still included;
+   *  each row's `date` says which board that is. */
   livePreviewGamesOn(guildId: string, sinceLaunchedAt: number): Promise<LivePreviewRow[]>;
   /** Records that a player opened the Activity at `at` — their launch time,
    *  used to scope the live preview to one ~13-minute window. */
