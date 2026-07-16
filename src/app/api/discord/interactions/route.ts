@@ -23,6 +23,7 @@ function reply(content: string, ephemeral = false) {
     type: 4,
     data: {
       content,
+      allowed_mentions: { parse: [] },
       ...(ephemeral ? { flags: 64 } : {}),
     },
   });
@@ -124,6 +125,7 @@ async function postResults(guildId: string, appId: string, token: string): Promi
       "payload_json",
       JSON.stringify({
         content: `📊 Bitedle #${puzzleNumber(date)} — today's results`,
+        allowed_mentions: { parse: [] },
         // Replace the deferred message's (empty) attachment set with our image.
         attachments: [{ id: 0, filename: "results.png" }],
       }),

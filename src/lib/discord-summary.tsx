@@ -2,7 +2,6 @@ import { ImageResponse } from "next/og";
 import type { LivePreviewRow, TodayRow } from "./store";
 import { puzzleNumber } from "./game";
 import { discordAvatarUrl } from "./discord";
-import { squareTrail } from "./share-text";
 
 /**
  * Shared Discord image rendering + posting helpers, used by the daily recap,
@@ -22,91 +21,11 @@ export function sortTodayRows(rows: TodayRow[]): TodayRow[] {
 }
 
 export function renderSummaryImage(rows: TodayRow[], date: string) {
-  const perRow = 6;
-  const cardWidth = 168;
-  const cardHeight = 190;
-  const rowsCount = Math.ceil(rows.length / perRow);
-  const width = 1200;
-  const height = 140 + rowsCount * (cardHeight + 20) + 40;
-
-  return new ImageResponse(
-    (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          backgroundColor: "#0f172a",
-          padding: 40,
-        }}
-      >
-        <div style={{ display: "flex", flexDirection: "column", marginBottom: 24 }}>
-          <div style={{ fontSize: 40, fontWeight: 700, color: "#f8fafc" }}>
-            {`Bitedle #${puzzleNumber(date)}`}
-          </div>
-          <div style={{ fontSize: 22, color: "#94a3b8", marginTop: 4 }}>{date}</div>
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 20, width: "100%" }}>
-          {rows.map((r) => {
-            const misses = r.clickCount - 1;
-            const avatarUrl = discordAvatarUrl(r.discordUserId, r.discordAvatar);
-            return (
-              <div
-                key={r.userId}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  width: cardWidth,
-                  height: cardHeight,
-                  backgroundColor: "#1e293b",
-                  borderRadius: 16,
-                  padding: 16,
-                }}
-              >
-                {avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={avatarUrl} alt="" width={64} height={64} style={{ borderRadius: 9999 }} />
-                ) : (
-                  <div
-                    style={{
-                      width: 64,
-                      height: 64,
-                      borderRadius: 9999,
-                      backgroundColor: "#334155",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 28,
-                      color: "#f8fafc",
-                    }}
-                  >
-                    {r.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div style={{ fontSize: 26, marginTop: 12 }}>{squareTrail(r.status, misses)}</div>
-                <div
-                  style={{
-                    fontSize: 16,
-                    color: "#f8fafc",
-                    marginTop: 8,
-                    maxWidth: cardWidth - 16,
-                    overflow: "hidden",
-                    whiteSpace: "nowrap",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {r.name}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    ),
-    { width, height },
-  );
+  // A summary is the completed version of the launch preview, so render it
+  // through the exact same card/board path. The incoming order (winners by
+  // score, then losses) is preserved while each card shows the player's real
+  // click sequence in the same non-spoiling left-to-right 5x5 grid.
+  return renderLivePreviewImage(rows.map((row) => ({ ...row, date })));
 }
 
 /** Wordle-esque tile palette: misses go yellow, the found check green, the
@@ -305,8 +224,6 @@ export async function postImageWebhookFollowup(opts: {
   content: string;
   filename?: string;
   components?: unknown[];
-  /** e.g. { parse: [] } — mentions render as blue tags but notify no one. */
-  allowedMentions?: { parse: string[] };
 }): Promise<{ ok: boolean; status: number; body: string; messageId?: string }> {
   const form = new FormData();
   const filename = opts.filename ?? "preview.png";
@@ -315,7 +232,9 @@ export async function postImageWebhookFollowup(opts: {
     JSON.stringify({
       content: opts.content,
       ...(opts.components ? { components: opts.components } : {}),
-      ...(opts.allowedMentions ? { allowed_mentions: opts.allowedMentions } : {}),
+      // User-supplied display names can contain @ text. Never let a generated
+      // Bitedle message turn that text into a notification.
+      allowed_mentions: { parse: [] },
     }),
   );
   form.append("files[0]", new Blob([opts.pngBuffer], { type: "image/png" }), filename);
@@ -349,6 +268,7 @@ export async function patchImageWebhookMessage(opts: {
       // Replace the previous attachment set with the fresh image.
       attachments: [{ id: 0, filename: "preview.png" }],
       ...(opts.components ? { components: opts.components } : {}),
+      allowed_mentions: { parse: [] },
     }),
   );
   form.append("files[0]", new Blob([opts.pngBuffer], { type: "image/png" }), "preview.png");

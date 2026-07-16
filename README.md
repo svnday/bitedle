@@ -235,12 +235,11 @@ on a command if the app itself doesn't support user install yet):
 ### Daily results recap
 
 Once a day, Bitedle posts a Wordle-style recap into each active Discord
-server: the day's results grouped by score ("👑 2 clicks: @a @b · 💥 boom:
-@c"), a server-streak line, the generated results image (Discord avatars,
-names, non-spoiling result trails — never real board positions), and a
-"Play now!" button. Mentions are real `<@id>` tags but **never ping** —
-they're posted with `allowed_mentions: { parse: [] }`, so they render blue
-without notifying anyone.
+server: the day's results grouped by score ("👑 2 clicks: **a** **b** · 💥
+boom: **c**"), a server-streak line, the generated results image (the same
+Discord-avatar and non-spoiling 5×5 click-order cards used by the live launch
+preview), and a "Play now!" button. Player names are plain bold text, never
+Discord user tags, and all generated message payloads disable mention parsing.
 
 There is **no schedule and no bot**: the app can only write to a channel
 through interaction webhooks, whose tokens die 15 minutes after a launch —

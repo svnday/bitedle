@@ -54,12 +54,15 @@ const DAILY_RECAP_HOUR = 17; // 5PM
 /** Content budget with headroom under Discord's 2000-char message limit. */
 const RECAP_CONTENT_BUDGET = 1900;
 
+/** Keep display names readable while making every Discord mention form inert. */
+function nonMentioningName(name: string): string {
+  return name.replaceAll("@", "@\u200b");
+}
+
 /**
  * Wordle-style recap text: results grouped by score, best group crowned,
- * losses as one boom line. Linked players are real @mentions (rendered blue;
- * the caller suppresses notifications via allowed_mentions), unlinked-but-
- * named players fall back to bold plain text. Truncates to the budget with a
- * "+N more" tail.
+ * losses as one boom line. Every player is shown as a bold display name,
+ * never as a Discord user tag. Truncates to the budget with a "+N more" tail.
  */
 export function buildRecapContent(sorted: TodayRow[], date: string, serverStreak: number): string {
   const lines = [`📊 Bitedle #${puzzleNumber(date)} — today's results so far`];
@@ -91,7 +94,7 @@ export function buildRecapContent(sorted: TodayRow[], date: string, serverStreak
     let added = 0;
     for (let i = 0; i < group.players.length; i++) {
       const r = group.players[i];
-      const token = r.discordUserId ? `<@${r.discordUserId}>` : `**${r.name}**`;
+      const token = `**${nonMentioningName(r.name)}**`;
       if (used + line.length + token.length + 1 > RECAP_CONTENT_BUDGET) {
         truncated = group.players.length - i;
         break;
@@ -141,7 +144,6 @@ async function maybePostDailyRecap(record: LivePreviewMessage, today: string): P
         content: buildRecapContent(sorted, today, streak),
         filename: "results.png",
         components: LAUNCH_BUTTON_COMPONENTS,
-        allowedMentions: { parse: [] }, // blue tags, zero pings
       });
       if (posted.ok) return;
       console.error(
@@ -165,8 +167,8 @@ export function previewContent(rows: LivePreviewRow[]): string {
       const others = group.rows.length - 1;
       const who =
         others === 0
-          ? `**${group.rows[0].name}** is playing`
-          : `**${group.rows[0].name}** and ${others} other${others === 1 ? "" : "s"} are playing`;
+          ? `**${nonMentioningName(group.rows[0].name)}** is playing`
+          : `**${nonMentioningName(group.rows[0].name)}** and ${others} other${others === 1 ? "" : "s"} are playing`;
       return `🎮 ${who} Bitedle #${puzzleNumber(group.date)}`;
     })
     .join("\n");
