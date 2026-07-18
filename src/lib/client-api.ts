@@ -7,6 +7,7 @@ import {
 } from "./discord-context";
 import type {
   CellResult,
+  GameMode,
   GameState,
   Leaderboard,
   MegaCellResult,
@@ -16,7 +17,13 @@ import type {
 
 const DISCORD_USER_HEADER_NAME = "X-Bitedle-Discord-User-Id";
 const TZ_HEADER_NAME = "X-Bitedle-TZ";
-const IDENTITY_BOOTSTRAP_PATHS = new Set(["/api/discord/token", "/api/discord/identify"]);
+const IDENTITY_BOOTSTRAP_PATHS = new Set([
+  "/api/discord/token",
+  "/api/discord/identify",
+  // Fetched during the SDK handshake, before the identity link settles —
+  // waiting on discordIdentitySettled() here would deadlock the boot.
+  "/api/activity/mode",
+]);
 const IDENTITY_REQUIRED_PATHS = new Set(["/api/state", "/api/click"]);
 
 /** The player's IANA timezone, so the server can roll their board at their own
@@ -103,8 +110,11 @@ export const api = {
     request<MegaGameState>("/api/mega/replay", {
       method: "POST",
     }),
-  megaStats: () => request<UserStats>("/api/mega/stats"),
-  megaLeaderboard: () => request<Leaderboard>("/api/mega/leaderboard"),
+  activityMode: (payload: { instanceId: string; channelId: string | null }) =>
+    request<{ mode: GameMode }>("/api/activity/mode", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   discordToken: (code: string) =>
     request<{ access_token: string }>("/api/discord/token", {
       method: "POST",

@@ -1,11 +1,6 @@
 import crypto from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
-import {
-  guildIdFromRequest,
-  isBlockedDiscordId,
-  playerDate,
-  playerTimeZone,
-} from "@/lib/discord";
+import { isBlockedDiscordId, playerDate, playerTimeZone } from "@/lib/discord";
 import { megaStateFor } from "@/lib/game-mega";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { getStore } from "@/lib/store";
@@ -13,13 +8,6 @@ import { getStore } from "@/lib/store";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  if (guildIdFromRequest(request) !== null) {
-    return NextResponse.json(
-      { error: "Bitedle XL is only playable on the website." },
-      { status: 403 },
-    );
-  }
-
   const identity = await ensureUser(request);
   const store = getStore();
   const timeZone = playerTimeZone(request);
@@ -33,7 +21,7 @@ export async function POST(request: NextRequest) {
   if (!replayed) {
     return attachIdentity(
       NextResponse.json(
-        { error: "Finish the current Bitedle XL board before playing again." },
+        { error: "Finish the current Bitesweeper board before playing again." },
         { status: 409 },
       ),
       identity,

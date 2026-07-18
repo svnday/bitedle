@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import type { DiscordSDK } from "@discord/embedded-app-sdk";
 import { api } from "@/lib/client-api";
-import { isDiscordEmbed, setDiscordUserId, setGuildId } from "@/lib/discord-context";
+import { isDiscordEmbed, setDiscordUserId, setGuildId, setLaunchMode } from "@/lib/discord-context";
 
 /**
  * Handshakes with the Discord client when Bitedle is loaded as a Discord
@@ -23,6 +23,7 @@ export default function DiscordBootstrap() {
       console.warn("Bitedle: Discord handshake timed out after 5s, defaulting guildId to null");
       setGuildId(null);
       setDiscordUserId(null);
+      setLaunchMode("classic");
     }, 5000);
 
     (async () => {
@@ -33,6 +34,7 @@ export default function DiscordBootstrap() {
           console.warn("Bitedle: running inside Discord but NEXT_PUBLIC_DISCORD_CLIENT_ID is unset");
           setGuildId(null);
           setDiscordUserId(null);
+          setLaunchMode("classic");
           return;
         }
         const discordSdk = new DiscordSDK(clientId);
@@ -44,6 +46,21 @@ export default function DiscordBootstrap() {
         // the leaderboard to this server.
         setGuildId(discordSdk.guildId ?? null);
 
+        // Which mode this Activity instance is locked to (/bitesweeper vs
+        // /play). Own try/catch: falling into the outer catch would clobber
+        // the real guildId that was just set.
+        try {
+          const { mode } = await api.activityMode({
+            instanceId: discordSdk.instanceId,
+            channelId: discordSdk.channelId ?? null,
+          });
+          if (cancelled) return;
+          setLaunchMode(mode === "mega" ? "mega" : "classic");
+        } catch (e) {
+          console.warn("Bitedle: activity mode lookup failed, defaulting to classic", e);
+          setLaunchMode("classic");
+        }
+
         // Fire-and-forget: links the real Discord identity for avatars. Never
         // awaited — a slow or declined consent prompt must not block anything.
         void linkDiscordIdentity(discordSdk, clientId).catch((e) => {
@@ -54,6 +71,7 @@ export default function DiscordBootstrap() {
         console.warn("Bitedle: Discord handshake failed", e);
         setGuildId(null);
         setDiscordUserId(null);
+        setLaunchMode("classic");
       } finally {
         clearTimeout(timeout);
       }

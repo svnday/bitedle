@@ -4,12 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/client-api";
 import { copyToClipboard } from "@/lib/clipboard";
 import { isDiscordEmbed } from "@/lib/discord-context";
-import { megaBucketFor } from "@/lib/game-buckets";
 import { megaShareText, shareText } from "@/lib/share-text";
 import {
   DISTRIBUTION_BUCKETS,
   FIXED_BOMB_COUNT_FROM,
-  MEGA_DISTRIBUTION_BUCKETS,
   type GameMode,
   type GameState,
   type MegaGameState,
@@ -184,25 +182,29 @@ export default function Game({
   // The results carousel/sidebar/stats need this data as soon as the game is
   // finished, since it's shown in three places: the win/lose splash, the
   // standalone Channel Stats screen, and the persistent board sidebar.
+  // Classic only — Bitesweeper has no stats or channel leaderboards.
   useEffect(() => {
-    if (!isDiscordEmbed() || !finished) return;
+    if (!isDiscordEmbed() || !finished || mode !== "classic") return;
     api.stats().then(setStats).catch(() => {});
     loadChannelData();
-  }, [finished, loadChannelData]);
+  }, [finished, loadChannelData, mode]);
 
   const openStats = useCallback(async () => {
     setModal("stats");
     setStats(null);
     try {
-      setStats(await (mode === "mega" ? api.megaStats() : api.stats()));
+      setStats(await api.stats());
     } catch {
       toast("Couldn't load statistics");
     }
-  }, [mode, toast]);
+  }, [toast]);
 
-  /** After the result splash: unnamed players pick a name, then stats. */
+  /** After the result splash: unnamed players pick a name, then stats.
+   *  Bitesweeper has neither (no leaderboards to be named on) — just close. */
   const handleResultContinue = () => {
-    if (state && !state.named) {
+    if (mode !== "classic") {
+      setModal(null);
+    } else if (state && !state.named) {
       setNameError(null);
       setNameMode("post");
       setModal("name");
@@ -223,7 +225,7 @@ export default function Game({
       setModal(null);
       setShakingIndex(null);
       setBoardEffect(null);
-      toast("Fresh XL board ready");
+      toast("Fresh Bitesweeper board ready");
     } catch (e) {
       if (e instanceof ApiError && e.state) setState(e.state);
       toast(e instanceof Error ? e.message : "Couldn't start a new board");
@@ -367,7 +369,9 @@ export default function Game({
           </button>
           <h1 className="text-2xl font-extrabold tracking-[0.2em] select-none">BITEDLE</h1>
           <div className="flex items-center gap-0.5">
-            {isDiscordEmbed() && (
+            {/* Bitesweeper is pure gameplay — no channel stats, leaderboard,
+                or statistics anywhere, so those buttons are classic-only. */}
+            {mode === "classic" && isDiscordEmbed() && (
               <button
                 type="button"
                 onClick={openChannelStats}
@@ -377,22 +381,26 @@ export default function Game({
                 <IconUsers />
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setModal("leaderboard")}
-              aria-label="Leaderboard"
-              className="text-muted hover:text-foreground cursor-pointer p-1.5"
-            >
-              <IconTrophy />
-            </button>
-            <button
-              type="button"
-              onClick={() => openStats()}
-              aria-label="Statistics"
-              className="text-muted hover:text-foreground cursor-pointer p-1.5"
-            >
-              <IconChart />
-            </button>
+            {mode === "classic" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setModal("leaderboard")}
+                  aria-label="Leaderboard"
+                  className="text-muted hover:text-foreground cursor-pointer p-1.5"
+                >
+                  <IconTrophy />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openStats()}
+                  aria-label="Statistics"
+                  className="text-muted hover:text-foreground cursor-pointer p-1.5"
+                >
+                  <IconChart />
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -403,7 +411,7 @@ export default function Game({
             {(
               [
                 ["classic", "Classic"],
-                ["mega", "XL 10×10"],
+                ["mega", "Bitesweeper"],
               ] as const
             ).map(([value, label]) => (
               <button
@@ -584,7 +592,7 @@ export default function Game({
           onSubmit={handleName}
           onClose={() => {
             setNameError(null);
-            if (nameMode === "post") {
+            if (nameMode === "post" && mode === "classic") {
               openStats();
             } else {
               setModal(null);
@@ -608,12 +616,7 @@ export default function Game({
           onShare={handleShare}
           onNewDay={handleNewDay}
           onPlayAgain={handlePlayAgain}
-          buckets={mode === "mega" ? MEGA_DISTRIBUTION_BUCKETS : DISTRIBUTION_BUCKETS}
-          todayBucket={
-            mode === "mega" && state && finished
-              ? megaBucketFor(state.status, state.score)
-              : undefined
-          }
+          buckets={DISTRIBUTION_BUCKETS}
           mode={mode}
         />
       )}
@@ -621,7 +624,6 @@ export default function Game({
         <LeaderboardModal
           onClose={() => setModal(null)}
           nameHint={finished && state !== null && !state.named}
-          mode={mode}
         />
       )}
     </div>

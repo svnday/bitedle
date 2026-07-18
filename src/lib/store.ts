@@ -1,8 +1,8 @@
 import type {
   ClickRecord,
+  GameMode,
   GameRecord,
   GameStatus,
-  MegaClickRecord,
   MegaGameRecord,
 } from "./types";
 import { FileStore } from "./store-file";
@@ -122,11 +122,20 @@ export interface Store {
   getMegaGame(date: string, userId: string): Promise<MegaGameRecord | null>;
   /** Upserts while preserving finished-game immutability. */
   putMegaGame(date: string, userId: string, game: MegaGameRecord): Promise<void>;
-  /** Replaces a finished XL game with a fresh playing board. */
+  /** Replaces a finished Bitesweeper game with a fresh playing board. */
   replayMegaGame(date: string, userId: string, boardSeed: string): Promise<boolean>;
-  finishedMegaGamesFor(userId: string): Promise<FinishedGame[]>;
-  finishedMegaGamesOn(date: string): Promise<TodayRow<MegaClickRecord>[]>;
-  allFinishedMegaGames(): Promise<AllTimeRow[]>;
+  /** Records a /bitesweeper launch in a channel. The next unbound Activity
+   *  instance that boots from this channel claims Bitesweeper mode. Upserts. */
+  markBitesweeperLaunch(channelId: string, at: number): Promise<void>;
+  /** Atomically consumes a fresh (at >= since) Bitesweeper marker for the
+   *  channel. True exactly once per marker — consuming keeps a later /play
+   *  instance in the same channel classic. */
+  takeBitesweeperLaunch(channelId: string, since: number): Promise<boolean>;
+  /** The mode an Activity instance is bound to, or null if unbound. */
+  getActivityMode(instanceId: string): Promise<GameMode | null>;
+  /** Binds an instance to a mode, first-write-wins; returns the winning mode
+   *  so every participant of one instance sees the same answer. */
+  bindActivityMode(instanceId: string, mode: GameMode): Promise<GameMode>;
   /** Records the channel a server most recently used a command in. Nothing
    *  posts to it anymore (delivery rides interaction webhooks), but the call
    *  guarantees the guild_channels row exists before preview/recap updates

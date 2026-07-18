@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { GameRecord, MegaClickRecord, MegaGameRecord } from "./types";
+import type { GameMode, GameRecord, MegaGameRecord } from "./types";
 import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
@@ -30,6 +30,10 @@ interface FileDb {
    *  opened the Activity in that day (guild membership for previews/recaps). */
   launches: Record<string, Record<string, Record<string, number>>>;
   megaGames: Record<string, Record<string, MegaGameRecord>>;
+  /** bitesweeperLaunches[channelId] = markedAt — pending /bitesweeper launches. */
+  bitesweeperLaunches: Record<string, number>;
+  /** activityModes[instanceId] — the mode each Activity instance is locked to. */
+  activityModes: Record<string, { mode: GameMode; createdAt: number }>;
   /** guildChannels[guildId] — per-guild Discord state (live preview, recap). */
   guildChannels: Record<
     string,
@@ -74,6 +78,8 @@ export class FileStore implements Store {
           games: raw.games,
           launches: raw.launches ?? {},
           megaGames: raw.megaGames ?? {},
+          bitesweeperLaunches: raw.bitesweeperLaunches ?? {},
+          activityModes: raw.activityModes ?? {},
           guildChannels: raw.guildChannels ?? {},
         };
         if (!raw.launches) {
@@ -90,7 +96,15 @@ export class FileStore implements Store {
     } catch {
       // Missing or corrupt file — start fresh.
     }
-    return { users: {}, games: {}, launches: {}, megaGames: {}, guildChannels: {} };
+    return {
+      users: {},
+      games: {},
+      launches: {},
+      megaGames: {},
+      bitesweeperLaunches: {},
+      activityModes: {},
+      guildChannels: {},
+    };
   }
 
   private persist(): void {
@@ -296,55 +310,29 @@ export class FileStore implements Store {
     return true;
   }
 
-  async finishedMegaGamesFor(userId: string): Promise<FinishedGame[]> {
-    const out: FinishedGame[] = [];
-    for (const [date, byUser] of Object.entries(this.db.megaGames)) {
-      const game = byUser[userId];
-      if (game && game.status !== "playing") {
-        out.push({ date, status: game.status, score: game.score });
-      }
-    }
-    return out.sort((a, b) => a.date.localeCompare(b.date));
+  async markBitesweeperLaunch(channelId: string, at: number): Promise<void> {
+    this.db.bitesweeperLaunches[channelId] = at;
+    this.persist();
   }
 
-  async finishedMegaGamesOn(date: string): Promise<TodayRow<MegaClickRecord>[]> {
-    const out: TodayRow<MegaClickRecord>[] = [];
-    for (const [userId, game] of Object.entries(this.db.megaGames[date] ?? {})) {
-      const user = this.db.users[userId];
-      if (game.status === "playing" || !user?.named) continue;
-      out.push({
-        userId,
-        name: user.name,
-        discordUserId: user.discordUserId ?? null,
-        discordAvatar: user.discordAvatar ?? null,
-        status: game.status,
-        score: game.score,
-        clicks: game.clicks,
-        clickCount: game.clicks.length,
-        finishedAt: game.finishedAt ?? 0,
-      });
-    }
-    return out;
+  async takeBitesweeperLaunch(channelId: string, since: number): Promise<boolean> {
+    const markedAt = this.db.bitesweeperLaunches[channelId];
+    if (markedAt === undefined || markedAt < since) return false;
+    delete this.db.bitesweeperLaunches[channelId];
+    this.persist();
+    return true;
   }
 
-  async allFinishedMegaGames(): Promise<AllTimeRow[]> {
-    const out: AllTimeRow[] = [];
-    for (const [date, byUser] of Object.entries(this.db.megaGames)) {
-      for (const [userId, game] of Object.entries(byUser)) {
-        const user = this.db.users[userId];
-        if (game.status === "playing" || !user?.named) continue;
-        out.push({
-          userId,
-          name: user.name,
-          discordUserId: user.discordUserId ?? null,
-          discordAvatar: user.discordAvatar ?? null,
-          date,
-          status: game.status,
-          score: game.score,
-        });
-      }
-    }
-    return out.sort((a, b) => a.date.localeCompare(b.date));
+  async getActivityMode(instanceId: string): Promise<GameMode | null> {
+    return this.db.activityModes[instanceId]?.mode ?? null;
+  }
+
+  async bindActivityMode(instanceId: string, mode: GameMode): Promise<GameMode> {
+    const existing = this.db.activityModes[instanceId];
+    if (existing) return existing.mode; // first-write-wins
+    this.db.activityModes[instanceId] = { mode, createdAt: Date.now() };
+    this.persist();
+    return mode;
   }
 
   async setGuildChannel(guildId: string, channelId: string): Promise<void> {

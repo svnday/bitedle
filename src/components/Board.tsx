@@ -87,7 +87,7 @@ export default function Board({
       <div
         className={`grid w-full ${GRID_COLS[cols]} ${dense ? "gap-1" : "gap-1.5"}`}
         role="grid"
-        aria-label={dense ? "Bitedle XL board" : "Bitedle board"}
+        aria-label={dense ? "Bitesweeper board" : "Bitedle board"}
       >
         {Array.from({ length: size }, (_, i) => {
           const result = clicked.get(i) ?? layout?.[i];

@@ -1,5 +1,5 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
-import type { GameRecord, MegaClickRecord, MegaGameRecord } from "./types";
+import type { GameMode, GameRecord, MegaGameRecord } from "./types";
 import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
@@ -100,6 +100,22 @@ export class NeonStore implements Store {
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_token_created_at bigint`;
       // Server day the guild's daily recap was last posted for.
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS recap_posted_date text`;
+      // A /bitesweeper launch parks a marker on its channel; the Activity
+      // instance that boots from it claims Bitesweeper mode (see the
+      // /api/activity/mode route). One row per channel, deleted on claim.
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS bitesweeper_launch_markers (
+          channel_id text PRIMARY KEY,
+          created_at bigint NOT NULL
+        )`;
+      // Which game mode each Activity instance is locked to, so every
+      // participant (including late joiners) sees the same board type.
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS activity_modes (
+          instance_id text PRIMARY KEY,
+          mode text NOT NULL,
+          created_at bigint NOT NULL
+        )`;
 
       // One-time dedupe of players who linked the same Discord id from
       // several devices before identify learned to merge (cheap no-ops once
@@ -402,57 +418,47 @@ export class NeonStore implements Store {
     return rows.length === 1;
   }
 
-  async finishedMegaGamesFor(userId: string): Promise<FinishedGame[]> {
+  async markBitesweeperLaunch(channelId: string, at: number): Promise<void> {
     await this.ensureSchema();
-    const rows = await this.sql`
-      SELECT date, status, score FROM games_mega
-      WHERE user_id = ${userId} AND status <> 'playing'
-      ORDER BY date`;
-    return rows.map((row) => ({
-      date: row.date as string,
-      status: row.status as FinishedGame["status"],
-      score: row.score === null ? null : Number(row.score),
-    }));
+    await this.sql`
+      INSERT INTO bitesweeper_launch_markers (channel_id, created_at)
+      VALUES (${channelId}, ${at})
+      ON CONFLICT (channel_id) DO UPDATE SET created_at = EXCLUDED.created_at`;
   }
 
-  async finishedMegaGamesOn(date: string): Promise<TodayRow<MegaClickRecord>[]> {
+  async takeBitesweeperLaunch(channelId: string, since: number): Promise<boolean> {
     await this.ensureSchema();
+    // DELETE ... RETURNING is the atomic consume: two racing instances can't
+    // both claim one marker.
     const rows = await this.sql`
-      SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar,
-             g.status, g.score, g.clicks,
-             jsonb_array_length(g.clicks) AS click_count, g.finished_at
-      FROM games_mega g JOIN users u ON u.id = g.user_id
-      WHERE g.date = ${date} AND g.status <> 'playing' AND u.named`;
-    return rows.map((row) => ({
-      userId: row.user_id as string,
-      name: row.name as string,
-      discordUserId: row.discord_user_id as string | null,
-      discordAvatar: row.discord_avatar as string | null,
-      status: row.status as TodayRow["status"],
-      score: row.score === null ? null : Number(row.score),
-      clicks: row.clicks as MegaClickRecord[],
-      clickCount: Number(row.click_count),
-      finishedAt: row.finished_at === null ? 0 : Number(row.finished_at),
-    }));
+      DELETE FROM bitesweeper_launch_markers
+      WHERE channel_id = ${channelId} AND created_at >= ${since}
+      RETURNING channel_id`;
+    return rows.length > 0;
   }
 
-  async allFinishedMegaGames(): Promise<AllTimeRow[]> {
+  async getActivityMode(instanceId: string): Promise<GameMode | null> {
     await this.ensureSchema();
     const rows = await this.sql`
-      SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar,
-             g.date, g.status, g.score
-      FROM games_mega g JOIN users u ON u.id = g.user_id
-      WHERE g.status <> 'playing' AND u.named
-      ORDER BY g.date`;
-    return rows.map((row) => ({
-      userId: row.user_id as string,
-      name: row.name as string,
-      discordUserId: row.discord_user_id as string | null,
-      discordAvatar: row.discord_avatar as string | null,
-      date: row.date as string,
-      status: row.status as AllTimeRow["status"],
-      score: row.score === null ? null : Number(row.score),
-    }));
+      SELECT mode FROM activity_modes WHERE instance_id = ${instanceId}`;
+    if (rows.length === 0) return null;
+    return rows[0].mode === "mega" ? "mega" : "classic";
+  }
+
+  async bindActivityMode(instanceId: string, mode: GameMode): Promise<GameMode> {
+    await this.ensureSchema();
+    // Opportunistic prune: instances are ephemeral, rows older than 30 days
+    // are garbage (tiny table, seq scan is fine).
+    await this.sql`
+      DELETE FROM activity_modes WHERE created_at < ${Date.now() - 30 * 86_400_000}`;
+    const rows = await this.sql`
+      INSERT INTO activity_modes (instance_id, mode, created_at)
+      VALUES (${instanceId}, ${mode}, ${Date.now()})
+      ON CONFLICT (instance_id) DO NOTHING
+      RETURNING mode`;
+    if (rows.length === 1) return rows[0].mode === "mega" ? "mega" : "classic";
+    // Lost the race — return the winner so all participants agree.
+    return (await this.getActivityMode(instanceId)) ?? mode;
   }
 
   async setGuildChannel(guildId: string, channelId: string): Promise<void> {

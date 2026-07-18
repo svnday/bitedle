@@ -40,5 +40,5 @@ export function megaShareText(game: {
     game.status === "won"
       ? `10×10 — found in ${totalClicks} ✅`
       : `10×10 — boom in ${totalClicks} 💥`;
-  return `Bitedle XL #${game.puzzleNumber}\n${scoreLine}`;
+  return `Bitesweeper #${game.puzzleNumber}\n${scoreLine}`;
 }

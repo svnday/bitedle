@@ -525,7 +525,7 @@ export function ResultModal({
             onClick={onContinue}
             className="border-tileborder hover:border-tilehover cursor-pointer rounded border py-2 text-sm font-semibold"
           >
-            View stats
+            Close
           </button>
         </div>
       ) : (
@@ -853,20 +853,19 @@ interface LeaderboardModalProps {
   onClose: () => void;
   /** True when the viewer finished today's game without picking a name. */
   nameHint?: boolean;
-  mode?: GameMode;
 }
 
-export function LeaderboardModal({ onClose, nameHint, mode = "classic" }: LeaderboardModalProps) {
+export function LeaderboardModal({ onClose, nameHint }: LeaderboardModalProps) {
   const [data, setData] = useState<Leaderboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"today" | "alltime">("today");
 
   useEffect(() => {
-    const request = mode === "mega" ? api.megaLeaderboard : api.leaderboard;
-    request()
+    api
+      .leaderboard()
       .then(setData)
       .catch((e: Error) => setError(e.message));
-  }, [mode]);
+  }, []);
 
   return (
     <Modal title="Leaderboard" onClose={onClose}>
@@ -903,8 +902,7 @@ export function LeaderboardModal({ onClose, nameHint, mode = "classic" }: Leader
           )}
           {data.today.length === 0 ? (
             <p className="text-muted py-8 text-center text-sm">
-              No one has finished today&apos;s Bitedle{mode === "mega" ? " XL" : ""} yet. Be the
-              first!
+              No one has finished today&apos;s Bitedle yet. Be the first!
             </p>
           ) : (
             <ul>

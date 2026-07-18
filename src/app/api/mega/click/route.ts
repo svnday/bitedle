@@ -1,10 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import {
-  guildIdFromRequest,
-  isBlockedDiscordId,
-  playerDate,
-  playerTimeZone,
-} from "@/lib/discord";
+import { isBlockedDiscordId, playerDate, playerTimeZone } from "@/lib/discord";
 import { megaLayoutFor, megaStateFor } from "@/lib/game-mega";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { getStore } from "@/lib/store";
@@ -13,13 +8,6 @@ import { MEGA_BOARD_SIZE, type MegaGameRecord } from "@/lib/types";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  if (guildIdFromRequest(request) !== null) {
-    return NextResponse.json(
-      { error: "Bitedle XL is only playable on the website." },
-      { status: 403 },
-    );
-  }
-
   const body = await request.json().catch(() => null);
   const index = body?.index;
   if (!Number.isInteger(index) || index < 0 || index >= MEGA_BOARD_SIZE) {
@@ -47,7 +35,7 @@ export async function POST(request: NextRequest) {
     return attachIdentity(
       NextResponse.json(
         {
-          error: "This Bitedle XL board is finished. Choose Play again for a fresh board.",
+          error: "This Bitesweeper board is finished. Choose Play again for a fresh board.",
           state: await megaStateFor(identity.id, date, timeZone),
         },
         { status: 409 },

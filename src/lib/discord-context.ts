@@ -4,6 +4,8 @@
  * module-level — deliberately not React state, since nothing needs to
  * re-render when this changes.
  */
+import type { GameMode } from "./types";
+
 let guildId: string | null = null;
 let discordUserId: string | null = null;
 
@@ -22,6 +24,15 @@ let identitySettled = false;
 let resolveIdentitySettled: () => void;
 const identitySettledPromise = new Promise<void>((resolve) => {
   resolveIdentitySettled = resolve;
+});
+
+// Which game mode this Activity instance is locked to (from
+// /api/activity/mode). Classic outside Discord and on any failure path.
+let launchMode: GameMode = "classic";
+let launchModeSet = false;
+let resolveLaunchModeSettled: () => void;
+const launchModeSettledPromise = new Promise<void>((resolve) => {
+  resolveLaunchModeSettled = resolve;
 });
 
 export function setGuildId(id: string | null): void {
@@ -54,6 +65,22 @@ export function getDiscordUserId(): string | null {
 
 export function discordIdentitySettled(): Promise<void> {
   return identitySettledPromise;
+}
+
+export function setLaunchMode(mode: GameMode): void {
+  launchMode = mode;
+  if (!launchModeSet) {
+    launchModeSet = true;
+    resolveLaunchModeSettled();
+  }
+}
+
+export function getLaunchMode(): GameMode {
+  return launchMode;
+}
+
+export function launchModeSettled(): Promise<void> {
+  return launchModeSettledPromise;
 }
 
 /** True when running inside Discord's Activity iframe (vs. plain web play). */

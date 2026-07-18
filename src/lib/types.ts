@@ -98,7 +98,7 @@ export interface MegaGameRecord {
   status: GameStatus;
   score: number | null;
   finishedAt: number | null;
-  /** Null for original daily boards; random per replayed XL board. */
+  /** Null for original daily boards; random per replayed Bitesweeper board. */
   boardSeed: string | null;
 }
 
@@ -117,12 +117,3 @@ export interface MegaGameState {
 export const MEGA_BOARD_COLS = 10;
 export const MEGA_BOARD_SIZE = 100;
 export const MEGA_BOMB_COUNT = 12;
-export const MEGA_DISTRIBUTION_BUCKETS = [
-  "1-5",
-  "6-10",
-  "11-15",
-  "16-20",
-  "21-30",
-  "31+",
-  "X",
-] as const;

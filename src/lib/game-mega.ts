@@ -1,16 +1,13 @@
 import crypto from "node:crypto";
-import { boardSecret, dayNum, mulberry32, statsFromGames } from "./game";
-import { megaBucketFor } from "./game-buckets";
+import { boardSecret, dayNum, mulberry32 } from "./game";
 import { getStore } from "./store";
 import { nextResetAt } from "./time";
 import {
   MEGA_BOARD_COLS,
   MEGA_BOARD_SIZE,
   MEGA_BOMB_COUNT,
-  MEGA_DISTRIBUTION_BUCKETS,
   type MegaCellResult,
   type MegaGameState,
-  type UserStats,
 } from "./types";
 
 export const MEGA_EPOCH_DATE = "2026-07-15";
@@ -100,15 +97,4 @@ export async function megaStateFor(
   };
   if (status !== "playing") state.layout = megaLayoutFor(date, game?.boardSeed ?? null);
   return state;
-}
-
-export { megaBucketFor };
-
-export async function computeMegaUserStats(userId: string, today: string): Promise<UserStats> {
-  return statsFromGames(
-    await getStore().finishedMegaGamesFor(userId),
-    today,
-    megaBucketFor,
-    MEGA_DISTRIBUTION_BUCKETS,
-  );
 }

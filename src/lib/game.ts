@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import { discordAvatarUrl } from "./discord";
-import { megaBucketFor } from "./game-buckets";
 import { getStore, type AllTimeRow, type FinishedGame } from "./store";
 import { nextResetAt, shiftDay, todayStr } from "./time";
 import {
@@ -9,12 +8,10 @@ import {
   DISTRIBUTION_BUCKETS,
   FIXED_BOMB_COUNT_FROM,
   MAX_BOMBS,
-  MEGA_DISTRIBUTION_BUCKETS,
   MIN_BOMBS,
   type AllTimeEntry,
   type CellResult,
   type GameState,
-  type GameMode,
   type GameStatus,
   type Leaderboard,
   type TodayEntry,
@@ -316,22 +313,14 @@ export async function computeLeaderboard(
   today: string,
   meId: string | null,
   guildId: string | null,
-  mode: GameMode = "classic",
 ): Promise<Leaderboard> {
   const store = getStore();
-  const isMega = mode === "mega";
-  const [todayRows, allRows, myGame] = isMega
-    ? await Promise.all([
-        store.finishedMegaGamesOn(today),
-        store.allFinishedMegaGames(),
-        Promise.resolve(null),
-      ])
-    : await Promise.all([
-        store.finishedGamesOn(today, guildId),
-        store.allFinishedGames(guildId),
-        meId !== null && guildId !== null ? store.getGame(today, meId) : Promise.resolve(null),
-      ]);
-  const revealBoards = !isMega && guildId !== null && myGame !== null && myGame.status !== "playing";
+  const [todayRows, allRows, myGame] = await Promise.all([
+    store.finishedGamesOn(today, guildId),
+    store.allFinishedGames(guildId),
+    meId !== null && guildId !== null ? store.getGame(today, meId) : Promise.resolve(null),
+  ]);
+  const revealBoards = guildId !== null && myGame !== null && myGame.status !== "playing";
 
   const todayEntries = todayRows
     .sort((a, b) => {
@@ -372,12 +361,7 @@ export async function computeLeaderboard(
   }
   const allTime: AllTimeEntry[] = [];
   for (const [userId, u] of byUser) {
-    const s = statsFromGames(
-      u.games,
-      today,
-      isMega ? megaBucketFor : bucketFor,
-      isMega ? MEGA_DISTRIBUTION_BUCKETS : DISTRIBUTION_BUCKETS,
-    );
+    const s = statsFromGames(u.games, today, bucketFor, DISTRIBUTION_BUCKETS);
     allTime.push({
       name: u.name,
       discordAvatarUrl: discordAvatarUrl(u.discordUserId, u.discordAvatar),
@@ -399,12 +383,7 @@ export async function computeLeaderboard(
     return a.name.localeCompare(b.name);
   });
 
-  const channelStats = channelStatsFromGames(
-    allRows,
-    today,
-    isMega ? megaBucketFor : bucketFor,
-    isMega ? MEGA_DISTRIBUTION_BUCKETS : DISTRIBUTION_BUCKETS,
-  );
+  const channelStats = channelStatsFromGames(allRows, today, bucketFor, DISTRIBUTION_BUCKETS);
 
   return { date: today, today: todayEntries, allTime: allTime.slice(0, 100), channelStats };
 }

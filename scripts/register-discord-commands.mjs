@@ -49,6 +49,13 @@ const commands = [
     integration_types: [0, 1],
     contexts: [0, 1, 2],
   },
+  {
+    name: "bitesweeper",
+    description: "Open Bitesweeper — the 10×10 Bitedle board",
+    type: 1,
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
 ];
 
 function commandsUrl() {

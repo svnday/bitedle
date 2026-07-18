@@ -186,8 +186,9 @@ export async function POST(request: NextRequest) {
   }
 
   // Blocklist gate: reject every command/component interaction (launch,
-  // /bitedle, "Play now!" button, /share, /results) before recording the
-  // guild channel or launching, so a blocked user can't play or interfere.
+  // /bitedle, /bitesweeper, "Play now!" button, /share, /results) before
+  // recording the guild channel or launching, so a blocked user can't play
+  // or interfere.
   if (body?.type === 2 || body?.type === 3) {
     const callerId = body.member?.user?.id ?? body.user?.id;
     if (isBlockedDiscordId(callerId)) {
@@ -214,6 +215,21 @@ export async function POST(request: NextRequest) {
     // ordinary /bitedle command both launch the same way — an app can have
     // only one PRIMARY_ENTRY_POINT.
     return launchActivity(body);
+  }
+
+  if (body?.type === 2 && body?.data?.name === "bitesweeper") {
+    // Bitesweeper launch: park a channel-keyed marker the booting Activity
+    // instance claims via /api/activity/mode. Awaited, not after() —
+    // serverless. Deliberately NOT launchActivity(): Bitesweeper has no
+    // live preview, recap, or any other embed machinery.
+    if (body.channel_id) {
+      try {
+        await getStore().markBitesweeperLaunch(body.channel_id, Date.now());
+      } catch (e) {
+        console.warn("interactions: failed to mark Bitesweeper launch", e);
+      }
+    }
+    return NextResponse.json({ type: 12 }); // LAUNCH_ACTIVITY
   }
 
   if (body?.type === 3 && body?.data?.custom_id === LAUNCH_BUTTON_ID) {
