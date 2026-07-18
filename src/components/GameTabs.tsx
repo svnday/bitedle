@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 import type { GameMode } from "@/lib/types";
-import { getLaunchMode, isDiscordEmbed, launchModeSettled } from "@/lib/discord-context";
+import {
+  type ActivityLaunchMode,
+  getLaunchMode,
+  isDiscordEmbed,
+  launchModeSettled,
+} from "@/lib/discord-context";
 import Game from "./Game";
 import BitesweeperGame from "./BitesweeperGame";
 
@@ -11,22 +16,50 @@ export default function GameTabs() {
   // (/play → classic, /bitesweeper → mega) and isn't known until the Discord
   // handshake settles — hold rendering until then (bounded by the bootstrap's
   // 5s safety timeout) instead of flashing a classic board first.
-  const [mode, setMode] = useState<GameMode | null>(() =>
-    isDiscordEmbed() ? null : "classic",
-  );
+  const [runtime, setRuntime] = useState<{
+    embedded: boolean;
+    mode: ActivityLaunchMode;
+  } | null>(null);
 
   useEffect(() => {
-    if (!isDiscordEmbed()) return;
+    const embedded = isDiscordEmbed();
     let cancelled = false;
-    launchModeSettled().then(() => {
-      if (!cancelled) setMode(getLaunchMode());
-    });
+    if (!embedded) {
+      Promise.resolve().then(() => {
+        if (!cancelled) setRuntime({ embedded: false, mode: "classic" });
+      });
+    } else {
+      launchModeSettled().then(() => {
+        if (!cancelled) setRuntime({ embedded: true, mode: getLaunchMode() });
+      });
+    }
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (mode === null) return null;
-  if (mode === "mega" && isDiscordEmbed()) return <BitesweeperGame />;
-  return <Game key={mode} mode={mode} onModeChange={isDiscordEmbed() ? undefined : setMode} />;
+  if (runtime === null) return null;
+  if (runtime.mode === "unavailable") return <ActivityLoadError />;
+  if (runtime.embedded && runtime.mode === "mega") return <BitesweeperGame />;
+  const setWebMode = (mode: GameMode) => setRuntime({ embedded: false, mode });
+  return (
+    <Game
+      key={runtime.mode}
+      mode={runtime.mode}
+      onModeChange={runtime.embedded ? undefined : setWebMode}
+    />
+  );
+}
+
+function ActivityLoadError() {
+  return (
+    <main className="flex min-h-screen items-center justify-center px-6 text-center">
+      <div className="border-tileborder bg-raised max-w-sm rounded-lg border p-6">
+        <h1 className="text-xl font-extrabold">Activity couldn&apos;t load</h1>
+        <p className="text-muted mt-3 text-sm leading-relaxed">
+          Close this Activity completely, then run the slash command again.
+        </p>
+      </div>
+    </main>
+  );
 }

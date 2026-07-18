@@ -13,9 +13,10 @@ import {
 
 /**
  * Handshakes with the Discord client when Bitedle is loaded as a Discord
- * Activity (an iframe served through Discord's reverse proxy at
- * *.discordsays.com). Outside that context this renders nothing and never
- * imports the SDK, so normal web play at bitedle.vercel.app is unaffected.
+ * Activity (a Discord-authorized frame, whether served from the legacy
+ * *.discordsays.com host or a direct mapped origin). Outside that context
+ * this renders nothing and never imports the SDK, so normal web play at
+ * bitedle.vercel.app is unaffected.
  */
 export default function DiscordBootstrap() {
   useEffect(() => {
@@ -30,7 +31,7 @@ export default function DiscordBootstrap() {
       setGuildId(null);
       setActivityInstanceId(null);
       setDiscordUserId(null);
-      setLaunchMode("classic");
+      setLaunchMode("unavailable");
     }, 5000);
 
     (async () => {
@@ -42,7 +43,7 @@ export default function DiscordBootstrap() {
           setGuildId(null);
           setActivityInstanceId(null);
           setDiscordUserId(null);
-          setLaunchMode("classic");
+          setLaunchMode("unavailable");
           return;
         }
         const discordSdk = new DiscordSDK(clientId);
@@ -67,8 +68,8 @@ export default function DiscordBootstrap() {
           if (cancelled) return;
           setLaunchMode(mode === "mega" ? "mega" : "classic");
         } catch (e) {
-          console.warn("Bitedle: activity mode lookup failed, defaulting to classic", e);
-          setLaunchMode("classic");
+          console.warn("Bitedle: activity mode lookup failed", e);
+          setLaunchMode("unavailable");
         }
 
         // Fire-and-forget: links the real Discord identity for avatars. Never
@@ -82,7 +83,7 @@ export default function DiscordBootstrap() {
         setGuildId(null);
         setActivityInstanceId(null);
         setDiscordUserId(null);
-        setLaunchMode("classic");
+        setLaunchMode("unavailable");
       } finally {
         clearTimeout(timeout);
       }

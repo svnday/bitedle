@@ -111,7 +111,9 @@ Developer Portal and can't be done from this repo:
 
 Normal web play at `bitedle.vercel.app` is unaffected either way: the Discord
 SDK only loads, and the `/.proxy` prefix only applies, when the app detects
-it's running inside a `*.discordsays.com` iframe.
+Discord's frame, referrer, launch parameters, or legacy `*.discordsays.com`
+host. The frame signal is safe because the app's CSP only permits Discord to
+embed it.
 
 When played through Discord, Bitedle also silently asks for the `identify`
 OAuth scope so it can show each player's real Discord avatar on the

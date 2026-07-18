@@ -6,6 +6,8 @@
  */
 import type { GameMode } from "./types";
 
+export type ActivityLaunchMode = GameMode | "unavailable";
+
 let guildId: string | null = null;
 let discordUserId: string | null = null;
 let activityInstanceId: string | null = null;
@@ -28,8 +30,8 @@ const identitySettledPromise = new Promise<void>((resolve) => {
 });
 
 // Which game mode this Activity instance is locked to (from
-// /api/activity/mode). Classic outside Discord and on any failure path.
-let launchMode: GameMode = "classic";
+// /api/activity/mode). Fail closed instead of ever showing the wrong game.
+let launchMode: ActivityLaunchMode = "unavailable";
 let launchModeSet = false;
 let resolveLaunchModeSettled: () => void;
 const launchModeSettledPromise = new Promise<void>((resolve) => {
@@ -76,7 +78,7 @@ export function discordIdentitySettled(): Promise<void> {
   return identitySettledPromise;
 }
 
-export function setLaunchMode(mode: GameMode): void {
+export function setLaunchMode(mode: ActivityLaunchMode): void {
   launchMode = mode;
   if (!launchModeSet) {
     launchModeSet = true;
@@ -84,7 +86,7 @@ export function setLaunchMode(mode: GameMode): void {
   }
 }
 
-export function getLaunchMode(): GameMode {
+export function getLaunchMode(): ActivityLaunchMode {
   return launchMode;
 }
 
@@ -96,8 +98,27 @@ export function launchModeSettled(): Promise<void> {
 export function isDiscordEmbed(): boolean {
   if (typeof window === "undefined") return false;
   const params = new URLSearchParams(window.location.search);
+  let framed = false;
+  try {
+    framed = window.self !== window.top;
+  } catch {
+    // Cross-origin frame access can throw; that itself proves this is framed.
+    framed = true;
+  }
+  const referrerHost = (() => {
+    try {
+      return document.referrer ? new URL(document.referrer).hostname : "";
+    } catch {
+      return "";
+    }
+  })();
   return (
+    framed ||
     window.location.hostname.endsWith(".discordsays.com") ||
-    (params.has("frame_id") && params.has("instance_id") && params.has("platform"))
+    referrerHost === "discord.com" ||
+    referrerHost.endsWith(".discord.com") ||
+    params.has("frame_id") ||
+    params.has("instance_id") ||
+    params.has("platform")
   );
 }

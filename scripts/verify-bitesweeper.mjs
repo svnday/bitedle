@@ -151,6 +151,14 @@ try {
   for (const launchParam of ["frame_id", "instance_id", "platform"]) {
     assert.ok(contextSource.includes(launchParam), `embed detection must recognize ${launchParam}`);
   }
+  assert.ok(
+    contextSource.includes("window.self !== window.top"),
+    "embed detection must recognize Discord's framed launch even without legacy URL signals",
+  );
+  assert.ok(
+    gameTabsSource.includes("} | null>(null)"),
+    "the server render must not preselect the public Classic surface",
+  );
 
   console.log("Bitesweeper verification passed: isolated launch surface, atomic mode binding, and instance-scoped player boards.");
 } catch (error) {
