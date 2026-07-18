@@ -1,5 +1,5 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
-import type { GameRecord } from "./types";
+import type { GameRecord, MegaClickRecord, MegaGameRecord } from "./types";
 import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
@@ -51,6 +51,17 @@ export class NeonStore implements Store {
       // one launch window (see stampLaunch / livePreviewGamesOn).
       await this.sql`ALTER TABLE games ADD COLUMN IF NOT EXISTS launched_at bigint`;
       await this.sql`CREATE INDEX IF NOT EXISTS games_user_idx ON games (user_id)`;
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS games_mega (
+          date text NOT NULL,
+          user_id uuid NOT NULL REFERENCES users(id),
+          clicks jsonb NOT NULL DEFAULT '[]',
+          status text NOT NULL DEFAULT 'playing',
+          score int,
+          finished_at bigint,
+          PRIMARY KEY (date, user_id)
+        )`;
+      await this.sql`CREATE INDEX IF NOT EXISTS games_mega_user_idx ON games_mega (user_id)`;
       await this.sql`
         CREATE TABLE IF NOT EXISTS guild_channels (
           guild_id text PRIMARY KEY,
@@ -181,6 +192,13 @@ export class NeonStore implements Store {
         AND NOT EXISTS (SELECT 1 FROM games g2 WHERE g2.date = g.date AND g2.user_id = ${toUserId})`;
     // Whatever remains on the orphan conflicts by date; canonical wins.
     await this.sql`DELETE FROM games WHERE user_id = ${fromUserId}`;
+    await this.sql`
+      UPDATE games_mega g SET user_id = ${toUserId}
+      WHERE g.user_id = ${fromUserId}
+        AND NOT EXISTS (
+          SELECT 1 FROM games_mega g2 WHERE g2.date = g.date AND g2.user_id = ${toUserId}
+        )`;
+    await this.sql`DELETE FROM games_mega WHERE user_id = ${fromUserId}`;
     // Anonymize: unlinked (lookup never returns it), unnamed (hidden from
     // leaderboards), and with no games left it can't reach livePreviewGamesOn.
     await this.sql`
@@ -277,6 +295,86 @@ export class NeonStore implements Store {
       date: r.date as string,
       status: r.status as AllTimeRow["status"],
       score: r.score === null ? null : Number(r.score),
+    }));
+  }
+
+  async getMegaGame(date: string, userId: string): Promise<MegaGameRecord | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT clicks, status, score, finished_at
+      FROM games_mega WHERE date = ${date} AND user_id = ${userId}`;
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    return {
+      clicks: row.clicks as MegaGameRecord["clicks"],
+      status: row.status as MegaGameRecord["status"],
+      score: row.score === null ? null : Number(row.score),
+      finishedAt: row.finished_at === null ? null : Number(row.finished_at),
+    };
+  }
+
+  async putMegaGame(date: string, userId: string, game: MegaGameRecord): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO games_mega (date, user_id, clicks, status, score, finished_at)
+      VALUES (${date}, ${userId}, ${JSON.stringify(game.clicks)}::jsonb,
+              ${game.status}, ${game.score}, ${game.finishedAt})
+      ON CONFLICT (date, user_id) DO UPDATE
+      SET clicks = EXCLUDED.clicks, status = EXCLUDED.status,
+          score = EXCLUDED.score, finished_at = EXCLUDED.finished_at
+      WHERE games_mega.status = 'playing'`;
+  }
+
+  async finishedMegaGamesFor(userId: string): Promise<FinishedGame[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT date, status, score FROM games_mega
+      WHERE user_id = ${userId} AND status <> 'playing'
+      ORDER BY date`;
+    return rows.map((row) => ({
+      date: row.date as string,
+      status: row.status as FinishedGame["status"],
+      score: row.score === null ? null : Number(row.score),
+    }));
+  }
+
+  async finishedMegaGamesOn(date: string): Promise<TodayRow<MegaClickRecord>[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar,
+             g.status, g.score, g.clicks,
+             jsonb_array_length(g.clicks) AS click_count, g.finished_at
+      FROM games_mega g JOIN users u ON u.id = g.user_id
+      WHERE g.date = ${date} AND g.status <> 'playing' AND u.named`;
+    return rows.map((row) => ({
+      userId: row.user_id as string,
+      name: row.name as string,
+      discordUserId: row.discord_user_id as string | null,
+      discordAvatar: row.discord_avatar as string | null,
+      status: row.status as TodayRow["status"],
+      score: row.score === null ? null : Number(row.score),
+      clicks: row.clicks as MegaClickRecord[],
+      clickCount: Number(row.click_count),
+      finishedAt: row.finished_at === null ? 0 : Number(row.finished_at),
+    }));
+  }
+
+  async allFinishedMegaGames(): Promise<AllTimeRow[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar,
+             g.date, g.status, g.score
+      FROM games_mega g JOIN users u ON u.id = g.user_id
+      WHERE g.status <> 'playing' AND u.named
+      ORDER BY g.date`;
+    return rows.map((row) => ({
+      userId: row.user_id as string,
+      name: row.name as string,
+      discordUserId: row.discord_user_id as string | null,
+      discordAvatar: row.discord_avatar as string | null,
+      date: row.date as string,
+      status: row.status as AllTimeRow["status"],
+      score: row.score === null ? null : Number(row.score),
     }));
   }
 

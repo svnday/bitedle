@@ -84,3 +84,43 @@ export const MAX_BOMBS = 5;
 export const DAILY_BOMB_COUNT = 3;
 export const FIXED_BOMB_COUNT_FROM = "2026-07-19";
 export const DISTRIBUTION_BUCKETS = ["1", "2", "3", "4", "5", "6+", "X"] as const;
+
+export type GameMode = "classic" | "mega";
+export type MegaCellResult = "bomb" | "check" | number;
+
+export interface MegaClickRecord {
+  index: number;
+  result: MegaCellResult;
+}
+
+export interface MegaGameRecord {
+  clicks: MegaClickRecord[];
+  status: GameStatus;
+  score: number | null;
+  finishedAt: number | null;
+}
+
+export interface MegaGameState {
+  date: string;
+  puzzleNumber: number;
+  username: string;
+  named: boolean;
+  status: GameStatus;
+  score: number | null;
+  clicks: MegaClickRecord[];
+  nextResetAt: number;
+  layout?: MegaCellResult[];
+}
+
+export const MEGA_BOARD_COLS = 10;
+export const MEGA_BOARD_SIZE = 100;
+export const MEGA_BOMB_COUNT = 12;
+export const MEGA_DISTRIBUTION_BUCKETS = [
+  "1-5",
+  "6-10",
+  "11-15",
+  "16-20",
+  "21-30",
+  "31+",
+  "X",
+] as const;

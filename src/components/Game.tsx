@@ -4,8 +4,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/client-api";
 import { copyToClipboard } from "@/lib/clipboard";
 import { isDiscordEmbed } from "@/lib/discord-context";
-import { shareText } from "@/lib/share-text";
-import { FIXED_BOMB_COUNT_FROM, type GameState, type TodayEntry, type UserStats } from "@/lib/types";
+import { megaBucketFor } from "@/lib/game-buckets";
+import { megaShareText, shareText } from "@/lib/share-text";
+import {
+  DISTRIBUTION_BUCKETS,
+  FIXED_BOMB_COUNT_FROM,
+  MEGA_DISTRIBUTION_BUCKETS,
+  type GameMode,
+  type GameState,
+  type MegaGameState,
+  type TodayEntry,
+  type UserStats,
+} from "@/lib/types";
 import Board from "./Board";
 import Countdown from "./Countdown";
 import {
@@ -60,13 +70,32 @@ function usePrefersReducedMotion() {
   return reduced;
 }
 
-function gameShareText(state: GameState): string {
-  const misses = state.clicks.filter((c) => c.result === "x").length;
-  return shareText({ puzzleNumber: state.puzzleNumber, status: state.status, score: state.score, misses });
+function gameShareText(state: GameState | MegaGameState, mode: GameMode): string {
+  if (mode === "mega") {
+    return megaShareText({
+      puzzleNumber: state.puzzleNumber,
+      status: state.status,
+      totalClicks: state.clicks.length,
+    });
+  }
+  const classicState = state as GameState;
+  const misses = classicState.clicks.filter((c) => c.result === "x").length;
+  return shareText({
+    puzzleNumber: classicState.puzzleNumber,
+    status: classicState.status,
+    score: classicState.score,
+    misses,
+  });
 }
 
-export default function Game() {
-  const [state, setState] = useState<GameState | null>(null);
+export default function Game({
+  mode = "classic",
+  onModeChange,
+}: {
+  mode?: GameMode;
+  onModeChange?: (mode: GameMode) => void;
+}) {
+  const [state, setState] = useState<GameState | MegaGameState | null>(null);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [channelStats, setChannelStats] = useState<UserStats | null>(null);
   const [guildEntries, setGuildEntries] = useState<TodayEntry[] | null>(null);
@@ -99,15 +128,17 @@ export default function Game() {
   }, []);
 
   const refresh = useCallback(() => {
-    return api.state().then(
+    const request = mode === "mega" ? api.megaState : api.state;
+    return request().then(
       (s) => {
         setState(s);
         if (!introChecked.current) {
           introChecked.current = true;
-          if (!localStorage.getItem("bitedle:seenHelp")) {
-            localStorage.setItem("bitedle:seenHelp", "1");
+          const helpKey = mode === "mega" ? "bitedle:seenHelpMega" : "bitedle:seenHelp";
+          if (!localStorage.getItem(helpKey)) {
+            localStorage.setItem(helpKey, "1");
             setModal("help");
-          } else if (isDiscordEmbed() && s.status !== "playing") {
+          } else if (mode === "classic" && isDiscordEmbed() && s.status !== "playing") {
             // Relaunching the Activity after already finishing today.
             setModal("welcomeBack");
           }
@@ -117,7 +148,7 @@ export default function Game() {
         toast(e instanceof Error ? e.message : "Couldn't reach the server");
       },
     );
-  }, [toast]);
+  }, [mode, toast]);
 
   useEffect(() => {
     refresh();
@@ -163,11 +194,11 @@ export default function Game() {
     setModal("stats");
     setStats(null);
     try {
-      setStats(await api.stats());
+      setStats(await (mode === "mega" ? api.megaStats() : api.stats()));
     } catch {
       toast("Couldn't load statistics");
     }
-  }, [toast]);
+  }, [mode, toast]);
 
   /** After the result splash: unnamed players pick a name, then stats. */
   const handleResultContinue = () => {
@@ -202,7 +233,8 @@ export default function Game() {
     if (!reducedMotion) setShakingIndex(index);
     const startedAt = performance.now();
     try {
-      const { result, state: next } = await api.click(index);
+      const { result, state: next } =
+        mode === "mega" ? await api.megaClick(index) : await api.click(index);
       if (!reducedMotion) {
         const remainingShake = TILE_SHAKE_MS - (performance.now() - startedAt);
         if (remainingShake > 0) await wait(remainingShake);
@@ -245,7 +277,7 @@ export default function Game() {
 
   const handleShare = async () => {
     if (!state) return;
-    const ok = await copyToClipboard(gameShareText(state));
+    const ok = await copyToClipboard(gameShareText(state, mode));
     toast(ok ? "Results copied to clipboard" : "Couldn't copy to clipboard");
   };
 
@@ -344,14 +376,51 @@ export default function Game() {
         </div>
       </header>
 
+      {!isDiscordEmbed() && onModeChange && (
+        <nav className="border-tileborder bg-raised/40 flex w-full justify-center border-b px-4">
+          <div className="flex w-full max-w-lg" aria-label="Game mode">
+            {(
+              [
+                ["classic", "Classic"],
+                ["mega", "XL 10×10"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onModeChange(value)}
+                aria-current={mode === value ? "page" : undefined}
+                className={`flex-1 cursor-pointer border-b-2 py-2.5 text-sm font-bold transition-colors ${
+                  mode === value
+                    ? "border-correct text-foreground"
+                    : "text-muted hover:text-foreground border-transparent"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
+
       <main className="flex w-full max-w-lg flex-1 flex-col items-center gap-5 px-4 py-6">
-        <div className="flex w-full max-w-[360px] items-center justify-between text-xs">
+        <div
+          className={`flex w-full items-center justify-between text-xs ${
+            mode === "mega" ? "max-w-[440px]" : "max-w-[360px]"
+          }`}
+        >
           <div className="flex items-center gap-2">
             <span className="border-tileborder text-muted rounded border px-2 py-1">
               Puzzle #{state?.puzzleNumber ?? "—"}
             </span>
             <span className="border-tileborder text-muted rounded border px-2 py-1">
-              💣 {state && state.date < FIXED_BOMB_COUNT_FROM ? "3–5" : "3"} hidden
+              💣{" "}
+              {mode === "mega"
+                ? "12"
+                : state && state.date < FIXED_BOMB_COUNT_FROM
+                  ? "3–5"
+                  : "3"}{" "}
+              hidden
             </span>
             <span className="border-tileborder text-muted rounded border px-2 py-1 tabular-nums">
               Clicks: {state?.clicks.length ?? 0}
@@ -391,6 +460,7 @@ export default function Game() {
               ))}
             </div>
             <Board
+              cols={mode === "mega" ? 10 : 5}
               clicks={state?.clicks ?? []}
               layout={state?.layout ?? null}
               disabled={busy || finished || !state}
@@ -401,6 +471,7 @@ export default function Game() {
           </div>
         ) : (
           <Board
+            cols={mode === "mega" ? 10 : 5}
             clicks={state?.clicks ?? []}
             layout={state?.layout ?? null}
             disabled={busy || finished || !state}
@@ -411,7 +482,11 @@ export default function Game() {
         )}
 
         {finished && state && (
-          <div className="animate-rise border-tileborder bg-raised flex w-full max-w-[360px] flex-col items-center gap-4 rounded-lg border p-4">
+          <div
+            className={`animate-rise border-tileborder bg-raised flex w-full flex-col items-center gap-4 rounded-lg border p-4 ${
+              mode === "mega" ? "max-w-[440px]" : "max-w-[360px]"
+            }`}
+          >
             <p className="text-center font-bold">
               {state.status === "won"
                 ? `You found it in ${state.score} ${state.score === 1 ? "click" : "clicks"}! ✓`
@@ -420,7 +495,7 @@ export default function Game() {
             <div className="flex w-full items-center">
               <div className="border-tileborder flex-1 border-r pr-3 text-center">
                 <div className="text-muted text-[10px] font-semibold tracking-widest uppercase">
-                  Next Bitedle
+                  Next Bitedle{mode === "mega" ? " XL" : ""}
                 </div>
                 <Countdown target={state.nextResetAt} onExpire={handleNewDay} />
               </div>
@@ -443,7 +518,7 @@ export default function Game() {
             </div>
           </div>
         )}
-        <div className="w-full max-w-[360px]">
+        <div className={`w-full ${mode === "mega" ? "max-w-[440px]" : "max-w-[360px]"}`}>
           <MadeByFooter />
         </div>
       </main>
@@ -458,6 +533,7 @@ export default function Game() {
           guildEntries={guildEntries}
           onShare={handleShare}
           onContinue={handleResultContinue}
+          mode={mode}
         />
       )}
       {modal === "name" && (
@@ -479,6 +555,7 @@ export default function Game() {
       {modal === "help" && (
         <HelpModal
           legacyBombRange={Boolean(state && state.date < FIXED_BOMB_COUNT_FROM)}
+          mode={mode}
           onClose={() => setModal(null)}
         />
       )}
@@ -489,12 +566,20 @@ export default function Game() {
           onClose={() => setModal(null)}
           onShare={handleShare}
           onNewDay={handleNewDay}
+          buckets={mode === "mega" ? MEGA_DISTRIBUTION_BUCKETS : DISTRIBUTION_BUCKETS}
+          todayBucket={
+            mode === "mega" && state && finished
+              ? megaBucketFor(state.status, state.score)
+              : undefined
+          }
+          mode={mode}
         />
       )}
       {modal === "leaderboard" && (
         <LeaderboardModal
           onClose={() => setModal(null)}
           nameHint={finished && state !== null && !state.named}
+          mode={mode}
         />
       )}
     </div>

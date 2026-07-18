@@ -1,16 +1,20 @@
 import crypto from "node:crypto";
 import { discordAvatarUrl } from "./discord";
+import { megaBucketFor } from "./game-buckets";
 import { getStore, type AllTimeRow, type FinishedGame } from "./store";
 import { nextResetAt, shiftDay, todayStr } from "./time";
 import {
   BOARD_SIZE,
   DAILY_BOMB_COUNT,
+  DISTRIBUTION_BUCKETS,
   FIXED_BOMB_COUNT_FROM,
   MAX_BOMBS,
+  MEGA_DISTRIBUTION_BUCKETS,
   MIN_BOMBS,
   type AllTimeEntry,
   type CellResult,
   type GameState,
+  type GameMode,
   type GameStatus,
   type Leaderboard,
   type TodayEntry,
@@ -29,7 +33,7 @@ const DEV_SECRET = "bitedle-dev-secret-not-for-production";
 let warnedDevSecret = false;
 
 /** The secret that seeds each day's board so clients can't precompute it. */
-function boardSecret(): string {
+export function boardSecret(): string {
   const secret = process.env.BITEDLE_SECRET;
   if (secret && secret.length >= 8) return secret;
   if (process.env.NODE_ENV === "production") {
@@ -42,7 +46,7 @@ function boardSecret(): string {
   return DEV_SECRET;
 }
 
-function dayNum(date: string): number {
+export function dayNum(date: string): number {
   return Math.floor(Date.parse(`${date}T00:00:00Z`) / MS_PER_DAY);
 }
 
@@ -50,7 +54,7 @@ export function puzzleNumber(date: string): number {
   return dayNum(date) - dayNum(EPOCH_DATE) + FIRST_PUZZLE;
 }
 
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let a = seed;
   return () => {
     a |= 0;
@@ -205,20 +209,29 @@ export function bucketFor(status: GameStatus, score: number | null): string {
   return score <= 5 ? String(score) : "6+";
 }
 
-function distributionFromEntries(entries: { status: GameStatus; score: number | null }[]): Record<string, number> {
-  const distribution: Record<string, number> = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6+": 0, X: 0 };
-  for (const e of entries) distribution[bucketFor(e.status, e.score)]++;
+function distributionFromEntries(
+  entries: { status: GameStatus; score: number | null }[],
+  bucket: (status: GameStatus, score: number | null) => string = bucketFor,
+  buckets: readonly string[] = DISTRIBUTION_BUCKETS,
+): Record<string, number> {
+  const distribution = Object.fromEntries(buckets.map((key) => [key, 0])) as Record<string, number>;
+  for (const e of entries) distribution[bucket(e.status, e.score)]++;
   return distribution;
 }
 
 /** Aggregates a player's finished games (any order) into their stats. */
-export function statsFromGames(games: FinishedGame[], today: string): UserStats {
+export function statsFromGames(
+  games: FinishedGame[],
+  today: string,
+  bucket: (status: GameStatus, score: number | null) => string = bucketFor,
+  buckets: readonly string[] = DISTRIBUTION_BUCKETS,
+): UserStats {
   const entries = games
     .map((g) => ({ day: dayNum(g.date), status: g.status, score: g.score }))
     .sort((a, b) => a.day - b.day);
   const winScores = entries.filter((e) => e.status === "won").map((e) => e.score ?? 0);
 
-  const distribution = distributionFromEntries(entries);
+  const distribution = distributionFromEntries(entries, bucket, buckets);
 
   // Max streak: longest run of wins on consecutive calendar days.
   let maxStreak = 0;
@@ -260,14 +273,19 @@ export function statsFromGames(games: FinishedGame[], today: string): UserStats 
   };
 }
 
-export function channelStatsFromGames(games: AllTimeRow[], today: string): UserStats {
+export function channelStatsFromGames(
+  games: AllTimeRow[],
+  today: string,
+  bucket: (status: GameStatus, score: number | null) => string = bucketFor,
+  buckets: readonly string[] = DISTRIBUTION_BUCKETS,
+): UserStats {
   const entries = games
     .map((g) => ({ day: dayNum(g.date), status: g.status, score: g.score }))
     .sort((a, b) => a.day - b.day);
 
   const played = entries.length;
   const wins = entries.filter((e) => e.status === "won").length;
-  const distribution = distributionFromEntries(entries);
+  const distribution = distributionFromEntries(entries, bucket, buckets);
 
   const byDay = new Set(entries.map((e) => e.day));
   let d = dayNum(today);
@@ -298,14 +316,22 @@ export async function computeLeaderboard(
   today: string,
   meId: string | null,
   guildId: string | null,
+  mode: GameMode = "classic",
 ): Promise<Leaderboard> {
   const store = getStore();
-  const [todayRows, allRows, myGame] = await Promise.all([
-    store.finishedGamesOn(today, guildId),
-    store.allFinishedGames(guildId),
-    meId !== null && guildId !== null ? store.getGame(today, meId) : Promise.resolve(null),
-  ]);
-  const revealBoards = guildId !== null && myGame !== null && myGame.status !== "playing";
+  const isMega = mode === "mega";
+  const [todayRows, allRows, myGame] = isMega
+    ? await Promise.all([
+        store.finishedMegaGamesOn(today),
+        store.allFinishedMegaGames(),
+        Promise.resolve(null),
+      ])
+    : await Promise.all([
+        store.finishedGamesOn(today, guildId),
+        store.allFinishedGames(guildId),
+        meId !== null && guildId !== null ? store.getGame(today, meId) : Promise.resolve(null),
+      ]);
+  const revealBoards = !isMega && guildId !== null && myGame !== null && myGame.status !== "playing";
 
   const todayEntries = todayRows
     .sort((a, b) => {
@@ -322,7 +348,7 @@ export async function computeLeaderboard(
         status: r.status,
         score: r.score,
         clicks: r.clickCount,
-        ...(revealBoards ? { board: r.clicks } : {}),
+        ...(revealBoards ? { board: r.clicks as TodayEntry["board"] } : {}),
         me: r.userId === meId,
       }),
     );
@@ -346,7 +372,12 @@ export async function computeLeaderboard(
   }
   const allTime: AllTimeEntry[] = [];
   for (const [userId, u] of byUser) {
-    const s = statsFromGames(u.games, today);
+    const s = statsFromGames(
+      u.games,
+      today,
+      isMega ? megaBucketFor : bucketFor,
+      isMega ? MEGA_DISTRIBUTION_BUCKETS : DISTRIBUTION_BUCKETS,
+    );
     allTime.push({
       name: u.name,
       discordAvatarUrl: discordAvatarUrl(u.discordUserId, u.discordAvatar),
@@ -368,7 +399,12 @@ export async function computeLeaderboard(
     return a.name.localeCompare(b.name);
   });
 
-  const channelStats = channelStatsFromGames(allRows, today);
+  const channelStats = channelStatsFromGames(
+    allRows,
+    today,
+    isMega ? megaBucketFor : bucketFor,
+    isMega ? MEGA_DISTRIBUTION_BUCKETS : DISTRIBUTION_BUCKETS,
+  );
 
   return { date: today, today: todayEntries, allTime: allTime.slice(0, 100), channelStats };
 }

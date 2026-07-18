@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { GameRecord } from "./types";
+import type { GameRecord, MegaClickRecord, MegaGameRecord } from "./types";
 import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
@@ -26,6 +26,7 @@ interface FileDb {
   /** games[date][userId]; launchedAt is preview-only metadata (last Activity
    *  open), kept off GameRecord since gameplay never reads it. */
   games: Record<string, Record<string, GameRecord & { launchedAt?: number }>>;
+  megaGames: Record<string, Record<string, MegaGameRecord>>;
   /** guildChannels[guildId] — per-guild Discord state (live preview, recap). */
   guildChannels: Record<
     string,
@@ -63,12 +64,17 @@ export class FileStore implements Store {
       const raw = JSON.parse(fs.readFileSync(DB_PATH, "utf8"));
       if (raw && typeof raw === "object" && raw.users && raw.games) {
         // guildChannels didn't exist in files written before this feature.
-        return { users: raw.users, games: raw.games, guildChannels: raw.guildChannels ?? {} };
+        return {
+          users: raw.users,
+          games: raw.games,
+          megaGames: raw.megaGames ?? {},
+          guildChannels: raw.guildChannels ?? {},
+        };
       }
     } catch {
       // Missing or corrupt file — start fresh.
     }
-    return { users: {}, games: {}, guildChannels: {} };
+    return { users: {}, games: {}, megaGames: {}, guildChannels: {} };
   }
 
   private persist(): void {
@@ -130,6 +136,12 @@ export class FileStore implements Store {
       const orphanGame = byUser[fromUserId];
       if (!orphanGame) continue;
       // Transfer dates the canonical user lacks; conflicting dates: canonical wins.
+      if (!byUser[toUserId]) byUser[toUserId] = orphanGame;
+      delete byUser[fromUserId];
+    }
+    for (const byUser of Object.values(this.db.megaGames)) {
+      const orphanGame = byUser[fromUserId];
+      if (!orphanGame) continue;
       if (!byUser[toUserId]) byUser[toUserId] = orphanGame;
       delete byUser[fromUserId];
     }
@@ -214,6 +226,70 @@ export class FileStore implements Store {
           date,
           status: g.status,
           score: g.score,
+        });
+      }
+    }
+    return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async getMegaGame(date: string, userId: string): Promise<MegaGameRecord | null> {
+    const game = this.db.megaGames[date]?.[userId];
+    return game ? (JSON.parse(JSON.stringify(game)) as MegaGameRecord) : null;
+  }
+
+  async putMegaGame(date: string, userId: string, game: MegaGameRecord): Promise<void> {
+    const byUser = (this.db.megaGames[date] ??= {});
+    const existing = byUser[userId];
+    if (existing && existing.status !== "playing") return;
+    byUser[userId] = JSON.parse(JSON.stringify(game)) as MegaGameRecord;
+    this.persist();
+  }
+
+  async finishedMegaGamesFor(userId: string): Promise<FinishedGame[]> {
+    const out: FinishedGame[] = [];
+    for (const [date, byUser] of Object.entries(this.db.megaGames)) {
+      const game = byUser[userId];
+      if (game && game.status !== "playing") {
+        out.push({ date, status: game.status, score: game.score });
+      }
+    }
+    return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async finishedMegaGamesOn(date: string): Promise<TodayRow<MegaClickRecord>[]> {
+    const out: TodayRow<MegaClickRecord>[] = [];
+    for (const [userId, game] of Object.entries(this.db.megaGames[date] ?? {})) {
+      const user = this.db.users[userId];
+      if (game.status === "playing" || !user?.named) continue;
+      out.push({
+        userId,
+        name: user.name,
+        discordUserId: user.discordUserId ?? null,
+        discordAvatar: user.discordAvatar ?? null,
+        status: game.status,
+        score: game.score,
+        clicks: game.clicks,
+        clickCount: game.clicks.length,
+        finishedAt: game.finishedAt ?? 0,
+      });
+    }
+    return out;
+  }
+
+  async allFinishedMegaGames(): Promise<AllTimeRow[]> {
+    const out: AllTimeRow[] = [];
+    for (const [date, byUser] of Object.entries(this.db.megaGames)) {
+      for (const [userId, game] of Object.entries(byUser)) {
+        const user = this.db.users[userId];
+        if (game.status === "playing" || !user?.named) continue;
+        out.push({
+          userId,
+          name: user.name,
+          discordUserId: user.discordUserId ?? null,
+          discordAvatar: user.discordAvatar ?? null,
+          date,
+          status: game.status,
+          score: game.score,
         });
       }
     }

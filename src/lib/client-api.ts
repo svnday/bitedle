@@ -5,7 +5,14 @@ import {
   guildContextSettled,
   isDiscordEmbed,
 } from "./discord-context";
-import type { CellResult, GameState, Leaderboard, UserStats } from "./types";
+import type {
+  CellResult,
+  GameState,
+  Leaderboard,
+  MegaCellResult,
+  MegaGameState,
+  UserStats,
+} from "./types";
 
 const DISCORD_USER_HEADER_NAME = "X-Bitedle-Discord-User-Id";
 const TZ_HEADER_NAME = "X-Bitedle-TZ";
@@ -25,9 +32,9 @@ function localTimeZone(): string {
 export class ApiError extends Error {
   status: number;
   /** Some errors (e.g. "already played") include the authoritative state. */
-  state?: GameState;
+  state?: GameState | MegaGameState;
 
-  constructor(message: string, status: number, state?: GameState) {
+  constructor(message: string, status: number, state?: GameState | MegaGameState) {
     super(message);
     this.status = status;
     this.state = state;
@@ -86,6 +93,14 @@ export const api = {
     }),
   stats: () => request<UserStats>("/api/stats"),
   leaderboard: () => request<Leaderboard>("/api/leaderboard"),
+  megaState: () => request<MegaGameState>("/api/mega/state"),
+  megaClick: (index: number) =>
+    request<{ result: MegaCellResult; state: MegaGameState }>("/api/mega/click", {
+      method: "POST",
+      body: JSON.stringify({ index }),
+    }),
+  megaStats: () => request<UserStats>("/api/mega/stats"),
+  megaLeaderboard: () => request<Leaderboard>("/api/mega/leaderboard"),
   discordToken: (code: string) =>
     request<{ access_token: string }>("/api/discord/token", {
       method: "POST",

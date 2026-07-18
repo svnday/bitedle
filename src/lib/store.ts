@@ -1,4 +1,10 @@
-import type { ClickRecord, GameRecord, GameStatus } from "./types";
+import type {
+  ClickRecord,
+  GameRecord,
+  GameStatus,
+  MegaClickRecord,
+  MegaGameRecord,
+} from "./types";
 import { FileStore } from "./store-file";
 import { NeonStore } from "./store-neon";
 
@@ -10,14 +16,14 @@ export interface FinishedGame {
 }
 
 /** A finished game on a given day, as needed for the daily leaderboard. */
-export interface TodayRow {
+export interface TodayRow<TClick = ClickRecord> {
   userId: string;
   name: string;
   discordUserId: string | null;
   discordAvatar: string | null;
   status: "won" | "lost";
   score: number | null;
-  clicks: ClickRecord[];
+  clicks: TClick[];
   clickCount: number;
   finishedAt: number;
 }
@@ -110,6 +116,12 @@ export interface Store {
   /** Leaderboard feed: all finished games, NAMED players only, scoped to one
    *  guild (null = web-only games). */
   allFinishedGames(guildId: string | null): Promise<AllTimeRow[]>;
+  getMegaGame(date: string, userId: string): Promise<MegaGameRecord | null>;
+  /** Upserts while preserving finished-game immutability. */
+  putMegaGame(date: string, userId: string, game: MegaGameRecord): Promise<void>;
+  finishedMegaGamesFor(userId: string): Promise<FinishedGame[]>;
+  finishedMegaGamesOn(date: string): Promise<TodayRow<MegaClickRecord>[]>;
+  allFinishedMegaGames(): Promise<AllTimeRow[]>;
   /** Records the channel a server most recently used a command in. Nothing
    *  posts to it anymore (delivery rides interaction webhooks), but the call
    *  guarantees the guild_channels row exists before preview/recap updates

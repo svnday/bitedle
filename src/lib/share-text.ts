@@ -29,3 +29,16 @@ export function shareText(game: {
     game.status === "won" ? `found in ${totalClicks} ${indicator}` : `boom in ${totalClicks} ${indicator}`;
   return `Bitedle #${game.puzzleNumber}\n${scoreLine}`;
 }
+
+export function megaShareText(game: {
+  puzzleNumber: number;
+  status: GameStatus;
+  totalClicks: number;
+}): string {
+  const totalClicks = clicksLabel(game.totalClicks);
+  const scoreLine =
+    game.status === "won"
+      ? `10×10 — found in ${totalClicks} ✅`
+      : `10×10 — boom in ${totalClicks} 💥`;
+  return `Bitedle XL #${game.puzzleNumber}\n${scoreLine}`;
+}

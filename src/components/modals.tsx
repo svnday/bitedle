@@ -2,7 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client-api";
-import type { ClickRecord, GameState, GameStatus, Leaderboard, TodayEntry, UserStats } from "@/lib/types";
+import type {
+  ClickRecord,
+  GameMode,
+  GameState,
+  GameStatus,
+  Leaderboard,
+  MegaGameState,
+  TodayEntry,
+  UserStats,
+} from "@/lib/types";
 import { BOARD_SIZE, DISTRIBUTION_BUCKETS } from "@/lib/types";
 import Countdown from "./Countdown";
 
@@ -58,12 +67,13 @@ export function Modal({ title, onClose, children }: ModalProps) {
 
 /* ------------------------------------------------------------ mini tile */
 
-function MiniTile({ kind }: { kind: "x" | "bomb" | "check" | "hidden" }) {
+function MiniTile({ kind }: { kind: "x" | "bomb" | "check" | "hidden" | "number" }) {
   const styles = {
     hidden: { className: "border-2 border-tileborder", glyph: "" },
     x: { className: "bg-tile", glyph: "✗" },
     bomb: { className: "bg-danger", glyph: "💣" },
     check: { className: "bg-correct", glyph: "✓" },
+    number: { className: "bg-[#22627a]", glyph: "2" },
   }[kind];
   return (
     <span
@@ -296,7 +306,13 @@ export function MadeByFooter() {
 export const WIN_GIF = "/win.gif";
 export const LOSE_GIF = "/lose.gif";
 
-function praiseFor(score: number): string {
+function praiseFor(score: number, mode: GameMode = "classic"): string {
+  if (mode === "mega") {
+    if (score <= 5) return "UNREAL!";
+    if (score <= 10) return "Splendid!";
+    if (score <= 20) return "Nice work!";
+    return "Phew — got there!";
+  }
   if (score === 1) return "UNREAL — first click!";
   if (score <= 3) return "Splendid!";
   if (score <= 6) return "Nice work!";
@@ -445,9 +461,18 @@ interface ResultModalProps {
   guildEntries: TodayEntry[] | null;
   onShare: () => void;
   onContinue: () => void;
+  mode?: GameMode;
 }
 
-export function ResultModal({ won, score, stats, guildEntries, onShare, onContinue }: ResultModalProps) {
+export function ResultModal({
+  won,
+  score,
+  stats,
+  guildEntries,
+  onShare,
+  onContinue,
+  mode = "classic",
+}: ResultModalProps) {
   return (
     <Modal title={won ? "You found it!" : "Game over"} onClose={onContinue}>
       {/* Plain <img>: self-hosted animated gif, not a next/image candidate. */}
@@ -459,7 +484,7 @@ export function ResultModal({ won, score, stats, guildEntries, onShare, onContin
       />
       <p className="mt-4 text-center font-bold">
         {won && score !== null
-          ? `${praiseFor(score)} Found in ${score} ${score === 1 ? "click" : "clicks"}. ✓`
+          ? `${praiseFor(score, mode)} Found in ${score} ${score === 1 ? "click" : "clicks"}. ✓`
           : "💥 BOOM! That was a bomb. See you tomorrow."}
       </p>
 
@@ -599,28 +624,43 @@ export function ChannelStatsScreen({ entries, stats, onShare, onBack }: ChannelS
 
 export function HelpModal({
   legacyBombRange,
+  mode = "classic",
   onClose,
 }: {
   legacyBombRange: boolean;
+  mode?: GameMode;
   onClose: () => void;
 }) {
   return (
     <Modal title="How to play" onClose={onClose}>
       <div className="space-y-4 text-sm leading-snug">
         <p>
-          Somewhere on the 5×5 board hides <strong>one green check mark</strong>. Click tiles to
-          find it in as few clicks as possible.
+          Somewhere on the {mode === "mega" ? "10×10" : "5×5"} board hides{" "}
+          <strong>one green check mark</strong>. Click tiles to find it in as few clicks as
+          possible.
         </p>
-        <div className="flex items-center gap-3">
-          <MiniTile kind="x" />
-          <p>
-            A red <strong>✗</strong> is a safe miss — the game continues.
-          </p>
-        </div>
+        {mode === "mega" ? (
+          <div className="flex items-center gap-3">
+            <MiniTile kind="number" />
+            <p>
+              A number counts adjacent bombs or the check mark directly up, down, left, or right.
+              Diagonals do not count, and a 0 reveals only itself.
+            </p>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <MiniTile kind="x" />
+            <p>
+              A red <strong>✗</strong> is a safe miss — the game continues.
+            </p>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <MiniTile kind="bomb" />
           <p>
-            A <strong>bomb</strong> ends your run instantly. {legacyBombRange ? (
+            A <strong>bomb</strong> ends your run instantly. {mode === "mega" ? (
+              <>There are exactly 12 of them hidden across the larger board.</>
+            ) : legacyBombRange ? (
               <>There are 3 to 5 of them, and you never know exactly how many.</>
             ) : (
               <>There are exactly 3 of them, and you never know which tiles hide them.</>
@@ -655,15 +695,30 @@ function bucketOf(state: GameState): string | null {
 
 interface StatsModalProps {
   stats: UserStats | null;
-  state: GameState | null;
+  state: GameState | MegaGameState | null;
   onClose: () => void;
   onShare: () => void;
   onNewDay: () => void;
+  buckets?: readonly string[];
+  todayBucket?: string | null;
+  mode?: GameMode;
 }
 
-export function StatsModal({ stats, state, onClose, onShare, onNewDay }: StatsModalProps) {
+export function StatsModal({
+  stats,
+  state,
+  onClose,
+  onShare,
+  onNewDay,
+  buckets = DISTRIBUTION_BUCKETS,
+  todayBucket,
+  mode = "classic",
+}: StatsModalProps) {
   const finished = state !== null && state.status !== "playing";
-  const todayBucket = state && finished ? bucketOf(state) : null;
+  const resolvedTodayBucket =
+    todayBucket === undefined && state && finished && mode === "classic"
+      ? bucketOf(state as GameState)
+      : todayBucket;
 
   return (
     <Modal title="Statistics" onClose={onClose}>
@@ -691,10 +746,10 @@ export function StatsModal({ stats, state, onClose, onShare, onNewDay }: StatsMo
             Score distribution
           </h3>
           <div className="space-y-1.5">
-            {DISTRIBUTION_BUCKETS.map((bucket) => {
+            {buckets.map((bucket) => {
               const count = stats.distribution[bucket] ?? 0;
               const max = Math.max(1, ...Object.values(stats.distribution));
-              const isToday = todayBucket === bucket;
+              const isToday = resolvedTodayBucket === bucket;
               const fill = isToday ? (bucket === "X" ? "bg-danger" : "bg-correct") : "bg-tileborder";
               return (
                 <div key={bucket} className="flex items-center gap-2">
@@ -718,7 +773,7 @@ export function StatsModal({ stats, state, onClose, onShare, onNewDay }: StatsMo
             <div className="border-tileborder mt-6 flex items-center border-t pt-4">
               <div className="border-tileborder flex-1 border-r pr-4 text-center">
                 <div className="text-muted text-[11px] font-semibold tracking-widest uppercase">
-                  Next Bitedle
+                  Next Bitedle{mode === "mega" ? " XL" : ""}
                 </div>
                 <Countdown target={state.nextResetAt} onExpire={onNewDay} />
               </div>
@@ -745,19 +800,20 @@ interface LeaderboardModalProps {
   onClose: () => void;
   /** True when the viewer finished today's game without picking a name. */
   nameHint?: boolean;
+  mode?: GameMode;
 }
 
-export function LeaderboardModal({ onClose, nameHint }: LeaderboardModalProps) {
+export function LeaderboardModal({ onClose, nameHint, mode = "classic" }: LeaderboardModalProps) {
   const [data, setData] = useState<Leaderboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"today" | "alltime">("today");
 
   useEffect(() => {
-    api
-      .leaderboard()
+    const request = mode === "mega" ? api.megaLeaderboard : api.leaderboard;
+    request()
       .then(setData)
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [mode]);
 
   return (
     <Modal title="Leaderboard" onClose={onClose}>
@@ -794,7 +850,8 @@ export function LeaderboardModal({ onClose, nameHint }: LeaderboardModalProps) {
           )}
           {data.today.length === 0 ? (
             <p className="text-muted py-8 text-center text-sm">
-              No one has finished today&apos;s Bitedle yet. Be the first!
+              No one has finished today&apos;s Bitedle{mode === "mega" ? " XL" : ""} yet. Be the
+              first!
             </p>
           ) : (
             <ul>
