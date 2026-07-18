@@ -461,6 +461,8 @@ interface ResultModalProps {
   guildEntries: TodayEntry[] | null;
   onShare: () => void;
   onContinue: () => void;
+  onPlayAgain?: () => void;
+  busy?: boolean;
   mode?: GameMode;
 }
 
@@ -471,6 +473,8 @@ export function ResultModal({
   guildEntries,
   onShare,
   onContinue,
+  onPlayAgain,
+  busy = false,
   mode = "classic",
 }: ResultModalProps) {
   return (
@@ -485,7 +489,9 @@ export function ResultModal({
       <p className="mt-4 text-center font-bold">
         {won && score !== null
           ? `${praiseFor(score, mode)} Found in ${score} ${score === 1 ? "click" : "clicks"}. ✓`
-          : "💥 BOOM! That was a bomb. See you tomorrow."}
+          : mode === "mega"
+            ? "💥 BOOM! That was a bomb. Ready for another board?"
+            : "💥 BOOM! That was a bomb. See you tomorrow."}
       </p>
 
       {guildEntries && guildEntries.length > 0 && (
@@ -497,15 +503,42 @@ export function ResultModal({
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={onContinue}
-        className={`mt-4 w-full cursor-pointer rounded py-2.5 font-bold text-white hover:brightness-110 ${
-          won ? "bg-correct" : "bg-danger"
-        }`}
-      >
-        Continue
-      </button>
+      {mode === "mega" && onPlayAgain ? (
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onPlayAgain}
+            disabled={busy}
+            className="bg-correct col-span-2 cursor-pointer rounded py-2.5 font-bold text-white hover:brightness-110 disabled:cursor-wait disabled:opacity-60"
+          >
+            {busy ? "Starting..." : "Play again"}
+          </button>
+          <button
+            type="button"
+            onClick={onShare}
+            className="border-tileborder hover:border-tilehover cursor-pointer rounded border py-2 text-sm font-semibold"
+          >
+            Share
+          </button>
+          <button
+            type="button"
+            onClick={onContinue}
+            className="border-tileborder hover:border-tilehover cursor-pointer rounded border py-2 text-sm font-semibold"
+          >
+            View stats
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onContinue}
+          className={`mt-4 w-full cursor-pointer rounded py-2.5 font-bold text-white hover:brightness-110 ${
+            won ? "bg-correct" : "bg-danger"
+          }`}
+        >
+          Continue
+        </button>
+      )}
     </Modal>
   );
 }
@@ -675,8 +708,9 @@ export function HelpModal({
           </p>
         </div>
         <p className="border-tileborder text-muted border-t pt-4">
-          A new board drops every day at midnight. Everyone plays the same board, and you only get
-          one shot at it.
+          {mode === "mega"
+            ? "Finish the board, then choose Play again for a fresh randomly generated board."
+            : "A new board drops every day at midnight. Everyone plays the same board, and you only get one shot at it."}
         </p>
       </div>
     </Modal>
@@ -699,6 +733,7 @@ interface StatsModalProps {
   onClose: () => void;
   onShare: () => void;
   onNewDay: () => void;
+  onPlayAgain?: () => void;
   buckets?: readonly string[];
   todayBucket?: string | null;
   mode?: GameMode;
@@ -710,6 +745,7 @@ export function StatsModal({
   onClose,
   onShare,
   onNewDay,
+  onPlayAgain,
   buckets = DISTRIBUTION_BUCKETS,
   todayBucket,
   mode = "classic",
@@ -769,11 +805,28 @@ export function StatsModal({
             })}
           </div>
 
-          {finished && (
+          {finished && mode === "mega" && onPlayAgain ? (
+            <div className="border-tileborder mt-6 grid grid-cols-2 gap-2 border-t pt-4">
+              <button
+                type="button"
+                onClick={onPlayAgain}
+                className="bg-correct cursor-pointer rounded py-2.5 font-bold text-white hover:brightness-110"
+              >
+                Play again
+              </button>
+              <button
+                type="button"
+                onClick={onShare}
+                className="border-tileborder hover:border-tilehover cursor-pointer rounded border py-2.5 font-bold"
+              >
+                Share
+              </button>
+            </div>
+          ) : finished && (
             <div className="border-tileborder mt-6 flex items-center border-t pt-4">
               <div className="border-tileborder flex-1 border-r pr-4 text-center">
                 <div className="text-muted text-[11px] font-semibold tracking-widest uppercase">
-                  Next Bitedle{mode === "mega" ? " XL" : ""}
+                  Next Bitedle
                 </div>
                 <Countdown target={state.nextResetAt} onExpire={onNewDay} />
               </div>

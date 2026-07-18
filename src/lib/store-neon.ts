@@ -59,8 +59,10 @@ export class NeonStore implements Store {
           status text NOT NULL DEFAULT 'playing',
           score int,
           finished_at bigint,
+          board_seed text,
           PRIMARY KEY (date, user_id)
         )`;
+      await this.sql`ALTER TABLE games_mega ADD COLUMN IF NOT EXISTS board_seed text`;
       await this.sql`CREATE INDEX IF NOT EXISTS games_mega_user_idx ON games_mega (user_id)`;
       await this.sql`
         CREATE TABLE IF NOT EXISTS guild_channels (
@@ -301,7 +303,7 @@ export class NeonStore implements Store {
   async getMegaGame(date: string, userId: string): Promise<MegaGameRecord | null> {
     await this.ensureSchema();
     const rows = await this.sql`
-      SELECT clicks, status, score, finished_at
+      SELECT clicks, status, score, finished_at, board_seed
       FROM games_mega WHERE date = ${date} AND user_id = ${userId}`;
     if (rows.length === 0) return null;
     const row = rows[0];
@@ -310,19 +312,32 @@ export class NeonStore implements Store {
       status: row.status as MegaGameRecord["status"],
       score: row.score === null ? null : Number(row.score),
       finishedAt: row.finished_at === null ? null : Number(row.finished_at),
+      boardSeed: row.board_seed as string | null,
     };
   }
 
   async putMegaGame(date: string, userId: string, game: MegaGameRecord): Promise<void> {
     await this.ensureSchema();
     await this.sql`
-      INSERT INTO games_mega (date, user_id, clicks, status, score, finished_at)
+      INSERT INTO games_mega (date, user_id, clicks, status, score, finished_at, board_seed)
       VALUES (${date}, ${userId}, ${JSON.stringify(game.clicks)}::jsonb,
-              ${game.status}, ${game.score}, ${game.finishedAt})
+              ${game.status}, ${game.score}, ${game.finishedAt}, ${game.boardSeed})
       ON CONFLICT (date, user_id) DO UPDATE
       SET clicks = EXCLUDED.clicks, status = EXCLUDED.status,
-          score = EXCLUDED.score, finished_at = EXCLUDED.finished_at
+          score = EXCLUDED.score, finished_at = EXCLUDED.finished_at,
+          board_seed = EXCLUDED.board_seed
       WHERE games_mega.status = 'playing'`;
+  }
+
+  async replayMegaGame(date: string, userId: string, boardSeed: string): Promise<boolean> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      UPDATE games_mega
+      SET clicks = '[]'::jsonb, status = 'playing', score = NULL,
+          finished_at = NULL, board_seed = ${boardSeed}
+      WHERE date = ${date} AND user_id = ${userId} AND status <> 'playing'
+      RETURNING user_id`;
+    return rows.length === 1;
   }
 
   async finishedMegaGamesFor(userId: string): Promise<FinishedGame[]> {

@@ -98,6 +98,8 @@ export interface MegaGameRecord {
   status: GameStatus;
   score: number | null;
   finishedAt: number | null;
+  /** Null for original daily boards; random per replayed XL board. */
+  boardSeed: string | null;
 }
 
 export interface MegaGameState {

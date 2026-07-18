@@ -119,6 +119,8 @@ export interface Store {
   getMegaGame(date: string, userId: string): Promise<MegaGameRecord | null>;
   /** Upserts while preserving finished-game immutability. */
   putMegaGame(date: string, userId: string, game: MegaGameRecord): Promise<void>;
+  /** Replaces a finished XL game with a fresh playing board. */
+  replayMegaGame(date: string, userId: string, boardSeed: string): Promise<boolean>;
   finishedMegaGamesFor(userId: string): Promise<FinishedGame[]>;
   finishedMegaGamesOn(date: string): Promise<TodayRow<MegaClickRecord>[]>;
   allFinishedMegaGames(): Promise<AllTimeRow[]>;

@@ -24,10 +24,10 @@ interface MegaDraw {
   bombIndices: number[];
 }
 
-function megaBoardDraw(date: string): MegaDraw {
+function megaBoardDraw(date: string, boardSeed: string | null = null): MegaDraw {
   const digest = crypto
     .createHash("sha256")
-    .update(`${boardSecret()}:mega:${date}`)
+    .update(`${boardSecret()}:mega:${boardSeed === null ? date : `${date}:${boardSeed}`}`)
     .digest();
   const rng = mulberry32(digest.readUInt32LE(0));
   const indices = Array.from({ length: MEGA_BOARD_SIZE }, (_, index) => index);
@@ -48,16 +48,17 @@ const finalMegaDrawMemo = new Map<string, MegaDraw>();
  * here behind a cutoff such as MEGA_CHECK_MOVE_FROM so played boards never
  * change retroactively.
  */
-function finalMegaDrawFor(date: string): MegaDraw {
-  const cached = finalMegaDrawMemo.get(date);
+function finalMegaDrawFor(date: string, boardSeed: string | null = null): MegaDraw {
+  const key = `${date}:${boardSeed ?? "daily"}`;
+  const cached = finalMegaDrawMemo.get(key);
   if (cached) return cached;
-  const draw = megaBoardDraw(date);
-  finalMegaDrawMemo.set(date, draw);
+  const draw = megaBoardDraw(date, boardSeed);
+  finalMegaDrawMemo.set(key, draw);
   return draw;
 }
 
-export function megaLayoutFor(date: string): MegaCellResult[] {
-  const { checkIndex, bombIndices } = finalMegaDrawFor(date);
+export function megaLayoutFor(date: string, boardSeed: string | null = null): MegaCellResult[] {
+  const { checkIndex, bombIndices } = finalMegaDrawFor(date, boardSeed);
   const bombs = new Set(bombIndices);
   const occupied = new Set([checkIndex, ...bombIndices]);
   const cells: MegaCellResult[] = Array(MEGA_BOARD_SIZE).fill(0);
@@ -97,7 +98,7 @@ export async function megaStateFor(
     clicks: game?.clicks ?? [],
     nextResetAt: nextResetAt(new Date(), timeZone),
   };
-  if (status !== "playing") state.layout = megaLayoutFor(date);
+  if (status !== "playing") state.layout = megaLayoutFor(date, game?.boardSeed ?? null);
   return state;
 }
 

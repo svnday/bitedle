@@ -99,6 +99,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ index }),
     }),
+  megaReplay: () =>
+    request<MegaGameState>("/api/mega/replay", {
+      method: "POST",
+    }),
   megaStats: () => request<UserStats>("/api/mega/stats"),
   megaLeaderboard: () => request<Leaderboard>("/api/mega/leaderboard"),
   discordToken: (code: string) =>

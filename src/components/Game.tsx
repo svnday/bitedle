@@ -211,6 +211,27 @@ export default function Game({
     }
   };
 
+  const handlePlayAgain = useCallback(async () => {
+    if (mode !== "mega" || busy) return;
+    setBusy(true);
+    if (boardEffectTimer.current) clearTimeout(boardEffectTimer.current);
+    if (resultModalTimer.current) clearTimeout(resultModalTimer.current);
+    try {
+      const next = await api.megaReplay();
+      setState(next);
+      setStats(null);
+      setModal(null);
+      setShakingIndex(null);
+      setBoardEffect(null);
+      toast("Fresh XL board ready");
+    } catch (e) {
+      if (e instanceof ApiError && e.state) setState(e.state);
+      toast(e instanceof Error ? e.message : "Couldn't start a new board");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, mode, toast]);
+
   const handleName = async (name: string) => {
     try {
       await api.setName(name);
@@ -490,16 +511,34 @@ export default function Game({
             <p className="text-center font-bold">
               {state.status === "won"
                 ? `You found it in ${state.score} ${state.score === 1 ? "click" : "clicks"}! ✓`
-                : "💥 Boom! The check mark got away today."}
+                : `💥 Boom! The check mark got away${mode === "mega" ? "." : " today."}`}
             </p>
             <div className="flex w-full items-center">
-              <div className="border-tileborder flex-1 border-r pr-3 text-center">
+              <div
+                className={`border-tileborder flex-1 border-r pr-3 text-center ${
+                  mode === "mega" ? "hidden" : ""
+                }`}
+              >
                 <div className="text-muted text-[10px] font-semibold tracking-widest uppercase">
-                  Next Bitedle{mode === "mega" ? " XL" : ""}
+                  Next Bitedle
                 </div>
                 <Countdown target={state.nextResetAt} onExpire={handleNewDay} />
               </div>
-              <div className="flex flex-1 flex-col items-center gap-2 pl-3">
+              <div
+                className={`flex flex-col items-center gap-2 ${
+                  mode === "mega" ? "w-full" : "flex-1 pl-3"
+                }`}
+              >
+                {mode === "mega" && (
+                  <button
+                    type="button"
+                    onClick={handlePlayAgain}
+                    disabled={busy}
+                    className="bg-correct w-full max-w-36 cursor-pointer rounded py-2 font-bold text-white hover:brightness-110 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {busy ? "Starting..." : "Play again"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleShare}
@@ -533,6 +572,8 @@ export default function Game({
           guildEntries={guildEntries}
           onShare={handleShare}
           onContinue={handleResultContinue}
+          onPlayAgain={handlePlayAgain}
+          busy={busy}
           mode={mode}
         />
       )}
@@ -566,6 +607,7 @@ export default function Game({
           onClose={() => setModal(null)}
           onShare={handleShare}
           onNewDay={handleNewDay}
+          onPlayAgain={handlePlayAgain}
           buckets={mode === "mega" ? MEGA_DISTRIBUTION_BUCKETS : DISTRIBUTION_BUCKETS}
           todayBucket={
             mode === "mega" && state && finished

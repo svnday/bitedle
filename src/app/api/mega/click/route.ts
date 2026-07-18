@@ -40,13 +40,14 @@ export async function POST(request: NextRequest) {
     status: "playing",
     score: null,
     finishedAt: null,
+    boardSeed: null,
   };
 
   if (game.status !== "playing") {
     return attachIdentity(
       NextResponse.json(
         {
-          error: "You already played today's Bitedle XL",
+          error: "This Bitedle XL board is finished. Choose Play again for a fresh board.",
           state: await megaStateFor(identity.id, date, timeZone),
         },
         { status: 409 },
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = megaLayoutFor(date)[index];
+  const result = megaLayoutFor(date, game.boardSeed ?? null)[index];
   game.clicks.push({ index, result });
   if (result === "bomb") {
     game.status = "lost";

@@ -245,6 +245,20 @@ export class FileStore implements Store {
     this.persist();
   }
 
+  async replayMegaGame(date: string, userId: string, boardSeed: string): Promise<boolean> {
+    const game = this.db.megaGames[date]?.[userId];
+    if (!game || game.status === "playing") return false;
+    this.db.megaGames[date][userId] = {
+      clicks: [],
+      status: "playing",
+      score: null,
+      finishedAt: null,
+      boardSeed,
+    };
+    this.persist();
+    return true;
+  }
+
   async finishedMegaGamesFor(userId: string): Promise<FinishedGame[]> {
     const out: FinishedGame[] = [];
     for (const [date, byUser] of Object.entries(this.db.megaGames)) {
