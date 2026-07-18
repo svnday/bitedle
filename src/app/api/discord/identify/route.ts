@@ -68,11 +68,11 @@ export async function POST(request: NextRequest) {
   const guildId = guildIdFromRequest(request);
   if (guildId) {
     const date = playerDate(request);
-    // Stamp the launch onto the CANONICAL id under the player's local date —
+    // Record the launch under the CANONICAL id and the player's local date —
     // the cross-device merge above may have just moved this session's game off
-    // the cookie user that /api/state stamped, so re-stamp to keep the player
-    // in the window.
-    await store.stampLaunch(date, effectiveId, Date.now());
+    // the cookie user that /api/state recorded, so re-record to keep the
+    // player in this guild's window.
+    await store.recordLaunch(date, effectiveId, guildId, Date.now());
     after(() =>
       updateLivePreviewMessage({ guildId }).catch((e) => {
         console.error(`discord-identify: live preview update failed for guild ${guildId}`, e);

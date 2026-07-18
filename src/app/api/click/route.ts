@@ -69,13 +69,24 @@ export async function POST(request: NextRequest) {
     game.finishedAt = Date.now();
   }
   await store.putGame(date, identity.id, game);
-  if (game.guildId) {
-    const guildId = game.guildId;
-    after(() =>
-      updateLivePreviewMessage({ guildId }).catch((e) => {
-        console.error(`click: live preview update failed for guild ${guildId}`, e);
-      }),
-    );
+  // Fan the preview refresh out to every guild the player launched in today,
+  // so multi-server progress shows everywhere. The hint gates pure-web clicks
+  // (no guild anywhere) off the extra lookup; it also covers a web-first game
+  // (null guildId) later opened inside a guild.
+  const guildHint = game.guildId ?? guildIdFromRequest(request);
+  if (guildHint) {
+    after(async () => {
+      let guilds = await store.launchGuildsFor(date, identity.id);
+      if (guilds.length === 0) guilds = [guildHint];
+      // allSettled + per-call catch: one guild's dead webhook can't block the rest.
+      await Promise.allSettled(
+        guilds.map((guildId) =>
+          updateLivePreviewMessage({ guildId }).catch((e) => {
+            console.error(`click: live preview update failed for guild ${guildId}`, e);
+          }),
+        ),
+      );
+    });
   }
 
   return attachIdentity(

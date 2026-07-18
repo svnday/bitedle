@@ -47,10 +47,32 @@ export class NeonStore implements Store {
           PRIMARY KEY (date, user_id)
         )`;
       await this.sql`ALTER TABLE games ADD COLUMN IF NOT EXISTS guild_id text`;
-      // When the player last opened the Activity — scopes the live preview to
-      // one launch window (see stampLaunch / livePreviewGamesOn).
+      // Deprecated: launch times now live in game_launches (kept only so the
+      // backfill below can read pre-migration rows).
       await this.sql`ALTER TABLE games ADD COLUMN IF NOT EXISTS launched_at bigint`;
       await this.sql`CREATE INDEX IF NOT EXISTS games_user_idx ON games (user_id)`;
+      // Every guild a player opened the Activity in per day — guild membership
+      // for previews/recaps/leaderboards, so a multi-server player shows up
+      // everywhere they play (games.guild_id only marks the first guild).
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS game_launches (
+          date text NOT NULL,
+          user_id uuid NOT NULL REFERENCES users(id),
+          guild_id text NOT NULL,
+          launched_at bigint NOT NULL,
+          PRIMARY KEY (date, user_id, guild_id)
+        )`;
+      await this.sql`
+        CREATE INDEX IF NOT EXISTS game_launches_guild_idx ON game_launches (guild_id, launched_at)`;
+      await this.sql`CREATE INDEX IF NOT EXISTS game_launches_user_idx ON game_launches (user_id)`;
+      // Backfill launch records from the single-guild era (cheap no-op once
+      // seeded). Copying launched_at keeps in-flight preview windows alive
+      // across the deploy that introduced this table.
+      await this.sql`
+        INSERT INTO game_launches (date, user_id, guild_id, launched_at)
+        SELECT date, user_id, guild_id, COALESCE(launched_at, finished_at, 0)
+        FROM games WHERE guild_id IS NOT NULL
+        ON CONFLICT (date, user_id, guild_id) DO NOTHING`;
       await this.sql`
         CREATE TABLE IF NOT EXISTS games_mega (
           date text NOT NULL,
@@ -195,6 +217,14 @@ export class NeonStore implements Store {
     // Whatever remains on the orphan conflicts by date; canonical wins.
     await this.sql`DELETE FROM games WHERE user_id = ${fromUserId}`;
     await this.sql`
+      UPDATE game_launches l SET user_id = ${toUserId}
+      WHERE l.user_id = ${fromUserId}
+        AND NOT EXISTS (
+          SELECT 1 FROM game_launches l2
+          WHERE l2.date = l.date AND l2.guild_id = l.guild_id AND l2.user_id = ${toUserId}
+        )`;
+    await this.sql`DELETE FROM game_launches WHERE user_id = ${fromUserId}`;
+    await this.sql`
       UPDATE games_mega g SET user_id = ${toUserId}
       WHERE g.user_id = ${fromUserId}
         AND NOT EXISTS (
@@ -227,8 +257,9 @@ export class NeonStore implements Store {
   async putGame(date: string, userId: string, game: GameRecord): Promise<void> {
     await this.ensureSchema();
     // The WHERE guard makes finished games immutable even under a race.
-    // guild_id is intentionally excluded from the UPDATE SET list, so it's
-    // written once on insert and never changes on later clicks that day.
+    // guild_id is intentionally excluded from the UPDATE SET list — written
+    // once on insert as a first-guild/web marker; per-guild membership lives
+    // in game_launches.
     await this.sql`
       INSERT INTO games (date, user_id, clicks, status, score, finished_at, guild_id)
       VALUES (${date}, ${userId}, ${JSON.stringify(game.clicks)}::jsonb,
@@ -239,12 +270,21 @@ export class NeonStore implements Store {
       WHERE games.status = 'playing'`;
   }
 
-  async stampLaunch(date: string, userId: string, at: number): Promise<void> {
+  async recordLaunch(date: string, userId: string, guildId: string, at: number): Promise<void> {
     await this.ensureSchema();
-    // The caller ensures the game row exists first; a no-op otherwise. Allowed
-    // on finished games too — launched_at is launch metadata, not game state.
     await this.sql`
-      UPDATE games SET launched_at = ${at} WHERE date = ${date} AND user_id = ${userId}`;
+      INSERT INTO game_launches (date, user_id, guild_id, launched_at)
+      VALUES (${date}, ${userId}, ${guildId}, ${at})
+      ON CONFLICT (date, user_id, guild_id) DO UPDATE SET launched_at = EXCLUDED.launched_at`;
+  }
+
+  async launchGuildsFor(date: string, userId: string): Promise<string[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT guild_id FROM game_launches
+      WHERE date = ${date} AND user_id = ${userId}
+      ORDER BY launched_at ASC`;
+    return rows.map((r) => r.guild_id as string);
   }
 
   async finishedGamesFor(userId: string): Promise<FinishedGame[]> {
@@ -262,12 +302,24 @@ export class NeonStore implements Store {
 
   async finishedGamesOn(date: string, guildId: string | null): Promise<TodayRow[]> {
     await this.ensureSchema();
-    const rows = await this.sql`
-      SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar, g.status, g.score, g.clicks,
-             jsonb_array_length(g.clicks) AS click_count, g.finished_at
-      FROM games g JOIN users u ON u.id = g.user_id
-      WHERE g.date = ${date} AND g.status <> 'playing' AND u.named
-        AND g.guild_id IS NOT DISTINCT FROM ${guildId}`;
+    // Guild scoping is launch membership, so multi-server players appear in
+    // every guild they played in; null keeps the web-only partition.
+    const rows = guildId === null
+      ? await this.sql`
+          SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar, g.status, g.score, g.clicks,
+                 jsonb_array_length(g.clicks) AS click_count, g.finished_at
+          FROM games g JOIN users u ON u.id = g.user_id
+          WHERE g.date = ${date} AND g.status <> 'playing' AND u.named
+            AND g.guild_id IS NULL`
+      : await this.sql`
+          SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar, g.status, g.score, g.clicks,
+                 jsonb_array_length(g.clicks) AS click_count, g.finished_at
+          FROM games g JOIN users u ON u.id = g.user_id
+          WHERE g.date = ${date} AND g.status <> 'playing' AND u.named
+            AND EXISTS (
+              SELECT 1 FROM game_launches l
+              WHERE l.date = g.date AND l.user_id = g.user_id AND l.guild_id = ${guildId}
+            )`;
     return rows.map((r) => ({
       userId: r.user_id as string,
       name: r.name as string,
@@ -283,12 +335,22 @@ export class NeonStore implements Store {
 
   async allFinishedGames(guildId: string | null): Promise<AllTimeRow[]> {
     await this.ensureSchema();
-    const rows = await this.sql`
-      SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar, g.date, g.status, g.score
-      FROM games g JOIN users u ON u.id = g.user_id
-      WHERE g.status <> 'playing' AND u.named
-        AND g.guild_id IS NOT DISTINCT FROM ${guildId}
-      ORDER BY g.date`;
+    // Same launch-membership scoping as finishedGamesOn.
+    const rows = guildId === null
+      ? await this.sql`
+          SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar, g.date, g.status, g.score
+          FROM games g JOIN users u ON u.id = g.user_id
+          WHERE g.status <> 'playing' AND u.named AND g.guild_id IS NULL
+          ORDER BY g.date`
+      : await this.sql`
+          SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar, g.date, g.status, g.score
+          FROM games g JOIN users u ON u.id = g.user_id
+          WHERE g.status <> 'playing' AND u.named
+            AND EXISTS (
+              SELECT 1 FROM game_launches l
+              WHERE l.date = g.date AND l.user_id = g.user_id AND l.guild_id = ${guildId}
+            )
+          ORDER BY g.date`;
     return rows.map((r) => ({
       userId: r.user_id as string,
       name: r.name as string,
@@ -406,11 +468,13 @@ export class NeonStore implements Store {
     const rows = await this.sql`
       SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar,
              g.date, g.status, g.score, g.clicks, g.finished_at
-      FROM games g JOIN users u ON u.id = g.user_id
-      WHERE g.guild_id = ${guildId}
+      FROM game_launches l
+      JOIN games g ON g.date = l.date AND g.user_id = l.user_id
+      JOIN users u ON u.id = g.user_id
+      WHERE l.guild_id = ${guildId}
         AND u.discord_user_id IS NOT NULL
-        AND g.launched_at IS NOT NULL AND g.launched_at >= ${sinceLaunchedAt}
-      ORDER BY g.launched_at ASC, g.user_id`;
+        AND l.launched_at >= ${sinceLaunchedAt}
+      ORDER BY l.launched_at ASC, g.user_id`;
     return rows.map((r) => ({
       userId: r.user_id as string,
       name: r.name as string,

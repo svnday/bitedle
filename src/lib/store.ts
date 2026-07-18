@@ -99,22 +99,25 @@ export interface Store {
   getUserIdByDiscordId(discordUserId: string): Promise<string | null>;
   /**
    * Folds an orphan player into the canonical player for the same Discord
-   * identity: transfers games the canonical player lacks, drops the orphan's
-   * conflicting-date games, then anonymizes the orphan row (kept, never
-   * deleted). Idempotent; re-run freely on every identify.
+   * identity: transfers games and launch records the canonical player lacks,
+   * drops the orphan's conflicting ones, then anonymizes the orphan row
+   * (kept, never deleted). Idempotent; re-run freely on every identify.
    */
   mergeUsers(fromUserId: string, toUserId: string): Promise<void>;
   getGame(date: string, userId: string): Promise<GameRecord | null>;
   /** Upserts; must never overwrite a game that is already finished, and must
-   *  never change guildId once a game row exists (set once, at creation). */
+   *  never change guildId once a game row exists (set once, at creation —
+   *  it's only a first-guild/web marker; guild membership lives in the
+   *  per-day launch records, see recordLaunch). */
   putGame(date: string, userId: string, game: GameRecord): Promise<void>;
   /** Every finished game for one player (their private stats) — cross-guild. */
   finishedGamesFor(userId: string): Promise<FinishedGame[]>;
-  /** Leaderboard feed: finished games on a date, NAMED players only, scoped
-   *  to one guild (null = web-only games). */
+  /** Leaderboard feed: finished games on a date, NAMED players only. A guild
+   *  id means "players who launched in that guild that day" (a multi-server
+   *  player appears in every such guild); null = web-only games. */
   finishedGamesOn(date: string, guildId: string | null): Promise<TodayRow[]>;
-  /** Leaderboard feed: all finished games, NAMED players only, scoped to one
-   *  guild (null = web-only games). */
+  /** Leaderboard feed: all finished games, NAMED players only. Guild scoping
+   *  as in finishedGamesOn (launch membership; null = web-only games). */
   allFinishedGames(guildId: string | null): Promise<AllTimeRow[]>;
   getMegaGame(date: string, userId: string): Promise<MegaGameRecord | null>;
   /** Upserts while preserving finished-game immutability. */
@@ -130,14 +133,19 @@ export interface Store {
    *  touch it, and keeps a useful breadcrumb of where the app is used. */
   setGuildChannel(guildId: string, channelId: string): Promise<void>;
   /** Games for the guild's current live-preview window: everyone who opened
-   *  the Activity at or after `sinceLaunchedAt` (the window's start), ordered
-   *  launcher-first. Not filtered by day — a recent launch is by definition on
-   *  the player's current board, so cross-timezone players are still included;
-   *  each row's `date` says which board that is. */
+   *  the Activity IN THIS GUILD at or after `sinceLaunchedAt` (the window's
+   *  start), ordered launcher-first by that guild's launch time. Not filtered
+   *  by day — a recent launch is by definition on the player's current board,
+   *  so cross-timezone players are still included; each row's `date` says
+   *  which board that is. */
   livePreviewGamesOn(guildId: string, sinceLaunchedAt: number): Promise<LivePreviewRow[]>;
-  /** Records that a player opened the Activity at `at` — their launch time,
-   *  used to scope the live preview to one ~13-minute window. */
-  stampLaunch(date: string, userId: string, at: number): Promise<void>;
+  /** Records that a player opened the Activity in a guild at `at`. Upserts —
+   *  relaunching the same guild the same day just refreshes the launch time,
+   *  which scopes that guild's live preview to one ~13-minute window. */
+  recordLaunch(date: string, userId: string, guildId: string, at: number): Promise<void>;
+  /** Guilds the player launched in on `date`, earliest launch first — the
+   *  fan-out list for live-preview refreshes after a click. */
+  launchGuildsFor(date: string, userId: string): Promise<string[]>;
   getLivePreviewMessage(guildId: string, date: string): Promise<LivePreviewMessage | null>;
   setLivePreviewMessage(message: LivePreviewMessage): Promise<void>;
   /** Atomically claims the right to POST the day's preview message (null

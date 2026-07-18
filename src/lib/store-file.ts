@@ -23,9 +23,12 @@ interface FileDb {
       discordAvatar?: string | null;
     }
   >;
-  /** games[date][userId]; launchedAt is preview-only metadata (last Activity
-   *  open), kept off GameRecord since gameplay never reads it. */
+  /** games[date][userId]; launchedAt is legacy metadata (superseded by
+   *  `launches`), kept in the type so old files still parse. */
   games: Record<string, Record<string, GameRecord & { launchedAt?: number }>>;
+  /** launches[date][userId][guildId] = launchedAt — every guild the player
+   *  opened the Activity in that day (guild membership for previews/recaps). */
+  launches: Record<string, Record<string, Record<string, number>>>;
   megaGames: Record<string, Record<string, MegaGameRecord>>;
   /** guildChannels[guildId] — per-guild Discord state (live preview, recap). */
   guildChannels: Record<
@@ -63,18 +66,31 @@ export class FileStore implements Store {
     try {
       const raw = JSON.parse(fs.readFileSync(DB_PATH, "utf8"));
       if (raw && typeof raw === "object" && raw.users && raw.games) {
-        // guildChannels didn't exist in files written before this feature.
-        return {
+        // guildChannels/launches didn't exist in files written before those
+        // features; launches is seeded from the single-guild era's games so
+        // pre-migration players keep their guild membership.
+        const db: FileDb = {
           users: raw.users,
           games: raw.games,
+          launches: raw.launches ?? {},
           megaGames: raw.megaGames ?? {},
           guildChannels: raw.guildChannels ?? {},
         };
+        if (!raw.launches) {
+          for (const [date, byUser] of Object.entries(db.games)) {
+            for (const [userId, g] of Object.entries(byUser)) {
+              if (!g.guildId) continue;
+              ((db.launches[date] ??= {})[userId] ??= {})[g.guildId] =
+                g.launchedAt ?? g.finishedAt ?? 0;
+            }
+          }
+        }
+        return db;
       }
     } catch {
       // Missing or corrupt file — start fresh.
     }
-    return { users: {}, games: {}, megaGames: {}, guildChannels: {} };
+    return { users: {}, games: {}, launches: {}, megaGames: {}, guildChannels: {} };
   }
 
   private persist(): void {
@@ -139,6 +155,13 @@ export class FileStore implements Store {
       if (!byUser[toUserId]) byUser[toUserId] = orphanGame;
       delete byUser[fromUserId];
     }
+    for (const byUser of Object.values(this.db.launches)) {
+      const orphanLaunches = byUser[fromUserId];
+      if (!orphanLaunches) continue;
+      // Per guild: canonical entry wins on conflict, orphan fills the gaps.
+      byUser[toUserId] = { ...orphanLaunches, ...(byUser[toUserId] ?? {}) };
+      delete byUser[fromUserId];
+    }
     for (const byUser of Object.values(this.db.megaGames)) {
       const orphanGame = byUser[fromUserId];
       if (!orphanGame) continue;
@@ -164,21 +187,24 @@ export class FileStore implements Store {
     const byUser = (this.db.games[date] ??= {});
     const existing = byUser[userId];
     if (existing && existing.status !== "playing") return;
-    // guildId and launchedAt are set once / out of band — a full-object
-    // replace here would otherwise let a later click silently drop them.
+    // guildId is set once (first-guild/web marker) — a full-object replace
+    // here would otherwise let a later click silently drop it.
     byUser[userId] = {
       ...game,
       guildId: existing ? existing.guildId : game.guildId,
-      launchedAt: existing?.launchedAt,
     };
     this.persist();
   }
 
-  async stampLaunch(date: string, userId: string, at: number): Promise<void> {
-    const game = this.db.games[date]?.[userId];
-    if (!game) return; // caller ensures the row exists first
-    game.launchedAt = at;
+  async recordLaunch(date: string, userId: string, guildId: string, at: number): Promise<void> {
+    ((this.db.launches[date] ??= {})[userId] ??= {})[guildId] = at;
     this.persist();
+  }
+
+  async launchGuildsFor(date: string, userId: string): Promise<string[]> {
+    return Object.entries(this.db.launches[date]?.[userId] ?? {})
+      .sort(([, atA], [, atB]) => atA - atB)
+      .map(([guildId]) => guildId);
   }
 
   async finishedGamesFor(userId: string): Promise<FinishedGame[]> {
@@ -195,7 +221,13 @@ export class FileStore implements Store {
     for (const [userId, g] of Object.entries(this.db.games[date] ?? {})) {
       const user = this.db.users[userId];
       if (g.status === "playing" || !user?.named) continue;
-      if ((g.guildId ?? null) !== guildId) continue;
+      // Guild scoping is launch membership (multi-server players appear in
+      // every guild they played in); null keeps the web-only partition.
+      if (guildId === null) {
+        if (g.guildId != null) continue;
+      } else if (this.db.launches[date]?.[userId]?.[guildId] === undefined) {
+        continue;
+      }
       out.push({
         userId,
         name: user.name,
@@ -217,7 +249,12 @@ export class FileStore implements Store {
       for (const [userId, g] of Object.entries(byUser)) {
         const user = this.db.users[userId];
         if (g.status === "playing" || !user?.named) continue;
-        if ((g.guildId ?? null) !== guildId) continue;
+        // Same launch-membership scoping as finishedGamesOn.
+        if (guildId === null) {
+          if (g.guildId != null) continue;
+        } else if (this.db.launches[date]?.[userId]?.[guildId] === undefined) {
+          continue;
+        }
         out.push({
           userId,
           name: user.name,
@@ -322,16 +359,19 @@ export class FileStore implements Store {
 
   async livePreviewGamesOn(guildId: string, sinceLaunchedAt: number): Promise<LivePreviewRow[]> {
     const rows: { launchedAt: number; row: LivePreviewRow }[] = [];
-    // Scan every day's games — a cross-timezone player's row lives under their
-    // own local date; the launched_at window is what actually scopes them.
-    for (const [date, byUser] of Object.entries(this.db.games)) {
-      for (const [userId, g] of Object.entries(byUser)) {
-        if ((g.guildId ?? null) !== guildId) continue;
-        if (g.launchedAt == null || g.launchedAt < sinceLaunchedAt) continue;
+    // Scan every day's launches — a cross-timezone player's row lives under
+    // their own local date; the launched_at window is what actually scopes
+    // them, using this guild's own launch time.
+    for (const [date, byUser] of Object.entries(this.db.launches)) {
+      for (const [userId, byGuild] of Object.entries(byUser)) {
+        const launchedAt = byGuild[guildId];
+        if (launchedAt === undefined || launchedAt < sinceLaunchedAt) continue;
+        const g = this.db.games[date]?.[userId];
+        if (!g) continue;
         const user = this.db.users[userId];
         if (!user?.discordUserId) continue;
         rows.push({
-          launchedAt: g.launchedAt,
+          launchedAt,
           row: {
             userId,
             name: user.name,
