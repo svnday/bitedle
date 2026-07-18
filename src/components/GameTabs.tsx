@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { GameMode } from "@/lib/types";
 import { getLaunchMode, isDiscordEmbed, launchModeSettled } from "@/lib/discord-context";
 import Game from "./Game";
+import BitesweeperGame from "./BitesweeperGame";
 
 export default function GameTabs() {
   // Embedded: the mode is locked to whichever command launched the Activity
@@ -26,5 +27,6 @@ export default function GameTabs() {
   }, []);
 
   if (mode === null) return null;
+  if (mode === "mega" && isDiscordEmbed()) return <BitesweeperGame />;
   return <Game key={mode} mode={mode} onModeChange={isDiscordEmbed() ? undefined : setMode} />;
 }

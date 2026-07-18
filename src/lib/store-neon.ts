@@ -3,6 +3,7 @@ import type { GameMode, GameRecord, MegaGameRecord } from "./types";
 import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
+  type BitesweeperPlayerRow,
   type FinishedGame,
   type LivePreviewMessage,
   type LivePreviewRow,
@@ -116,6 +117,17 @@ export class NeonStore implements Store {
           mode text NOT NULL,
           created_at bigint NOT NULL
         )`;
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS bitesweeper_presence (
+          instance_id text NOT NULL,
+          user_id uuid NOT NULL REFERENCES users(id),
+          date text NOT NULL,
+          seen_at bigint NOT NULL,
+          PRIMARY KEY (instance_id, user_id)
+        )`;
+      await this.sql`
+        CREATE INDEX IF NOT EXISTS bitesweeper_presence_instance_idx
+        ON bitesweeper_presence (instance_id, seen_at)`;
 
       // One-time dedupe of players who linked the same Discord id from
       // several devices before identify learned to merge (cheap no-ops once
@@ -247,6 +259,14 @@ export class NeonStore implements Store {
           SELECT 1 FROM games_mega g2 WHERE g2.date = g.date AND g2.user_id = ${toUserId}
         )`;
     await this.sql`DELETE FROM games_mega WHERE user_id = ${fromUserId}`;
+    await this.sql`
+      UPDATE bitesweeper_presence p SET user_id = ${toUserId}
+      WHERE p.user_id = ${fromUserId}
+        AND NOT EXISTS (
+          SELECT 1 FROM bitesweeper_presence p2
+          WHERE p2.instance_id = p.instance_id AND p2.user_id = ${toUserId}
+        )`;
+    await this.sql`DELETE FROM bitesweeper_presence WHERE user_id = ${fromUserId}`;
     // Anonymize: unlinked (lookup never returns it), unnamed (hidden from
     // leaderboards), and with no games left it can't reach livePreviewGamesOn.
     await this.sql`
@@ -416,6 +436,48 @@ export class NeonStore implements Store {
       WHERE date = ${date} AND user_id = ${userId} AND status <> 'playing'
       RETURNING user_id`;
     return rows.length === 1;
+  }
+
+  async recordBitesweeperPresence(
+    instanceId: string,
+    date: string,
+    userId: string,
+    at: number,
+  ): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO bitesweeper_presence (instance_id, user_id, date, seen_at)
+      VALUES (${instanceId}, ${userId}, ${date}, ${at})
+      ON CONFLICT (instance_id, user_id) DO UPDATE
+      SET date = EXCLUDED.date, seen_at = EXCLUDED.seen_at`;
+  }
+
+  async bitesweeperPlayers(
+    instanceId: string,
+    activeSince: number,
+  ): Promise<BitesweeperPlayerRow[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT p.user_id, u.name, u.discord_user_id, u.discord_avatar,
+             COALESCE(g.status, 'playing') AS status, g.score,
+             COALESCE(g.clicks, '[]'::jsonb) AS clicks, p.seen_at
+      FROM bitesweeper_presence p
+      JOIN users u ON u.id = p.user_id
+      LEFT JOIN games_mega g ON g.date = p.date AND g.user_id = p.user_id
+      WHERE p.instance_id = ${instanceId}
+        AND p.seen_at >= ${activeSince}
+        AND u.discord_user_id IS NOT NULL
+      ORDER BY p.seen_at ASC`;
+    return rows.map((row) => ({
+      userId: row.user_id as string,
+      name: row.name as string,
+      discordUserId: row.discord_user_id as string | null,
+      discordAvatar: row.discord_avatar as string | null,
+      status: row.status as BitesweeperPlayerRow["status"],
+      score: row.score === null ? null : Number(row.score),
+      clicks: row.clicks as BitesweeperPlayerRow["clicks"],
+      seenAt: Number(row.seen_at),
+    }));
   }
 
   async markBitesweeperLaunch(channelId: string, at: number): Promise<void> {

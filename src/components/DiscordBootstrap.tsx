@@ -3,7 +3,13 @@
 import { useEffect } from "react";
 import type { DiscordSDK } from "@discord/embedded-app-sdk";
 import { api } from "@/lib/client-api";
-import { isDiscordEmbed, setDiscordUserId, setGuildId, setLaunchMode } from "@/lib/discord-context";
+import {
+  isDiscordEmbed,
+  setActivityInstanceId,
+  setDiscordUserId,
+  setGuildId,
+  setLaunchMode,
+} from "@/lib/discord-context";
 
 /**
  * Handshakes with the Discord client when Bitedle is loaded as a Discord
@@ -22,6 +28,7 @@ export default function DiscordBootstrap() {
     const timeout = setTimeout(() => {
       console.warn("Bitedle: Discord handshake timed out after 5s, defaulting guildId to null");
       setGuildId(null);
+      setActivityInstanceId(null);
       setDiscordUserId(null);
       setLaunchMode("classic");
     }, 5000);
@@ -33,6 +40,7 @@ export default function DiscordBootstrap() {
         if (!clientId) {
           console.warn("Bitedle: running inside Discord but NEXT_PUBLIC_DISCORD_CLIENT_ID is unset");
           setGuildId(null);
+          setActivityInstanceId(null);
           setDiscordUserId(null);
           setLaunchMode("classic");
           return;
@@ -41,6 +49,8 @@ export default function DiscordBootstrap() {
         if (cancelled) return;
         await discordSdk.ready();
         if (cancelled) return;
+
+        setActivityInstanceId(discordSdk.instanceId);
 
         // Available immediately post-ready, no OAuth needed — used to scope
         // the leaderboard to this server.
@@ -70,6 +80,7 @@ export default function DiscordBootstrap() {
       } catch (e) {
         console.warn("Bitedle: Discord handshake failed", e);
         setGuildId(null);
+        setActivityInstanceId(null);
         setDiscordUserId(null);
         setLaunchMode("classic");
       } finally {

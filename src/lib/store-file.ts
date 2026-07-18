@@ -4,6 +4,7 @@ import type { GameMode, GameRecord, MegaGameRecord } from "./types";
 import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
+  type BitesweeperPlayerRow,
   type FinishedGame,
   type LivePreviewMessage,
   type LivePreviewRow,
@@ -34,6 +35,11 @@ interface FileDb {
   bitesweeperLaunches: Record<string, number>;
   /** activityModes[instanceId] — the mode each Activity instance is locked to. */
   activityModes: Record<string, { mode: GameMode; createdAt: number }>;
+  /** bitesweeperPresence[instanceId][userId] = the player's current board and heartbeat. */
+  bitesweeperPresence: Record<
+    string,
+    Record<string, { date: string; seenAt: number }>
+  >;
   /** guildChannels[guildId] — per-guild Discord state (live preview, recap). */
   guildChannels: Record<
     string,
@@ -82,6 +88,7 @@ export class FileStore implements Store {
           megaGames: raw.megaGames ?? {},
           bitesweeperLaunches: raw.bitesweeperLaunches ?? {},
           activityModes: raw.activityModes ?? {},
+          bitesweeperPresence: raw.bitesweeperPresence ?? {},
           guildChannels: raw.guildChannels ?? {},
         };
         if (!raw.launches) {
@@ -105,6 +112,7 @@ export class FileStore implements Store {
       megaGames: {},
       bitesweeperLaunches: {},
       activityModes: {},
+      bitesweeperPresence: {},
       guildChannels: {},
     };
   }
@@ -182,6 +190,15 @@ export class FileStore implements Store {
       const orphanGame = byUser[fromUserId];
       if (!orphanGame) continue;
       if (!byUser[toUserId]) byUser[toUserId] = orphanGame;
+      delete byUser[fromUserId];
+    }
+    for (const byUser of Object.values(this.db.bitesweeperPresence)) {
+      const orphanPresence = byUser[fromUserId];
+      if (!orphanPresence) continue;
+      const canonicalPresence = byUser[toUserId];
+      if (!canonicalPresence || orphanPresence.seenAt > canonicalPresence.seenAt) {
+        byUser[toUserId] = orphanPresence;
+      }
       delete byUser[fromUserId];
     }
     const orphan = this.db.users[fromUserId];
@@ -310,6 +327,42 @@ export class FileStore implements Store {
     };
     this.persist();
     return true;
+  }
+
+  async recordBitesweeperPresence(
+    instanceId: string,
+    date: string,
+    userId: string,
+    at: number,
+  ): Promise<void> {
+    (this.db.bitesweeperPresence[instanceId] ??= {})[userId] = { date, seenAt: at };
+    this.persist();
+  }
+
+  async bitesweeperPlayers(
+    instanceId: string,
+    activeSince: number,
+  ): Promise<BitesweeperPlayerRow[]> {
+    const out: BitesweeperPlayerRow[] = [];
+    for (const [userId, presence] of Object.entries(
+      this.db.bitesweeperPresence[instanceId] ?? {},
+    )) {
+      if (presence.seenAt < activeSince) continue;
+      const user = this.db.users[userId];
+      if (!user?.discordUserId) continue;
+      const game = this.db.megaGames[presence.date]?.[userId];
+      out.push({
+        userId,
+        name: user.name,
+        discordUserId: user.discordUserId,
+        discordAvatar: user.discordAvatar ?? null,
+        status: game?.status ?? "playing",
+        score: game?.score ?? null,
+        clicks: game?.clicks ?? [],
+        seenAt: presence.seenAt,
+      });
+    }
+    return out.sort((a, b) => a.seenAt - b.seenAt);
   }
 
   async markBitesweeperLaunch(channelId: string, at: number): Promise<void> {

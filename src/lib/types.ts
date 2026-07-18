@@ -114,6 +114,15 @@ export interface MegaGameState {
   layout?: MegaCellResult[];
 }
 
+/** Another Discord participant currently connected to this Bitesweeper Activity. */
+export interface BitesweeperPlayer {
+  name: string;
+  discordAvatarUrl: string | null;
+  status: GameStatus;
+  score: number | null;
+  clicks: MegaClickRecord[];
+}
+
 export const MEGA_BOARD_COLS = 10;
 export const MEGA_BOARD_SIZE = 100;
 export const MEGA_BOMB_COUNT = 12;

@@ -4,6 +4,7 @@ import { megaLayoutFor, megaStateFor } from "@/lib/game-mega";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { getStore } from "@/lib/store";
 import { MEGA_BOARD_SIZE, type MegaGameRecord } from "@/lib/types";
+import { recordBitesweeperPresence } from "@/lib/bitesweeper-presence";
 
 export const runtime = "nodejs";
 
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
   const date = playerDate(request);
   const me = await store.getUser(identity.id);
   if (isBlockedDiscordId(me?.discordUserId)) {
-    return NextResponse.json({ error: "You don't have access to Bitedle." }, { status: 403 });
+    return NextResponse.json({ error: "You don't have access to Bitesweeper." }, { status: 403 });
   }
 
   const game: MegaGameRecord = (await store.getMegaGame(date, identity.id)) ?? {
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest) {
     game.finishedAt = Date.now();
   }
   await store.putMegaGame(date, identity.id, game);
+  await recordBitesweeperPresence(request, store, identity.id, date);
 
   return attachIdentity(
     NextResponse.json({

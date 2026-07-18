@@ -1,11 +1,13 @@
 import {
   discordIdentitySettled,
+  getActivityInstanceId,
   getDiscordUserId,
   getGuildId,
   guildContextSettled,
   isDiscordEmbed,
 } from "./discord-context";
 import type {
+  BitesweeperPlayer,
   CellResult,
   GameMode,
   GameState,
@@ -61,20 +63,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const url = embedded ? `/.proxy${path}` : path;
   const guildId = embedded ? getGuildId() : null;
   let discordUserId: string | null = null;
-  if (embedded && guildId && !IDENTITY_BOOTSTRAP_PATHS.has(path)) {
+  if (embedded && !IDENTITY_BOOTSTRAP_PATHS.has(path)) {
     await discordIdentitySettled();
     discordUserId = getDiscordUserId();
-    if (!discordUserId && IDENTITY_REQUIRED_PATHS.has(path)) {
+    if (!discordUserId && guildId && IDENTITY_REQUIRED_PATHS.has(path)) {
       throw new ApiError("Couldn't link your Discord identity. Close Bitedle and launch it again.", 428);
     }
   }
   const tz = localTimeZone();
+  const activityInstanceId = embedded ? getActivityInstanceId() : null;
   const res = await fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
       ...(guildId ? { "X-Bitedle-Guild-Id": guildId } : {}),
       ...(discordUserId ? { [DISCORD_USER_HEADER_NAME]: discordUserId } : {}),
+      ...(activityInstanceId
+        ? { "X-Bitedle-Activity-Instance-Id": activityInstanceId }
+        : {}),
       ...(tz ? { [TZ_HEADER_NAME]: tz } : {}),
       ...init?.headers,
     },
@@ -110,6 +116,7 @@ export const api = {
     request<MegaGameState>("/api/mega/replay", {
       method: "POST",
     }),
+  bitesweeperPlayers: () => request<{ players: BitesweeperPlayer[] }>("/api/mega/players"),
   activityMode: (payload: { instanceId: string; channelId: string | null }) =>
     request<{ mode: GameMode }>("/api/activity/mode", {
       method: "POST",

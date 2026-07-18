@@ -3,6 +3,7 @@ import type {
   GameMode,
   GameRecord,
   GameStatus,
+  MegaClickRecord,
   MegaGameRecord,
 } from "./types";
 import { FileStore } from "./store-file";
@@ -48,6 +49,17 @@ export interface LivePreviewRow {
   score: number | null;
   clicks: ClickRecord[];
   finishedAt: number | null;
+}
+
+export interface BitesweeperPlayerRow {
+  userId: string;
+  name: string;
+  discordUserId: string | null;
+  discordAvatar: string | null;
+  status: GameStatus;
+  score: number | null;
+  clicks: MegaClickRecord[];
+  seenAt: number;
 }
 
 export interface UserInfo {
@@ -124,6 +136,18 @@ export interface Store {
   putMegaGame(date: string, userId: string, game: MegaGameRecord): Promise<void>;
   /** Replaces a finished Bitesweeper game with a fresh playing board. */
   replayMegaGame(date: string, userId: string, boardSeed: string): Promise<boolean>;
+  /** Refreshes a player's membership in one running Bitesweeper Activity. */
+  recordBitesweeperPresence(
+    instanceId: string,
+    date: string,
+    userId: string,
+    at: number,
+  ): Promise<void>;
+  /** Active players and their current boards in this exact Activity instance. */
+  bitesweeperPlayers(
+    instanceId: string,
+    activeSince: number,
+  ): Promise<BitesweeperPlayerRow[]>;
   /** Records a /bitesweeper launch in a channel. The next unbound Activity
    *  instance that boots from this channel claims Bitesweeper mode. Upserts. */
   markBitesweeperLaunch(channelId: string, at: number): Promise<void>;

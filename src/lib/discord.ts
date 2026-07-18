@@ -7,6 +7,8 @@ export const GUILD_HEADER_NAME = "X-Bitedle-Guild-Id";
 export const DISCORD_USER_HEADER_NAME = "X-Bitedle-Discord-User-Id";
 /** Header carrying the player's IANA timezone, for a local-midnight board reset. */
 export const TZ_HEADER_NAME = "X-Bitedle-TZ";
+/** Header carrying the current Discord Activity instance for Bitesweeper presence. */
+export const ACTIVITY_INSTANCE_HEADER_NAME = "X-Bitedle-Activity-Instance-Id";
 
 export const SNOWFLAKE_RE = /^\d{5,25}$/;
 
@@ -29,6 +31,11 @@ export function isBlockedDiscordId(id: string | null | undefined): boolean {
 export function guildIdFromRequest(request: NextRequest): string | null {
   const raw = request.headers.get(GUILD_HEADER_NAME);
   return raw && SNOWFLAKE_RE.test(raw) ? raw : null;
+}
+
+export function activityInstanceIdFromRequest(request: NextRequest): string | null {
+  const raw = request.headers.get(ACTIVITY_INSTANCE_HEADER_NAME);
+  return raw && /^[A-Za-z0-9_-]{1,128}$/.test(raw) ? raw : null;
 }
 
 /**

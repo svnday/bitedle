@@ -119,7 +119,40 @@ try {
   assert.equal((await fetch(`${baseUrl}/api/mega/stats`)).status, 404);
   assert.equal((await fetch(`${baseUrl}/api/mega/leaderboard`)).status, 404);
 
-  console.log("Bitesweeper verification passed: isolated FileStore, signed launch, atomic mode binding, and route contract.");
+  const activityInstanceId = "presence-instance";
+  const firstPlayer = await linkedPlayer("456789012345678901", "First player");
+  const secondPlayer = await linkedPlayer("567890123456789012", "Second player");
+  await embeddedFetch("/api/mega/state", firstPlayer, activityInstanceId);
+  await embeddedFetch("/api/mega/state", secondPlayer, activityInstanceId);
+  const secondClick = await embeddedFetch("/api/mega/click", secondPlayer, activityInstanceId, {
+    method: "POST",
+    body: JSON.stringify({ index: 0 }),
+  });
+  assert.equal(secondClick.status, 200);
+
+  const playersResponse = await embeddedFetch(
+    "/api/mega/players",
+    firstPlayer,
+    activityInstanceId,
+  );
+  assert.equal(playersResponse.status, 200);
+  const { players } = await playersResponse.json();
+  assert.equal(players.length, 1, "presence must only return the other player");
+  assert.equal(players[0].name, "Second player");
+  assert.equal(players[0].clicks.length, 1, "presence must include the other player's board");
+
+  const gameTabsSource = fs.readFileSync(path.join(repoRoot, "src/components/GameTabs.tsx"), "utf8");
+  assert.match(
+    gameTabsSource,
+    /mode === "mega".*<BitesweeperGame/s,
+    "embedded Bitesweeper must bypass the shared game surface",
+  );
+  const contextSource = fs.readFileSync(path.join(repoRoot, "src/lib/discord-context.ts"), "utf8");
+  for (const launchParam of ["frame_id", "instance_id", "platform"]) {
+    assert.ok(contextSource.includes(launchParam), `embed detection must recognize ${launchParam}`);
+  }
+
+  console.log("Bitesweeper verification passed: isolated launch surface, atomic mode binding, and instance-scoped player boards.");
 } catch (error) {
   console.error(output);
   throw error;
@@ -185,6 +218,33 @@ async function postJson(pathname, body) {
   });
   assert.equal(response.status, 200, `${pathname} returned ${response.status}`);
   return response.json();
+}
+
+async function linkedPlayer(discordUserId, discordName) {
+  const initial = await fetch(`${baseUrl}/api/mega/state`);
+  assert.equal(initial.status, 200);
+  const cookie = initial.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie, "initial state must issue an identity cookie");
+  const identify = await fetch(`${baseUrl}/api/discord/identify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify({ discordUserId, discordAvatar: null, discordName }),
+  });
+  assert.equal(identify.status, 200);
+  return { cookie, discordUserId };
+}
+
+function embeddedFetch(pathname, player, activityInstanceId, init = {}) {
+  return fetch(`${baseUrl}${pathname}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: player.cookie,
+      "X-Bitedle-Discord-User-Id": player.discordUserId,
+      "X-Bitedle-Activity-Instance-Id": activityInstanceId,
+      ...init.headers,
+    },
+  });
 }
 
 async function stopServer() {

@@ -8,6 +8,7 @@ import type { GameMode } from "./types";
 
 let guildId: string | null = null;
 let discordUserId: string | null = null;
+let activityInstanceId: string | null = null;
 
 // Resolves once DiscordBootstrap's handshake has settled — either a real
 // guildId, or a definitive null (missing client id, failed ready(), or the
@@ -45,6 +46,14 @@ export function setGuildId(id: string | null): void {
 
 export function getGuildId(): string | null {
   return guildId;
+}
+
+export function setActivityInstanceId(id: string | null): void {
+  activityInstanceId = id;
+}
+
+export function getActivityInstanceId(): string | null {
+  return activityInstanceId;
 }
 
 export function guildContextSettled(): Promise<void> {
@@ -85,5 +94,10 @@ export function launchModeSettled(): Promise<void> {
 
 /** True when running inside Discord's Activity iframe (vs. plain web play). */
 export function isDiscordEmbed(): boolean {
-  return typeof window !== "undefined" && window.location.hostname.endsWith(".discordsays.com");
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  return (
+    window.location.hostname.endsWith(".discordsays.com") ||
+    (params.has("frame_id") && params.has("instance_id") && params.has("platform"))
+  );
 }
