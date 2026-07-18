@@ -5,7 +5,7 @@ import { api, ApiError } from "@/lib/client-api";
 import { copyToClipboard } from "@/lib/clipboard";
 import { isDiscordEmbed } from "@/lib/discord-context";
 import { shareText } from "@/lib/share-text";
-import type { GameState, TodayEntry, UserStats } from "@/lib/types";
+import { FIXED_BOMB_COUNT_FROM, type GameState, type TodayEntry, type UserStats } from "@/lib/types";
 import Board from "./Board";
 import Countdown from "./Countdown";
 import {
@@ -351,7 +351,7 @@ export default function Game() {
               Puzzle #{state?.puzzleNumber ?? "—"}
             </span>
             <span className="border-tileborder text-muted rounded border px-2 py-1">
-              💣 3–5 hidden
+              💣 {state && state.date < FIXED_BOMB_COUNT_FROM ? "3–5" : "3"} hidden
             </span>
             <span className="border-tileborder text-muted rounded border px-2 py-1 tabular-nums">
               Clicks: {state?.clicks.length ?? 0}
@@ -476,7 +476,12 @@ export default function Game() {
           error={nameError}
         />
       )}
-      {modal === "help" && <HelpModal onClose={() => setModal(null)} />}
+      {modal === "help" && (
+        <HelpModal
+          legacyBombRange={Boolean(state && state.date < FIXED_BOMB_COUNT_FROM)}
+          onClose={() => setModal(null)}
+        />
+      )}
       {modal === "stats" && (
         <StatsModal
           stats={stats}

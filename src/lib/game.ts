@@ -4,8 +4,10 @@ import { getStore, type AllTimeRow, type FinishedGame } from "./store";
 import { nextResetAt, shiftDay, todayStr } from "./time";
 import {
   BOARD_SIZE,
-  MIN_BOMBS,
+  DAILY_BOMB_COUNT,
+  FIXED_BOMB_COUNT_FROM,
   MAX_BOMBS,
+  MIN_BOMBS,
   type AllTimeEntry,
   type CellResult,
   type GameState,
@@ -59,13 +61,16 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/** The day's deterministic draw: a shuffled cell order plus a bomb count.
+/** The day's deterministic draw: a shuffled cell order plus its bomb count.
  *  The raw check spot is `indices[0]`, bombs are `indices[1..bombCount]`. */
 function boardDraw(date: string): { indices: number[]; bombCount: number } {
   const digest = crypto.createHash("sha256").update(`${boardSecret()}:${date}`).digest();
   const rng = mulberry32(digest.readUInt32LE(0));
 
-  const bombCount = MIN_BOMBS + Math.floor(rng() * (MAX_BOMBS - MIN_BOMBS + 1));
+  // Keep consuming the legacy count draw so fixing the count does not also
+  // reshuffle every check and bomb position from this date onward.
+  const legacyBombCount = MIN_BOMBS + Math.floor(rng() * (MAX_BOMBS - MIN_BOMBS + 1));
+  const bombCount = date >= FIXED_BOMB_COUNT_FROM ? DAILY_BOMB_COUNT : legacyBombCount;
   const indices = Array.from({ length: BOARD_SIZE }, (_, i) => i);
   for (let i = indices.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
@@ -156,7 +161,8 @@ function finalDrawFor(date: string): FinalDraw {
 }
 
 /**
- * The day's hidden board: exactly one check, 3–5 bombs, red X everywhere else.
+ * The day's hidden board: exactly one check, three bombs for every new puzzle,
+ * and red X everywhere else. Pre-cutover boards retain their original count.
  * Deterministic per (secret, date) so every player gets the same board, but
  * unguessable without the server secret. Day-over-day, the check never sits
  * where it sat yesterday and at most one bomb does (see finalDrawFor).

@@ -1,7 +1,7 @@
 # Bitedle 💣✓
 
 A daily game of nerve, Wordle-style. Somewhere on a 5×5 board hides **one green
-check mark** — find it in as few clicks as you can. But 3 to 5 **bombs** are
+check mark** — find it in as few clicks as you can. But 3 **bombs** are
 hiding too, and one wrong click ends your day.
 
 ## Rules
@@ -12,8 +12,8 @@ hiding too, and one wrong click ends your day.
   - **✓ (check mark)** — you win!
 - Your score is the number of clicks it took to find the check. Lower is
   better; 1 is perfection.
-- There is exactly **one** check mark and **3–5 bombs** (the exact count is
-  hidden) — every other tile is a miss.
+- There is exactly **one** check mark and **3 bombs** — every other tile is a
+  miss.
 - A new board is generated every day at midnight. Everyone plays the **same
   board**, and each player gets **one game per day**.
 - No sign-in: play immediately, and after your first game pick a display

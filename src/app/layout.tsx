@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Bitedle",
   description:
-    "A daily game of nerve. Find the hidden check mark in as few clicks as you can — but 3 to 5 bombs are waiting. One board per day, one chance per player.",
+    "A daily game of nerve. Find the hidden check mark in as few clicks as you can — but 3 bombs are waiting. One board per day, one chance per player.",
 };
 
 export const viewport: Viewport = {

@@ -597,7 +597,13 @@ export function ChannelStatsScreen({ entries, stats, onShare, onBack }: ChannelS
 
 /* ----------------------------------------------------------------- help */
 
-export function HelpModal({ onClose }: { onClose: () => void }) {
+export function HelpModal({
+  legacyBombRange,
+  onClose,
+}: {
+  legacyBombRange: boolean;
+  onClose: () => void;
+}) {
   return (
     <Modal title="How to play" onClose={onClose}>
       <div className="space-y-4 text-sm leading-snug">
@@ -614,8 +620,11 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center gap-3">
           <MiniTile kind="bomb" />
           <p>
-            A <strong>bomb</strong> ends your run instantly. There are 3 to 5 of them, and you
-            never know exactly how many.
+            A <strong>bomb</strong> ends your run instantly. {legacyBombRange ? (
+              <>There are 3 to 5 of them, and you never know exactly how many.</>
+            ) : (
+              <>There are exactly 3 of them, and you never know which tiles hide them.</>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-3">
