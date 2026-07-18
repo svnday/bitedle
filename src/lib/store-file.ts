@@ -51,8 +51,10 @@ interface FileDb {
   >;
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "db.json");
+const DB_PATH = process.env.BITEDLE_FILE_DB_PATH
+  ? path.resolve(process.env.BITEDLE_FILE_DB_PATH)
+  : path.join(process.cwd(), "data", "db.json");
+const DATA_DIR = path.dirname(DB_PATH);
 
 /**
  * Local-development storage: one JSON file, loaded once and rewritten on every
@@ -315,21 +317,17 @@ export class FileStore implements Store {
     this.persist();
   }
 
-  async takeBitesweeperLaunch(channelId: string, since: number): Promise<boolean> {
-    const markedAt = this.db.bitesweeperLaunches[channelId];
-    if (markedAt === undefined || markedAt < since) return false;
-    delete this.db.bitesweeperLaunches[channelId];
-    this.persist();
-    return true;
-  }
-
-  async getActivityMode(instanceId: string): Promise<GameMode | null> {
-    return this.db.activityModes[instanceId]?.mode ?? null;
-  }
-
-  async bindActivityMode(instanceId: string, mode: GameMode): Promise<GameMode> {
+  async resolveActivityMode(
+    instanceId: string,
+    channelId: string | null,
+    freshMarkerSince: number,
+  ): Promise<GameMode> {
     const existing = this.db.activityModes[instanceId];
-    if (existing) return existing.mode; // first-write-wins
+    if (existing) return existing.mode;
+
+    const markedAt = channelId ? this.db.bitesweeperLaunches[channelId] : undefined;
+    const mode: GameMode = markedAt !== undefined && markedAt >= freshMarkerSince ? "mega" : "classic";
+    if (mode === "mega" && channelId) delete this.db.bitesweeperLaunches[channelId];
     this.db.activityModes[instanceId] = { mode, createdAt: Date.now() };
     this.persist();
     return mode;

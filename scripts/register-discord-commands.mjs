@@ -26,7 +26,8 @@ const headers = {
 // [0, 1, 2] = server, app DM, group DM. This lets /bitedle and /share work
 // both where a server has added the app and where an individual has
 // user-installed it. Requires User Install to be enabled for the app in the
-// Developer Portal -> Installation tab first (see README).
+// Developer Portal -> Installation tab first (see README). All four ordinary
+// commands below support server, app-DM, and group-DM contexts.
 const commands = [
   {
     name: "bitedle",
@@ -51,7 +52,7 @@ const commands = [
   },
   {
     name: "bitesweeper",
-    description: "Open Bitesweeper — the 10×10 Bitedle board",
+    description: "Open Bitesweeper — the replayable 10×10 board",
     type: 1,
     integration_types: [0, 1],
     contexts: [0, 1, 2],

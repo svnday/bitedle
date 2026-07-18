@@ -127,15 +127,14 @@ export interface Store {
   /** Records a /bitesweeper launch in a channel. The next unbound Activity
    *  instance that boots from this channel claims Bitesweeper mode. Upserts. */
   markBitesweeperLaunch(channelId: string, at: number): Promise<void>;
-  /** Atomically consumes a fresh (at >= since) Bitesweeper marker for the
-   *  channel. True exactly once per marker — consuming keeps a later /play
-   *  instance in the same channel classic. */
-  takeBitesweeperLaunch(channelId: string, since: number): Promise<boolean>;
-  /** The mode an Activity instance is bound to, or null if unbound. */
-  getActivityMode(instanceId: string): Promise<GameMode | null>;
-  /** Binds an instance to a mode, first-write-wins; returns the winning mode
-   *  so every participant of one instance sees the same answer. */
-  bindActivityMode(instanceId: string, mode: GameMode): Promise<GameMode>;
+  /** Resolves and permanently binds an Activity instance's mode. The marker
+   *  claim and first binding are one atomic operation, so simultaneous
+   *  participants cannot race a Bitesweeper launch back to Classic. */
+  resolveActivityMode(
+    instanceId: string,
+    channelId: string | null,
+    freshMarkerSince: number,
+  ): Promise<GameMode>;
   /** Records the channel a server most recently used a command in. Nothing
    *  posts to it anymore (delivery rides interaction webhooks), but the call
    *  guarantees the guild_channels row exists before preview/recap updates
@@ -181,14 +180,23 @@ const globalStore = globalThis as unknown as { __bitedleStore?: Store };
 
 export function getStore(): Store {
   if (!globalStore.__bitedleStore) {
-    const url = process.env.DATABASE_URL;
+    const forceFileStore = process.env.BITEDLE_FORCE_FILE_STORE === "1";
+    if (forceFileStore && process.env.NODE_ENV === "production") {
+      throw new Error("BITEDLE_FORCE_FILE_STORE must never be enabled in production");
+    }
+
+    const url = forceFileStore ? null : process.env.DATABASE_URL;
     if (url) {
       globalStore.__bitedleStore = new NeonStore(url);
     } else {
       if (process.env.NODE_ENV === "production") {
         throw new Error("DATABASE_URL must be set in production (Neon/Postgres connection string)");
       }
-      console.warn("Bitedle: DATABASE_URL not set — using local JSON file storage (data/db.json)");
+      console.warn(
+        forceFileStore
+          ? "Bitedle: BITEDLE_FORCE_FILE_STORE=1 — using isolated local JSON storage"
+          : "Bitedle: DATABASE_URL not set — using local JSON file storage (data/db.json)",
+      );
       globalStore.__bitedleStore = new FileStore();
     }
   }

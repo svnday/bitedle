@@ -426,39 +426,43 @@ export class NeonStore implements Store {
       ON CONFLICT (channel_id) DO UPDATE SET created_at = EXCLUDED.created_at`;
   }
 
-  async takeBitesweeperLaunch(channelId: string, since: number): Promise<boolean> {
+  async resolveActivityMode(
+    instanceId: string,
+    channelId: string | null,
+    freshMarkerSince: number,
+  ): Promise<GameMode> {
     await this.ensureSchema();
-    // DELETE ... RETURNING is the atomic consume: two racing instances can't
-    // both claim one marker.
-    const rows = await this.sql`
-      DELETE FROM bitesweeper_launch_markers
-      WHERE channel_id = ${channelId} AND created_at >= ${since}
-      RETURNING channel_id`;
-    return rows.length > 0;
-  }
-
-  async getActivityMode(instanceId: string): Promise<GameMode | null> {
-    await this.ensureSchema();
-    const rows = await this.sql`
-      SELECT mode FROM activity_modes WHERE instance_id = ${instanceId}`;
-    if (rows.length === 0) return null;
-    return rows[0].mode === "mega" ? "mega" : "classic";
-  }
-
-  async bindActivityMode(instanceId: string, mode: GameMode): Promise<GameMode> {
-    await this.ensureSchema();
-    // Opportunistic prune: instances are ephemeral, rows older than 30 days
-    // are garbage (tiny table, seq scan is fine).
-    await this.sql`
-      DELETE FROM activity_modes WHERE created_at < ${Date.now() - 30 * 86_400_000}`;
-    const rows = await this.sql`
-      INSERT INTO activity_modes (instance_id, mode, created_at)
-      VALUES (${instanceId}, ${mode}, ${Date.now()})
-      ON CONFLICT (instance_id) DO NOTHING
-      RETURNING mode`;
-    if (rows.length === 1) return rows[0].mode === "mega" ? "mega" : "classic";
-    // Lost the race — return the winner so all participants agree.
-    return (await this.getActivityMode(instanceId)) ?? mode;
+    const now = Date.now();
+    // Serialize the first resolution for one Activity instance. The following
+    // statements run in the same transaction, so every waiter sees the binding
+    // committed by the participant that held the lock before it.
+    const [, , rows] = await this.sql.transaction([
+      this.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`bitedle-activity:${instanceId}`}, 0))`,
+      this.sql`DELETE FROM activity_modes WHERE created_at < ${now - 30 * 86_400_000}`,
+      this.sql`
+        WITH existing AS MATERIALIZED (
+          SELECT mode FROM activity_modes WHERE instance_id = ${instanceId}
+        ), claimed AS MATERIALIZED (
+          DELETE FROM bitesweeper_launch_markers
+          WHERE channel_id = ${channelId}
+            AND created_at >= ${freshMarkerSince}
+            AND NOT EXISTS (SELECT 1 FROM existing)
+          RETURNING channel_id
+        ), inserted AS (
+          INSERT INTO activity_modes (instance_id, mode, created_at)
+          SELECT ${instanceId},
+                 CASE WHEN EXISTS (SELECT 1 FROM claimed) THEN 'mega' ELSE 'classic' END,
+                 ${now}
+          WHERE NOT EXISTS (SELECT 1 FROM existing)
+          ON CONFLICT (instance_id) DO NOTHING
+          RETURNING mode
+        )
+        SELECT mode FROM existing
+        UNION ALL
+        SELECT mode FROM inserted
+        LIMIT 1`,
+    ]);
+    return rows[0]?.mode === "mega" ? "mega" : "classic";
   }
 
   async setGuildChannel(guildId: string, channelId: string): Promise<void> {

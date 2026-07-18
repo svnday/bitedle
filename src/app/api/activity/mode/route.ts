@@ -27,13 +27,10 @@ export async function POST(request: NextRequest) {
   // Fail safe, never 4xx: a broken payload just plays classic.
   if (!instanceId) return NextResponse.json({ mode: "classic" });
 
-  const store = getStore();
-  const existing = await store.getActivityMode(instanceId);
-  if (existing) return NextResponse.json({ mode: existing });
-
-  const isBitesweeper = channelId
-    ? await store.takeBitesweeperLaunch(channelId, Date.now() - MARKER_TTL_MS)
-    : false;
-  const mode = await store.bindActivityMode(instanceId, isBitesweeper ? "mega" : "classic");
+  const mode = await getStore().resolveActivityMode(
+    instanceId,
+    channelId,
+    Date.now() - MARKER_TTL_MS,
+  );
   return NextResponse.json({ mode });
 }

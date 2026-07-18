@@ -7,18 +7,30 @@ description: How to run and drive Bitedle locally to verify changes, including s
 
 ## Launch (isolated from production)
 
-`.env.local` contains the REAL production `DATABASE_URL` — always blank it for
-local runs so the dev server uses the JSON FileStore (`data/db.json`) instead
-of the live Neon database:
+`.env.local` contains the REAL production `DATABASE_URL`. Never try to blank it
+from PowerShell: Windows PowerShell removes empty environment variables, then
+Next reloads the production value from `.env.local`. Use the explicit,
+development-only FileStore switch instead:
 
 ```bash
-DATABASE_URL= PORT=3111 npm run dev
+BITEDLE_FORCE_FILE_STORE=1 PORT=3111 npm run dev
 ```
 
-`data/db.json` is gitignored; delete it after testing. Note the FileStore
-caches the whole DB in memory at startup — editing `data/db.json` by hand
-while the server runs has no effect and gets overwritten; restart the server
-to make hand edits visible.
+```powershell
+$env:BITEDLE_FORCE_FILE_STORE="1"
+$env:PORT="3111"
+npm run dev
+```
+
+Confirm the server logs `BITEDLE_FORCE_FILE_STORE=1 — using isolated local JSON
+storage` before sending any API request. `BITEDLE_FORCE_FILE_STORE=1` is
+rejected when `NODE_ENV=production`.
+
+`data/db.json` is gitignored; delete it after testing. For automated or
+disposable runs, set `BITEDLE_FILE_DB_PATH` to a temporary path instead. Note
+the FileStore caches the whole DB in memory at startup — editing `data/db.json`
+by hand while the server runs has no effect and gets overwritten; restart the
+server to make hand edits visible.
 
 ## Simulating Discord interactions
 
@@ -34,8 +46,13 @@ public key, and sign requests yourself — no Discord needed:
 
 Useful payloads (launch responds `{"type":12}`):
 
-- Launch: `{"type":2,"data":{"name":"play"},"guild_id":"...","channel_id":"...","application_id":"...","token":"FAKE"}`
+- Classic launch: `{"type":2,"data":{"name":"play"},"guild_id":"...","channel_id":"...","application_id":"...","token":"FAKE"}`
+- Bitesweeper launch: the same payload with `data.name` set to `bitesweeper`.
 - Button: `{"type":3,"data":{"custom_id":"bitedle-launch"},...same fields}`
+
+Run `npm run verify:bitesweeper` for the isolated signed-interaction and mode-
+binding regression suite. It creates its FileStore under the system temp
+directory and removes it afterward.
 
 ## Driving gameplay
 

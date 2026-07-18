@@ -22,11 +22,40 @@ hiding too, and one wrong click ends your day.
   personal stats still work. Everything follows you via an anonymous browser
   cookie.
 
+## Bitesweeper
+
+The **Bitesweeper** tab is a replayable 10×10 variant with 12 bombs and one
+check mark. Safe tiles reveal how many bombs-or-checks sit directly above,
+below, left, or right; diagonals do not count. Bitesweeper is deliberately
+game-only: it has Play again and Share, but no statistics or leaderboards.
+
+In Discord, `/bitesweeper` launches an Activity locked to Bitesweeper. `/play`
+and `/bitedle` remain locked to Classic, and embedded Activities never show the
+website's mode tabs.
+
 ## Running it
 
 ```bash
 npm install
 npm run dev        # development, http://localhost:3000
+```
+
+When `.env.local` contains a production `DATABASE_URL`, force isolated local
+JSON storage for development or verification:
+
+```powershell
+$env:BITEDLE_FORCE_FILE_STORE="1"; npm run dev
+```
+
+```bash
+BITEDLE_FORCE_FILE_STORE=1 npm run dev
+```
+
+The focused Discord/Bitesweeper regression suite is also production-safe and
+uses a temporary FileStore:
+
+```bash
+npm run verify:bitesweeper
 ```
 
 or for production:
@@ -51,8 +80,9 @@ npm start
   **Neon/Postgres** when `DATABASE_URL` is set (tables are auto-created on
   first request), otherwise a local JSON file at `data/db.json` for
   zero-setup development.
-- API routes ([src/app/api/](src/app/api/)): `state`, `click`, `name`,
-  `stats`, `leaderboard`. Identity is an anonymous id in an httpOnly cookie,
+- API routes ([src/app/api/](src/app/api/)): Classic `state`, `click`, `name`,
+  `stats`, and `leaderboard`, plus Bitesweeper `mega/state`, `mega/click`, and
+  `mega/replay`. Identity is an anonymous id in an httpOnly cookie,
   auto-created on first visit ([src/lib/identity.ts](src/lib/identity.ts));
   the display name is just a label, so duplicates are allowed and the
   leaderboard marks your own rows server-side. Clearing cookies (or switching
@@ -92,12 +122,12 @@ played inside one server only ever shows up on that server's leaderboard,
 never on the public website's, and never on another server's
 ([src/lib/discord.ts](src/lib/discord.ts)).
 
-### Slash commands: `/play`, `/bitedle`, `/share`, and `/results`
+### Slash commands: `/play`, `/bitedle`, `/bitesweeper`, `/share`, and `/results`
 
-`/play` and `/bitedle` both launch the Activity — they're intentionally
-redundant names for the same action. `/share` posts one player's result;
-`/results` posts the whole server's results image. A few different
-mechanisms are involved:
+`/play` and `/bitedle` launch Classic. `/bitesweeper` launches the game-only
+10×10 mode, with no preview, recap, statistics, or leaderboards. `/share`
+posts one Classic result; `/results` posts the whole server's Classic results
+image. A few different mechanisms are involved:
 
 - **`/play`** is Discord's **entry point command** — enabling Activities
   auto-creates a default one named "Launch" (type `PRIMARY_ENTRY_POINT`).
@@ -117,6 +147,11 @@ mechanisms are involved:
   that gets the same result a different way: the same interactions route
   replies with interaction response type `12` (`LAUNCH_ACTIVITY`) to launch
   the Activity, and likewise refreshes the live preview.
+- **`/bitesweeper`** is another ordinary `CHAT_INPUT` command. It launches the
+  same Activity root in Bitesweeper mode, but intentionally skips every live
+  preview, recap, stats, and results path. The booting Activity instance is
+  permanently mode-bound so all participants and late joiners see the same
+  game.
 - **`/share`** posts that player's already-finished result for today's
   puzzle (same non-spoiling text as the site's own Share button), publicly
   in the channel. Also an ordinary `CHAT_INPUT` command handled by the same
@@ -161,11 +196,13 @@ DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... node scripts/set-entry-point-command
 DISCORD_CLIENT_ID=... DISCORD_BOT_TOKEN=... node scripts/register-discord-commands.mjs
 ```
 
+Set `DISCORD_GUILD_ID` as well for an instant, guild-scoped test registration.
+After the live smoke test passes, run the registration script again without
+`DISCORD_GUILD_ID` to create/update the global commands.
+
 (Order doesn't matter — `register-discord-commands.mjs` also cleans up a
 stray ordinary `/play` command left over from before `/play` became the
-entry point command's name.) Optionally add `DISCORD_GUILD_ID=...` to the
-second command so it appears in one server immediately instead of waiting
-for global propagation.
+entry point command's name.)
 
 - `DISCORD_CLIENT_ID` is the same value as `NEXT_PUBLIC_DISCORD_CLIENT_ID`.
 - `DISCORD_BOT_TOKEN` comes from the Developer Portal's **Bot** tab (Reset

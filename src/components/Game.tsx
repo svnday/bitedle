@@ -367,7 +367,13 @@ export default function Game({
           >
             <IconHelp />
           </button>
-          <h1 className="text-2xl font-extrabold tracking-[0.2em] select-none">BITEDLE</h1>
+          <h1
+            className={`font-extrabold select-none ${
+              mode === "mega" ? "text-xl tracking-[0.1em]" : "text-2xl tracking-[0.2em]"
+            }`}
+          >
+            {mode === "mega" ? "BITESWEEPER" : "BITEDLE"}
+          </h1>
           <div className="flex items-center gap-0.5">
             {/* Bitesweeper is pure gameplay — no channel stats, leaderboard,
                 or statistics anywhere, so those buttons are classic-only. */}
@@ -554,13 +560,15 @@ export default function Game({
                 >
                   Share 📋
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setModal("leaderboard")}
-                  className="border-tileborder hover:border-tilehover w-full max-w-36 cursor-pointer rounded border py-2 text-sm font-semibold"
-                >
-                  Leaderboard
-                </button>
+                {mode === "classic" && (
+                  <button
+                    type="button"
+                    onClick={() => setModal("leaderboard")}
+                    className="border-tileborder hover:border-tilehover w-full max-w-36 cursor-pointer rounded border py-2 text-sm font-semibold"
+                  >
+                    Leaderboard
+                  </button>
+                )}
               </div>
             </div>
           </div>
