@@ -729,8 +729,8 @@ export function HelpModal({
         </div>
         {mode === "mega" && (
           <p className="border-tileborder bg-raised rounded border p-3">
-            Reveal all 87 numbered squares without hitting a bomb or the check mark and the check
-            reveals itself automatically. You win with a score of 87 clicks.
+            Reveal all 87 numbered squares with at least one life remaining and the check reveals
+            itself automatically. Any bomb hits still count toward your final click score.
           </p>
         )}
         <p className="border-tileborder text-muted border-t pt-4">

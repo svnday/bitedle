@@ -349,6 +349,17 @@ try {
   const clearState = await clearStateResponse.json();
   const clearGame = storedMegaGame(clearPlayer);
   const clearDraw = megaDrawIndices(clearState.date, clearGame.boardSeed);
+  for (const bombIndex of clearDraw.bombIndices.slice(0, 2)) {
+    const bombHit = await embeddedFetch("/api/mega/click", clearPlayer, clearInstanceId, {
+      method: "POST",
+      headers: { "X-Bitedle-Guild-Id": "" },
+      body: JSON.stringify({ index: bombIndex }),
+    });
+    assert.equal(bombHit.status, 200);
+    const bombPayload = await bombHit.json();
+    assert.equal(bombPayload.result, "bomb");
+    assert.equal(bombPayload.state.status, "playing");
+  }
   let perfectClearPayload;
   for (let safeNumber = 0; safeNumber < clearDraw.safeIndices.length; safeNumber++) {
     const click = await embeddedFetch("/api/mega/click", clearPlayer, clearInstanceId, {
@@ -363,9 +374,9 @@ try {
     }
   }
   assert.equal(perfectClearPayload.state.status, "won");
-  assert.equal(perfectClearPayload.state.score, 87);
-  assert.equal(perfectClearPayload.state.livesRemaining, 3);
-  assert.equal(perfectClearPayload.state.clicks.length, 88);
+  assert.equal(perfectClearPayload.state.score, 89);
+  assert.equal(perfectClearPayload.state.livesRemaining, 1);
+  assert.equal(perfectClearPayload.state.clicks.length, 90);
   assert.deepEqual(perfectClearPayload.state.clicks.at(-1), {
     index: clearDraw.checkIndex,
     result: "check",

@@ -32,8 +32,8 @@ Players start each board with three lives, and each revealed bomb removes one;
 the third bomb ends the run. Right-clicking an unrevealed square—or pressing
 and holding it on mobile—toggles a 🚩 without revealing it; a flagged square
 must be unflagged before it can be opened. Revealing all 87 numbered squares
-without hitting a bomb or the check automatically reveals the check and wins
-the board with a score of 87 clicks.
+with at least one life remaining automatically reveals the check and wins the
+board; any bomb hits count toward the final click score.
 
 In Discord, `/bitesweeper` launches an Activity locked to Bitesweeper. `/play`
 and `/bitedle` remain locked to Classic, and embedded Activities never show the

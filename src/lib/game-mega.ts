@@ -19,10 +19,9 @@ export function megaLivesRemaining(clicks: MegaClickRecord[]): number {
 }
 
 export function megaPerfectClearReached(clicks: MegaClickRecord[]): boolean {
-  return (
-    clicks.length === MEGA_SAFE_CELL_COUNT &&
-    clicks.every((click) => typeof click.result === "number")
-  );
+  const safeClicks = clicks.filter((click) => typeof click.result === "number").length;
+  const foundCheck = clicks.some((click) => click.result === "check");
+  return safeClicks === MEGA_SAFE_CELL_COUNT && !foundCheck && megaLivesRemaining(clicks) > 0;
 }
 
 interface MegaDraw {
