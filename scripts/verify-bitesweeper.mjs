@@ -261,6 +261,8 @@ try {
   assert.ok(previewSource.includes("clicked.get(index)"));
   assert.ok(previewSource.includes('isFlagged ? "🚩"'));
   assert.ok(previewSource.includes("livesRemaining"));
+  assert.ok(previewSource.includes("const avatarSize = 44"));
+  assert.ok(previewSource.includes("const cardBottomBreathingRoom = 12"));
   assert.ok(!previewSource.includes('row.clicks.length} click'));
   assert.ok(!previewSource.includes("Bitesweeper No."));
   assert.ok(previewSource.includes(">\n          Bitesweeper\n"));

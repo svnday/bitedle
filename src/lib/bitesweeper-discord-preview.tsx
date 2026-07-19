@@ -173,8 +173,21 @@ export function renderBitesweeperPreviewImage(rows: BitesweeperPreviewPlayer[]) 
   const tile = 14;
   const gap = 3;
   const boardSize = 10 * tile + 9 * gap;
-  const cardWidth = boardSize + 32;
-  const cardHeight = 266;
+  const avatarSize = 44;
+  const cardPadding = 14;
+  const avatarToNameGap = 8;
+  const nameRowHeight = 16;
+  const nameToBoardGap = 8;
+  const cardBottomBreathingRoom = 12;
+  const cardWidth = boardSize + cardPadding * 2;
+  const cardHeight =
+    cardPadding +
+    avatarSize +
+    avatarToNameGap +
+    nameRowHeight +
+    nameToBoardGap +
+    boardSize +
+    cardBottomBreathingRoom;
   const cardGap = 18;
   const margin = 38;
   const titleBlock = 64;
@@ -237,8 +250,9 @@ export function renderBitesweeperPreviewImage(rows: BitesweeperPreviewPlayer[]) 
                   height: cardHeight,
                   backgroundColor: "#212226",
                   border: "1px solid #2c2d31",
-                  borderRadius: 22,
-                  padding: 16,
+                  borderRadius: 20,
+                  padding: cardPadding,
+                  overflow: "hidden",
                 }}
               >
                 {avatarUrl ? (
@@ -246,21 +260,21 @@ export function renderBitesweeperPreviewImage(rows: BitesweeperPreviewPlayer[]) 
                   <img
                     src={avatarUrl}
                     alt=""
-                    width={58}
-                    height={58}
+                    width={avatarSize}
+                    height={avatarSize}
                     style={{ borderRadius: 9999, objectFit: "cover" }}
                   />
                 ) : (
                   <div
                     style={{
-                      width: 58,
-                      height: 58,
+                      width: avatarSize,
+                      height: avatarSize,
                       borderRadius: 9999,
                       backgroundColor: "#334155",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      fontSize: 25,
+                      fontSize: 20,
                       fontWeight: 700,
                       color: "#f8fafc",
                     }}
@@ -271,18 +285,35 @@ export function renderBitesweeperPreviewImage(rows: BitesweeperPreviewPlayer[]) 
                 <div
                   style={{
                     display: "flex",
-                    maxWidth: boardSize,
-                    marginTop: 8,
-                    fontSize: 14,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: boardSize,
+                    height: nameRowHeight,
+                    marginTop: avatarToNameGap,
+                    fontSize: 13,
                     fontWeight: 700,
+                    lineHeight: 1,
                     color: "#f2f3f5",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     gap: 6,
                   }}
                 >
-                  <span style={{ overflow: "hidden" }}>{row.name}</span>
-                  <span style={{ color: "#f87171", flexShrink: 0, fontSize: 11 }}>
+                  <span
+                    style={{ maxWidth: boardSize - 42, overflow: "hidden", textOverflow: "ellipsis" }}
+                  >
+                    {row.name}
+                  </span>
+                  <span
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      color: "#f87171",
+                      flexShrink: 0,
+                      fontSize: 11,
+                      lineHeight: 1,
+                    }}
+                  >
                     {`♥ ${livesRemaining}`}
                   </span>
                 </div>
@@ -292,7 +323,7 @@ export function renderBitesweeperPreviewImage(rows: BitesweeperPreviewPlayer[]) 
                     flexWrap: "wrap",
                     width: boardSize,
                     gap,
-                    marginTop: 10,
+                    marginTop: nameToBoardGap,
                   }}
                 >
                   {Array.from({ length: 100 }, (_, index) => {
