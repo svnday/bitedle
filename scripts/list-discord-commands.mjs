@@ -42,7 +42,10 @@ async function list(label, url) {
   for (const c of commands) {
     console.log(
       `  id=${c.id}  name="${c.name}"  type=${c.type} (${TYPE_NAMES[c.type] ?? "unknown"})  ` +
-        `handler=${c.handler ?? "-"}  description="${c.description}"`,
+        `handler=${c.handler ?? "-"}  integration_types=${JSON.stringify(c.integration_types ?? [])}  ` +
+        `contexts=${JSON.stringify(c.contexts ?? [])}  ` +
+        `default_member_permissions=${c.default_member_permissions ?? "none"}  ` +
+        `description="${c.description}"`,
     );
   }
 }

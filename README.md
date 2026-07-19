@@ -227,12 +227,20 @@ entry point command's name.)
   it, never prefix it `NEXT_PUBLIC_`, and only pass it as a one-off
   environment variable in your own terminal.
 
-`register-discord-commands.mjs` also prints an install URL using Discord's
-`applications.commands` scope. Open that URL and add the app to the server
-so the slash commands are actually exposed there — a `bot`-scope-only
-invite is not enough; **no slash command (including `/play`) shows up in a
-server unless the app was added there with the `applications.commands`
-scope**.
+`register-discord-commands.mjs` also prints a **guild install URL** using
+Discord's `applications.commands` scope and `integration_type=0`. A server
+administrator must open that URL and add the app to the server so the slash
+commands are exposed to every eligible member. Installing Bitedle only to your
+own account makes the user-installed commands available to you, not to everyone
+else in the guild. A `bot`-scope-only invite is not enough; **no slash command
+(including `/play`) shows up in a server unless the app was added there with
+the `applications.commands` scope**.
+
+The registration payload also sets `default_member_permissions` to `null`,
+which clears any stale developer-defined permission requirement. Server owners
+can still restrict the app or individual commands by role or channel under
+Discord's Server Settings → Integrations, and members still need the channel's
+**Use Application Commands** permission.
 
 Then, in the Developer Portal's **General Information** tab, set the
 Interactions Endpoint URL to:

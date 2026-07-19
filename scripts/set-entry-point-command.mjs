@@ -91,6 +91,9 @@ async function main() {
       name: NEW_NAME,
       description: NEW_DESCRIPTION,
       handler: HANDLER,
+      // Clear any stale developer-defined permission requirement so every
+      // member with Use Application Commands can see the entry point.
+      default_member_permissions: null,
       integration_types: INTEGRATION_TYPES,
       contexts: CONTEXTS,
     }),
@@ -133,6 +136,7 @@ async function main() {
         description: NEW_DESCRIPTION,
         type: 4, // PRIMARY_ENTRY_POINT
         handler: HANDLER, // APP_HANDLER — app controls channel posts
+        default_member_permissions: null,
         integration_types: INTEGRATION_TYPES,
         contexts: CONTEXTS,
       }),

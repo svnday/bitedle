@@ -33,6 +33,10 @@ const commands = [
     name: "bitedle",
     description: "Open today's Bitedle",
     type: 1,
+    // Explicitly clear any stale permission default left on an existing
+    // command. null means no additional member permission is required;
+    // Discord's normal Use Application Commands permission still applies.
+    default_member_permissions: null,
     integration_types: [0, 1],
     contexts: [0, 1, 2],
   },
@@ -40,6 +44,7 @@ const commands = [
     name: "share",
     description: "Share Bitedle from Discord",
     type: 1,
+    default_member_permissions: null,
     integration_types: [0, 1],
     contexts: [0, 1, 2],
   },
@@ -47,6 +52,7 @@ const commands = [
     name: "results",
     description: "Show today's Bitedle results for this server",
     type: 1,
+    default_member_permissions: null,
     integration_types: [0, 1],
     contexts: [0, 1, 2],
   },
@@ -54,6 +60,7 @@ const commands = [
     name: "bitesweeper",
     description: "Open Bitesweeper — the replayable 10×10 board",
     type: 1,
+    default_member_permissions: null,
     integration_types: [0, 1],
     contexts: [0, 1, 2],
   },
@@ -78,13 +85,18 @@ function installUrl() {
   const params = new URLSearchParams({
     client_id: clientId,
     scope,
+    // Force GUILD_INSTALL. Without this, an app that supports both install
+    // types can be added only to the administrator's account, making its
+    // commands visible to them but not to the rest of the server.
+    integration_type: "0",
   });
+  if (guildId) params.set("guild_id", guildId);
   return `https://discord.com/oauth2/authorize?${params.toString()}`;
 }
 
 async function main() {
   console.log("Registering slash commands...");
-  console.log(`Install URL: ${installUrl()}`);
+  console.log(`Guild install URL (share with a server admin): ${installUrl()}`);
 
   const listRes = await fetch(commandsUrl(), { headers });
   if (!listRes.ok) {
