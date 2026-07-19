@@ -119,10 +119,14 @@ export default function BitesweeperGame() {
       setShakingIndex(null);
       setState(next);
       void refreshPlayers();
-      if (!reducedMotion && (result === "bomb" || result === "check")) {
-        setBoardEffect(result);
+      const resolvedEffect = next.status === "won" ? "check" : result === "bomb" ? "bomb" : null;
+      if (!reducedMotion && resolvedEffect) {
+        setBoardEffect(resolvedEffect);
         if (boardEffectTimer.current) clearTimeout(boardEffectTimer.current);
         boardEffectTimer.current = setTimeout(() => setBoardEffect(null), BOARD_EFFECT_MS);
+      }
+      if (result === "bomb" && next.status === "playing") {
+        toast(`Bomb hit — ${next.livesRemaining} ${next.livesRemaining === 1 ? "life" : "lives"} left`);
       }
       if (next.status !== "playing") {
         if (resultModalTimer.current) clearTimeout(resultModalTimer.current);
@@ -194,7 +198,7 @@ export default function BitesweeperGame() {
     const ok = await copyToClipboard(
       megaShareText({
         status: state.status,
-        totalClicks: state.clicks.length,
+        totalClicks: state.status === "won" ? state.score ?? state.clicks.length : state.clicks.length,
       }),
     );
     toast(ok ? "Results copied to clipboard" : "Couldn't copy to clipboard");
@@ -221,8 +225,14 @@ export default function BitesweeperGame() {
 
       <main className="flex w-full max-w-3xl flex-1 flex-col items-center gap-5 px-4 py-6">
         <div className="flex w-full max-w-[440px] items-center justify-center gap-2 text-xs">
+          <span
+            className="border-tileborder text-muted rounded border px-2 py-1 tabular-nums"
+            title="Lives remaining"
+          >
+            ❤️ {state?.livesRemaining ?? 3}
+          </span>
           <span className="border-tileborder text-muted rounded border px-2 py-1">
-            💣 12 hidden
+            💣 {Math.max(0, 12 - (state?.clicks.filter((click) => click.result === "bomb").length ?? 0))} hidden
           </span>
           <span className="border-tileborder text-muted rounded border px-2 py-1 tabular-nums">
             Clicks: {state?.clicks.length ?? 0}
@@ -249,7 +259,7 @@ export default function BitesweeperGame() {
             <p className="text-center font-bold">
               {state.status === "won"
                 ? `You found it in ${state.score} ${state.score === 1 ? "click" : "clicks"}! ✓`
-                : "💥 Boom! The check mark got away."}
+                : "💥 Out of lives! The check mark got away."}
             </p>
             <div className="grid w-full max-w-72 grid-cols-2 gap-2">
               <button
@@ -322,7 +332,12 @@ function PlayersPanel({ players }: { players: BitesweeperPlayer[] }) {
                   <div className="bg-tile h-6 w-6 rounded-full" />
                 )}
                 <span className="min-w-0 flex-1 truncate text-xs font-bold">{player.name}</span>
-                <span className="text-muted text-[10px] tabular-nums">{player.clicks.length}</span>
+                <span
+                  className="text-muted text-[10px] tabular-nums"
+                  title={`${player.livesRemaining} lives remaining`}
+                >
+                  ❤️ {player.livesRemaining}
+                </span>
               </div>
               <MiniBoard player={player} />
             </div>

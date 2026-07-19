@@ -38,6 +38,6 @@ export function megaShareText(game: {
   const scoreLine =
     game.status === "won"
       ? `10×10 — found in ${totalClicks} ✅`
-      : `10×10 — boom in ${totalClicks} 💥`;
+      : `10×10 — out of lives in ${totalClicks} 💥`;
   return `Bitesweeper\n${scoreLine}`;
 }

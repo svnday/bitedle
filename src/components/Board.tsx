@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import type { CellResult, ClickRecord, MegaCellResult, MegaClickRecord } from "@/lib/types";
 
 interface BoardProps {
@@ -70,6 +71,16 @@ function backFace(result: CellResult | MegaCellResult, dense: boolean) {
 }
 
 const GRID_COLS = { 5: "grid-cols-5", 10: "grid-cols-10" } as const;
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_TOLERANCE = 12;
+
+interface ActiveLongPress {
+  index: number;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 export default function Board({
   clicks,
@@ -86,6 +97,25 @@ export default function Board({
   const flagged = new Set(flags);
   const dense = cols === 10;
   const size = cols * cols;
+  const activeLongPress = useRef<ActiveLongPress | null>(null);
+  const suppressClick = useRef<{ index: number; until: number } | null>(null);
+  const touchFlagHandled = useRef<{ index: number; until: number } | null>(null);
+  const recentTouchEnd = useRef<{ index: number; until: number } | null>(null);
+
+  const cancelLongPress = (pointerId?: number) => {
+    const press = activeLongPress.current;
+    if (!press || (pointerId !== undefined && press.pointerId !== pointerId)) return;
+    clearTimeout(press.timer);
+    activeLongPress.current = null;
+  };
+
+  const markTouchFlagHandled = (index: number, now: number) => {
+    const until = now + 1_000;
+    suppressClick.current = { index, until };
+    touchFlagHandled.current = { index, until };
+  };
+
+  useEffect(() => () => cancelLongPress(), []);
 
   return (
     <div className={`relative w-full ${dense ? "max-w-[440px]" : "max-w-[360px]"}`}>
@@ -111,14 +141,76 @@ export default function Board({
             >
               <button
                 type="button"
-                className="relative h-full w-full cursor-pointer disabled:cursor-default"
+                className="relative h-full w-full touch-manipulation cursor-pointer select-none disabled:cursor-default"
                 disabled={disabled || result !== undefined}
                 onClick={() => {
+                  const suppressed = suppressClick.current;
+                  if (suppressed && suppressed.until < Date.now()) suppressClick.current = null;
+                  else if (suppressed?.index === i) {
+                    suppressClick.current = null;
+                    return;
+                  }
                   if (!isFlagged) onCellClick(i);
                 }}
+                onPointerDown={(event) => {
+                  if (
+                    event.pointerType !== "touch" ||
+                    !event.isPrimary ||
+                    !onCellFlag ||
+                    disabled ||
+                    result !== undefined
+                  ) return;
+                  cancelLongPress();
+                  const { pointerId, clientX, clientY } = event;
+                  const timer = setTimeout(() => {
+                    const press = activeLongPress.current;
+                    if (press?.pointerId !== pointerId || press.index !== i) return;
+                    activeLongPress.current = null;
+                    markTouchFlagHandled(i, Date.now());
+                    onCellFlag(i);
+                  }, LONG_PRESS_MS);
+                  activeLongPress.current = {
+                    index: i,
+                    pointerId,
+                    startX: clientX,
+                    startY: clientY,
+                    timer,
+                  };
+                }}
+                onPointerMove={(event) => {
+                  const press = activeLongPress.current;
+                  if (!press || press.pointerId !== event.pointerId) return;
+                  if (
+                    Math.hypot(event.clientX - press.startX, event.clientY - press.startY) >
+                    LONG_PRESS_MOVE_TOLERANCE
+                  ) cancelLongPress(event.pointerId);
+                }}
+                onPointerUp={(event) => {
+                  const press = activeLongPress.current;
+                  if (press?.pointerId === event.pointerId) {
+                    recentTouchEnd.current = { index: press.index, until: Date.now() + 500 };
+                  }
+                  cancelLongPress(event.pointerId);
+                }}
+                onPointerCancel={(event) => cancelLongPress(event.pointerId)}
+                onPointerLeave={(event) => cancelLongPress(event.pointerId)}
                 onContextMenu={(event) => {
                   if (!onCellFlag || disabled || result !== undefined) return;
                   event.preventDefault();
+                  const handled = touchFlagHandled.current;
+                  if (handled && handled.until < Date.now()) touchFlagHandled.current = null;
+                  else if (handled?.index === i) return;
+
+                  const active = activeLongPress.current;
+                  const recent = recentTouchEnd.current;
+                  if (
+                    active?.index === i ||
+                    (recent?.index === i && recent.until >= Date.now())
+                  ) {
+                    cancelLongPress(active?.pointerId);
+                    recentTouchEnd.current = null;
+                    markTouchFlagHandled(i, Date.now());
+                  }
                   onCellFlag(i);
                 }}
                 aria-pressed={onCellFlag ? isFlagged : undefined}

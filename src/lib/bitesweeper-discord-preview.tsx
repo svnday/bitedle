@@ -9,7 +9,11 @@ import {
   LIVE_PREVIEW_POSTING,
   type BitesweeperPreviewMessage,
 } from "./store";
-import type { MegaCellResult, MegaClickRecord } from "./types";
+import {
+  MEGA_STARTING_LIVES,
+  type MegaCellResult,
+  type MegaClickRecord,
+} from "./types";
 
 export const BITESWEEPER_WEBHOOK_TOKEN_TTL_MS = 13 * 60 * 1000;
 export const BITESWEEPER_LAUNCH_BUTTON_ID = "bitesweeper-launch";
@@ -218,6 +222,10 @@ export function renderBitesweeperPreviewImage(rows: BitesweeperPreviewPlayer[]) 
             const avatarUrl = discordAvatarUrl(row.discordUserId, row.discordAvatar);
             const clicked = new Map(row.clicks.map((click) => [click.index, click.result]));
             const flagged = new Set(row.flags);
+            const livesRemaining = Math.max(
+              0,
+              MEGA_STARTING_LIVES - row.clicks.filter((click) => click.result === "bomb").length,
+            );
             return (
               <div
                 key={row.userId}
@@ -270,9 +278,13 @@ export function renderBitesweeperPreviewImage(rows: BitesweeperPreviewPlayer[]) 
                     color: "#f2f3f5",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
+                    gap: 6,
                   }}
                 >
-                  {row.name}
+                  <span style={{ overflow: "hidden" }}>{row.name}</span>
+                  <span style={{ color: "#f87171", flexShrink: 0, fontSize: 11 }}>
+                    {`♥ ${livesRemaining}`}
+                  </span>
                 </div>
                 <div
                   style={{

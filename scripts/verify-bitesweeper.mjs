@@ -16,6 +16,7 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const webhookRequests = [];
 const { server: webhookServer, baseUrl: webhookBaseUrl } = await startWebhookServer(webhookRequests);
 const testGuildId = "678901234567890123";
+const testBoardSecret = "bitesweeper-verification-secret";
 
 const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
 const publicKeyHex = publicKey
@@ -34,6 +35,7 @@ const server = spawn(
       PORT: String(port),
       BITEDLE_FORCE_FILE_STORE: "1",
       BITEDLE_FILE_DB_PATH: dbPath,
+      BITEDLE_SECRET: testBoardSecret,
       DISCORD_PUBLIC_KEY: publicKeyHex,
       BITEDLE_DISCORD_API_BASE_URL: `${webhookBaseUrl}/api/v10`,
     },
@@ -177,6 +179,7 @@ try {
   assert.equal(megaState.status, 200, "Bitesweeper must accept Discord guild requests");
   const state = await megaState.json();
   assert.equal(state.status, "playing");
+  assert.equal(state.livesRemaining, 3);
   assert.equal("puzzleNumber" in state, false, "Bitesweeper state must not expose numbering");
   assert.equal("layout" in state, false, "a playing state must not reveal the board");
 
@@ -226,6 +229,10 @@ try {
   assert.equal(players[0].name, "Second player");
   assert.equal(players[0].clicks.length, 1, "presence must include the other player's board");
   assert.deepEqual(players[0].flags, [6], "presence must include the other player's flags");
+  assert.equal(
+    players[0].livesRemaining,
+    3 - players[0].clicks.filter((click) => click.result === "bomb").length,
+  );
 
   const gameTabsSource = fs.readFileSync(path.join(repoRoot, "src/components/GameTabs.tsx"), "utf8");
   assert.match(
@@ -253,6 +260,7 @@ try {
   assert.ok(previewSource.includes('result === undefined ? "#3a3b3e"'));
   assert.ok(previewSource.includes("clicked.get(index)"));
   assert.ok(previewSource.includes('isFlagged ? "🚩"'));
+  assert.ok(previewSource.includes("livesRemaining"));
   assert.ok(!previewSource.includes('row.clicks.length} click'));
   assert.ok(!previewSource.includes("Bitesweeper No."));
   assert.ok(previewSource.includes(">\n          Bitesweeper\n"));
@@ -264,6 +272,9 @@ try {
   const boardSource = fs.readFileSync(path.join(repoRoot, "src/components/Board.tsx"), "utf8");
   assert.ok(boardSource.includes("onContextMenu"));
   assert.ok(boardSource.includes("onCellFlag(i)"));
+  assert.ok(boardSource.includes("LONG_PRESS_MS = 500"));
+  assert.ok(boardSource.includes("onPointerDown"));
+  assert.ok(boardSource.includes("markTouchFlagHandled(i, Date.now())"));
 
   const privatePlayer = await linkedPlayer("789012345678901234", "Private player");
   const otherPrivatePlayer = await linkedPlayer("890123456789012345", "Other private player");
@@ -305,7 +316,63 @@ try {
     "players in the same Activity must receive private random boards",
   );
 
-  console.log("Bitesweeper verification passed: isolated launch surface, no lobby numbering, private launch-random boards, persistent flags, live PNG preview, and atomic mode binding.");
+  const livesPlayer = await linkedPlayer("912345678901234567", "Three lives player");
+  const livesInstanceId = "three-lives-instance";
+  const livesStateResponse = await embeddedFetch(
+    "/api/mega/state",
+    livesPlayer,
+    livesInstanceId,
+  );
+  const livesState = await livesStateResponse.json();
+  const livesGame = storedMegaGame(livesPlayer);
+  const { bombIndices } = megaDrawIndices(livesState.date, livesGame.boardSeed);
+  for (let bombNumber = 1; bombNumber <= 3; bombNumber++) {
+    const hit = await embeddedFetch("/api/mega/click", livesPlayer, livesInstanceId, {
+      method: "POST",
+      body: JSON.stringify({ index: bombIndices[bombNumber - 1] }),
+    });
+    assert.equal(hit.status, 200);
+    const payload = await hit.json();
+    assert.equal(payload.result, "bomb");
+    assert.equal(payload.state.livesRemaining, 3 - bombNumber);
+    assert.equal(payload.state.status, bombNumber < 3 ? "playing" : "lost");
+  }
+
+  const clearPlayer = await linkedPlayer("923456789012345678", "Perfect clear player");
+  const clearInstanceId = "perfect-clear-instance";
+  const clearStateResponse = await embeddedFetch(
+    "/api/mega/state",
+    clearPlayer,
+    clearInstanceId,
+    { headers: { "X-Bitedle-Guild-Id": "" } },
+  );
+  const clearState = await clearStateResponse.json();
+  const clearGame = storedMegaGame(clearPlayer);
+  const clearDraw = megaDrawIndices(clearState.date, clearGame.boardSeed);
+  let perfectClearPayload;
+  for (let safeNumber = 0; safeNumber < clearDraw.safeIndices.length; safeNumber++) {
+    const click = await embeddedFetch("/api/mega/click", clearPlayer, clearInstanceId, {
+      method: "POST",
+      headers: { "X-Bitedle-Guild-Id": "" },
+      body: JSON.stringify({ index: clearDraw.safeIndices[safeNumber] }),
+    });
+    assert.equal(click.status, 200);
+    perfectClearPayload = await click.json();
+    if (safeNumber < clearDraw.safeIndices.length - 1) {
+      assert.equal(perfectClearPayload.state.status, "playing");
+    }
+  }
+  assert.equal(perfectClearPayload.state.status, "won");
+  assert.equal(perfectClearPayload.state.score, 87);
+  assert.equal(perfectClearPayload.state.livesRemaining, 3);
+  assert.equal(perfectClearPayload.state.clicks.length, 88);
+  assert.deepEqual(perfectClearPayload.state.clicks.at(-1), {
+    index: clearDraw.checkIndex,
+    result: "check",
+  });
+  assert.equal(perfectClearPayload.state.layout[clearDraw.checkIndex], "check");
+
+  console.log("Bitesweeper verification passed: isolated launch surface, perfect-clear auto-win, three-hit lives, mobile and desktop flags, private launch-random boards, live PNG preview, and atomic mode binding.");
 } catch (error) {
   console.error(output);
   throw error;
@@ -409,6 +476,35 @@ function storedMegaGame(player) {
     if (games[userId]) return games[userId];
   }
   assert.fail(`No stored Bitesweeper game for ${userId}`);
+}
+
+function megaDrawIndices(date, boardSeed) {
+  const digest = crypto
+    .createHash("sha256")
+    .update(`${testBoardSecret}:mega:${date}:${boardSeed}`)
+    .digest();
+  const rng = mulberry32(digest.readUInt32LE(0));
+  const indices = Array.from({ length: 100 }, (_, index) => index);
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  return {
+    checkIndex: indices[0],
+    bombIndices: indices.slice(1, 13),
+    safeIndices: indices.slice(13),
+  };
+}
+
+function mulberry32(seed) {
+  let value = seed;
+  return () => {
+    value |= 0;
+    value = (value + 0x6d2b79f5) | 0;
+    let mixed = Math.imul(value ^ (value >>> 15), 1 | value);
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 async function startWebhookServer(requests) {

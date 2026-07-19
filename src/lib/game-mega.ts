@@ -6,9 +6,24 @@ import {
   MEGA_BOARD_COLS,
   MEGA_BOARD_SIZE,
   MEGA_BOMB_COUNT,
+  MEGA_STARTING_LIVES,
+  MEGA_SAFE_CELL_COUNT,
   type MegaCellResult,
+  type MegaClickRecord,
   type MegaGameState,
 } from "./types";
+
+export function megaLivesRemaining(clicks: MegaClickRecord[]): number {
+  const bombHits = clicks.filter((click) => click.result === "bomb").length;
+  return Math.max(0, MEGA_STARTING_LIVES - bombHits);
+}
+
+export function megaPerfectClearReached(clicks: MegaClickRecord[]): boolean {
+  return (
+    clicks.length === MEGA_SAFE_CELL_COUNT &&
+    clicks.every((click) => typeof click.result === "number")
+  );
+}
 
 interface MegaDraw {
   checkIndex: number;
@@ -87,6 +102,7 @@ export async function megaStateFor(
     score: game?.score ?? null,
     clicks: game?.clicks ?? [],
     flags: game?.flags ?? [],
+    livesRemaining: megaLivesRemaining(game?.clicks ?? []),
     nextResetAt: nextResetAt(new Date(), timeZone),
   };
   if (status !== "playing") state.layout = megaLayoutFor(date, game?.boardSeed ?? null);

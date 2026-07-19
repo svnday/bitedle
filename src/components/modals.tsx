@@ -490,7 +490,7 @@ export function ResultModal({
         {won && score !== null
           ? `${praiseFor(score, mode)} Found in ${score} ${score === 1 ? "click" : "clicks"}. ✓`
           : mode === "mega"
-            ? "💥 BOOM! That was a bomb. Ready for another board?"
+            ? "💥 Out of lives! You hit three bombs. Ready for another board?"
             : "💥 BOOM! That was a bomb. See you tomorrow."}
       </p>
 
@@ -686,8 +686,8 @@ export function HelpModal({
                 🚩
               </div>
               <p>
-                Right-click a hidden square to flag a possible bomb. Flagged squares stay hidden and
-                cannot be revealed until you right-click them again.
+                Right-click a hidden square, or press and hold on mobile, to flag a possible bomb.
+                Flagged squares stay hidden and cannot be revealed until you remove the flag.
               </p>
             </div>
           </>
@@ -702,12 +702,21 @@ export function HelpModal({
         <div className="flex items-center gap-3">
           <MiniTile kind="bomb" />
           <p>
-            A <strong>bomb</strong> ends your run instantly. {mode === "mega" ? (
-              <>There are exactly 12 of them hidden across the larger board.</>
+            {mode === "mega" ? (
+              <>
+                You start with <strong>3 lives</strong>. Each bomb costs one life, and the third bomb
+                ends your run. There are exactly 12 bombs hidden across the larger board.
+              </>
             ) : legacyBombRange ? (
-              <>There are 3 to 5 of them, and you never know exactly how many.</>
+              <>
+                A <strong>bomb</strong> ends your run instantly. There are 3 to 5 of them, and you
+                never know exactly how many.
+              </>
             ) : (
-              <>There are exactly 3 of them, and you never know which tiles hide them.</>
+              <>
+                A <strong>bomb</strong> ends your run instantly. There are exactly 3 of them, and you
+                never know which tiles hide them.
+              </>
             )}
           </p>
         </div>
@@ -718,6 +727,12 @@ export function HelpModal({
             — lower is better, and 1 is perfection.
           </p>
         </div>
+        {mode === "mega" && (
+          <p className="border-tileborder bg-raised rounded border p-3">
+            Reveal all 87 numbered squares without hitting a bomb or the check mark and the check
+            reveals itself automatically. You win with a score of 87 clicks.
+          </p>
+        )}
         <p className="border-tileborder text-muted border-t pt-4">
           {mode === "mega"
             ? "Finish the board, then choose Play again for a fresh randomly generated board."

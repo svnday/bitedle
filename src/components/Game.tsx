@@ -72,7 +72,7 @@ function gameShareText(state: GameState | MegaGameState, mode: GameMode): string
   if (mode === "mega") {
     return megaShareText({
       status: state.status,
-      totalClicks: state.clicks.length,
+      totalClicks: state.status === "won" ? state.score ?? state.clicks.length : state.clicks.length,
     });
   }
   const classicState = state as GameState;
@@ -263,10 +263,15 @@ export default function Game({
       }
       setShakingIndex(null);
       setState(next);
-      if (!reducedMotion && (result === "bomb" || result === "check")) {
-        setBoardEffect(result);
+      const resolvedEffect = next.status === "won" ? "check" : result === "bomb" ? "bomb" : null;
+      if (!reducedMotion && resolvedEffect) {
+        setBoardEffect(resolvedEffect);
         if (boardEffectTimer.current) clearTimeout(boardEffectTimer.current);
         boardEffectTimer.current = setTimeout(() => setBoardEffect(null), BOARD_EFFECT_MS);
+      }
+      if (mode === "mega" && result === "bomb" && next.status === "playing") {
+        const lives = (next as MegaGameState).livesRemaining;
+        toast(`Bomb hit — ${lives} ${lives === 1 ? "life" : "lives"} left`);
       }
       if (next.status !== "playing") {
         // Let the tile flip and board-level effect breathe before the result splash covers it.
@@ -469,10 +474,24 @@ export default function Game({
                 Puzzle #{(state as GameState | null)?.puzzleNumber ?? "—"}
               </span>
             )}
+            {mode === "mega" && (
+              <span
+                className="border-tileborder text-muted rounded border px-2 py-1 tabular-nums"
+                title="Lives remaining"
+              >
+                ❤️ {(state as MegaGameState | null)?.livesRemaining ?? 3}
+              </span>
+            )}
             <span className="border-tileborder text-muted rounded border px-2 py-1">
               💣{" "}
               {mode === "mega"
-                ? "12"
+                ? Math.max(
+                    0,
+                    12 -
+                      ((state as MegaGameState | null)?.clicks.filter(
+                        (click) => click.result === "bomb",
+                      ).length ?? 0),
+                  )
                 : state && state.date < FIXED_BOMB_COUNT_FROM
                   ? "3–5"
                   : "3"}{" "}
@@ -550,7 +569,9 @@ export default function Game({
             <p className="text-center font-bold">
               {state.status === "won"
                 ? `You found it in ${state.score} ${state.score === 1 ? "click" : "clicks"}! ✓`
-                : `💥 Boom! The check mark got away${mode === "mega" ? "." : " today."}`}
+                : mode === "mega"
+                  ? "💥 Out of lives! The check mark got away."
+                  : "💥 Boom! The check mark got away today."}
             </p>
             <div className="flex w-full items-center">
               <div

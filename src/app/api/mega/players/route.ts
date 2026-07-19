@@ -3,6 +3,7 @@ import { recordBitesweeperPresence } from "@/lib/bitesweeper-presence";
 import { activityInstanceIdFromRequest, discordAvatarUrl, playerDate } from "@/lib/discord";
 import { resolveUser } from "@/lib/identity";
 import { getStore } from "@/lib/store";
+import { megaLivesRemaining } from "@/lib/game-mega";
 import type { BitesweeperPlayer } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest) {
       score: row.score,
       clicks: row.clicks,
       flags: row.flags,
+      livesRemaining: megaLivesRemaining(row.clicks),
     }));
   return NextResponse.json({ players });
 }

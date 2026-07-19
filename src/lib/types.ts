@@ -114,6 +114,7 @@ export interface MegaGameState {
   score: number | null;
   clicks: MegaClickRecord[];
   flags: number[];
+  livesRemaining: number;
   nextResetAt: number;
   layout?: MegaCellResult[];
 }
@@ -126,8 +127,11 @@ export interface BitesweeperPlayer {
   score: number | null;
   clicks: MegaClickRecord[];
   flags: number[];
+  livesRemaining: number;
 }
 
 export const MEGA_BOARD_COLS = 10;
 export const MEGA_BOARD_SIZE = 100;
 export const MEGA_BOMB_COUNT = 12;
+export const MEGA_STARTING_LIVES = 3;
+export const MEGA_SAFE_CELL_COUNT = MEGA_BOARD_SIZE - MEGA_BOMB_COUNT - 1;

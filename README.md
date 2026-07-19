@@ -24,12 +24,16 @@ hiding too, and one wrong click ends your day.
 
 ## Bitesweeper
 
-The **Bitesweeper** tab is a replayable 10×10 variant with 12 bombs and one
+**Bitesweeper** is a replayable 10×10 variant with 12 bombs and one
 check mark. Safe tiles reveal how many bombs-or-checks sit directly above,
 below, left, or right; diagonals do not count. Bitesweeper is deliberately
 game-only: it has Play again and Share, but no statistics or leaderboards.
-Right-clicking an unrevealed square toggles a 🚩 without revealing it; a
-flagged square must be unflagged before it can be opened.
+Players start each board with three lives, and each revealed bomb removes one;
+the third bomb ends the run. Right-clicking an unrevealed square—or pressing
+and holding it on mobile—toggles a 🚩 without revealing it; a flagged square
+must be unflagged before it can be opened. Revealing all 87 numbered squares
+without hitting a bomb or the check automatically reveals the check and wins
+the board with a score of 87 clicks.
 
 In Discord, `/bitesweeper` launches an Activity locked to Bitesweeper. `/play`
 and `/bitedle` remain locked to Classic, and embedded Activities never show the
@@ -129,7 +133,7 @@ never on the public website's, and never on another server's
 ### Slash commands: `/play`, `/bitedle`, `/bitesweeper`, `/share`, and `/results`
 
 `/play` and `/bitedle` launch Classic. `/bitesweeper` launches the game-only
-10×10 mode, with no preview, recap, statistics, or leaderboards. `/share`
+10×10 mode with its own live preview, but no recap, statistics, or leaderboards. `/share`
 posts one Classic result; `/results` posts the whole server's Classic results
 image. A few different mechanisms are involved:
 
@@ -152,8 +156,8 @@ image. A few different mechanisms are involved:
   replies with interaction response type `12` (`LAUNCH_ACTIVITY`) to launch
   the Activity, and likewise refreshes the live preview.
 - **`/bitesweeper`** is another ordinary `CHAT_INPUT` command. It launches the
-  same Activity root in Bitesweeper mode, but intentionally skips every live
-  preview, recap, stats, and results path. The booting Activity instance is
+  same Activity root in Bitesweeper mode with an independent live preview, but
+  intentionally skips every Classic recap, stats, and results path. The booting Activity instance is
   permanently mode-bound so all participants and late joiners see the same
   game.
 - **`/share`** posts that player's already-finished result for today's
