@@ -28,6 +28,8 @@ The **Bitesweeper** tab is a replayable 10×10 variant with 12 bombs and one
 check mark. Safe tiles reveal how many bombs-or-checks sit directly above,
 below, left, or right; diagonals do not count. Bitesweeper is deliberately
 game-only: it has Play again and Share, but no statistics or leaderboards.
+Right-clicking an unrevealed square toggles a 🚩 without revealing it; a
+flagged square must be unflagged before it can be opened.
 
 In Discord, `/bitesweeper` launches an Activity locked to Bitesweeper. `/play`
 and `/bitedle` remain locked to Classic, and embedded Activities never show the
@@ -189,6 +191,15 @@ behavior other activity apps like Wordle show). The image render and
 post/edit run in a Next.js
 [`after()`](https://nextjs.org/docs/app/api-reference/functions/after)
 callback so they never delay the launch or click response.
+
+`/bitesweeper` uses its own independent live preview record and renderer. The
+launch interaction posts a gray 10×10 placeholder immediately; once the
+Activity identifies its instance, state/click/flag/replay requests edit that same
+message with every active player's real revealed tile positions. Unclicked
+tiles remain gray, while numbers, bombs, and checks use the in-game colors.
+The message includes a **Play now!** button that launches or joins the bound
+Bitesweeper Activity. Nothing in this preview shares Classic branding, board
+data, or message state.
 
 Run both scripts locally (not from Vercel — one-time admin actions, not
 part of the deployed app):

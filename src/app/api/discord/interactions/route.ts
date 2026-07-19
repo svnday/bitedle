@@ -8,6 +8,13 @@ import { renderSummaryImage, sortTodayRows } from "@/lib/discord-summary";
 import { LAUNCH_BUTTON_ID, updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { isBlockedDiscordId } from "@/lib/discord";
 import { getStore } from "@/lib/store";
+import {
+  beginBitesweeperPreview,
+  updateBitesweeperPreview,
+  BITESWEEPER_LAUNCH_BUTTON_ID,
+  BITESWEEPER_WEBHOOK_TOKEN_TTL_MS,
+  type BitesweeperPreviewPlayer,
+} from "@/lib/bitesweeper-discord-preview";
 
 // Imports next/og (via discord-summary) for the preview image — needs Node.
 export const runtime = "nodejs";
@@ -29,16 +36,62 @@ function reply(content: string, ephemeral = false) {
   });
 }
 
+interface InteractionUser {
+  id?: string;
+  username?: string;
+  global_name?: string | null;
+  avatar?: string | null;
+}
+
 interface Interaction {
   type: number;
   data?: { name?: string; custom_id?: string };
-  member?: { user?: { id?: string } };
-  user?: { id?: string };
+  member?: { user?: InteractionUser };
+  user?: InteractionUser;
   channel_id?: string;
   guild_id?: string;
   /** Present on all interactions — needed for interaction-webhook posts/edits. */
   application_id?: string;
   token?: string;
+}
+
+function bitesweeperFallbackPlayers(body: Interaction): BitesweeperPreviewPlayer[] {
+  const interactionUser = body.member?.user ?? body.user;
+  return interactionUser?.id
+    ? [{
+        userId: interactionUser.id,
+        date: todayStr(),
+        name: interactionUser.global_name ?? interactionUser.username ?? "A player",
+        discordUserId: interactionUser.id,
+        discordAvatar: interactionUser.avatar ?? null,
+        clicks: [],
+        flags: [],
+      }]
+    : [];
+}
+
+async function startBitesweeperPreview(
+  body: Interaction,
+  onlyIfStale = false,
+): Promise<void> {
+  if (!body.guild_id || !body.application_id || !body.token) return;
+  if (onlyIfStale) {
+    const existing = await getStore().getBitesweeperPreview(body.guild_id);
+    if (existing && Date.now() - existing.tokenCreatedAt < BITESWEEPER_WEBHOOK_TOKEN_TTL_MS) {
+      return;
+    }
+  }
+  await beginBitesweeperPreview({
+    guildId: body.guild_id,
+    interaction: { applicationId: body.application_id, token: body.token },
+  });
+  const guildId = body.guild_id;
+  const fallbackPlayers = bitesweeperFallbackPlayers(body);
+  after(() =>
+    updateBitesweeperPreview({ guildId, fallbackPlayers }).catch((e) => {
+      console.error(`interactions: Bitesweeper preview failed for guild ${guildId}`, e);
+    }),
+  );
 }
 
 async function handleShare(body: Interaction): Promise<NextResponse> {
@@ -220,8 +273,8 @@ export async function POST(request: NextRequest) {
   if (body?.type === 2 && body?.data?.name === "bitesweeper") {
     // Bitesweeper launch: park a channel-keyed marker the booting Activity
     // instance claims via /api/activity/mode. Awaited, not after() —
-    // serverless. Deliberately NOT launchActivity(): Bitesweeper has no
-    // live preview, recap, or any other embed machinery.
+    // serverless. Its channel preview is separate from Classic's preview and
+    // starts as a gray board, then the Activity state/click routes edit it.
     if (body.channel_id) {
       try {
         await getStore().markBitesweeperLaunch(body.channel_id, Date.now());
@@ -229,7 +282,25 @@ export async function POST(request: NextRequest) {
         console.warn("interactions: failed to mark Bitesweeper launch", e);
       }
     }
+    await startBitesweeperPreview(body);
     return NextResponse.json({ type: 12 }); // LAUNCH_ACTIVITY
+  }
+
+  if (body?.type === 3 && body?.data?.custom_id === BITESWEEPER_LAUNCH_BUTTON_ID) {
+    if (body.channel_id) {
+      const preview = body.guild_id
+        ? await getStore().getBitesweeperPreview(body.guild_id)
+        : null;
+      await getStore().markBitesweeperLaunch(
+        body.channel_id,
+        Date.now(),
+        preview?.instanceId ?? null,
+      );
+    }
+    // A fresh preview can keep using its original webhook token. An old
+    // button starts a new editable preview message with this interaction.
+    await startBitesweeperPreview(body, true);
+    return NextResponse.json({ type: 12 });
   }
 
   if (body?.type === 3 && body?.data?.custom_id === LAUNCH_BUTTON_ID) {

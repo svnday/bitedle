@@ -240,7 +240,7 @@ export async function postImageWebhookFollowup(opts: {
   form.append("files[0]", new Blob([opts.pngBuffer], { type: "image/png" }), filename);
 
   const res = await fetch(
-    `https://discord.com/api/v10/webhooks/${opts.applicationId}/${opts.webhookToken}`,
+    `${discordApiBaseUrl()}/webhooks/${opts.applicationId}/${opts.webhookToken}`,
     { method: "POST", body: form }, // token authenticates via the URL; fetch sets the multipart boundary
   );
 
@@ -259,24 +259,33 @@ export async function patchImageWebhookMessage(opts: {
   pngBuffer: ArrayBuffer;
   content: string;
   components?: unknown[];
+  filename?: string;
 }): Promise<{ ok: boolean; status: number; body: string }> {
   const form = new FormData();
+  const filename = opts.filename ?? "preview.png";
   form.append(
     "payload_json",
     JSON.stringify({
       content: opts.content,
       // Replace the previous attachment set with the fresh image.
-      attachments: [{ id: 0, filename: "preview.png" }],
+      attachments: [{ id: 0, filename }],
       ...(opts.components ? { components: opts.components } : {}),
       allowed_mentions: { parse: [] },
     }),
   );
-  form.append("files[0]", new Blob([opts.pngBuffer], { type: "image/png" }), "preview.png");
+  form.append("files[0]", new Blob([opts.pngBuffer], { type: "image/png" }), filename);
 
   const res = await fetch(
-    `https://discord.com/api/v10/webhooks/${opts.applicationId}/${opts.webhookToken}/messages/${opts.messageId}`,
+    `${discordApiBaseUrl()}/webhooks/${opts.applicationId}/${opts.webhookToken}/messages/${opts.messageId}`,
     { method: "PATCH", body: form },
   );
 
   return { ok: res.ok, status: res.status, body: res.ok ? "" : await res.text() };
+}
+
+function discordApiBaseUrl(): string {
+  if (process.env.NODE_ENV !== "production" && process.env.BITEDLE_DISCORD_API_BASE_URL) {
+    return process.env.BITEDLE_DISCORD_API_BASE_URL.replace(/\/$/, "");
+  }
+  return "https://discord.com/api/v10";
 }

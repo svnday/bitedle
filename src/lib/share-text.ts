@@ -31,7 +31,6 @@ export function shareText(game: {
 }
 
 export function megaShareText(game: {
-  puzzleNumber: number;
   status: GameStatus;
   totalClicks: number;
 }): string {
@@ -40,5 +39,5 @@ export function megaShareText(game: {
     game.status === "won"
       ? `10×10 — found in ${totalClicks} ✅`
       : `10×10 — boom in ${totalClicks} 💥`;
-  return `Bitesweeper #${game.puzzleNumber}\n${scoreLine}`;
+  return `Bitesweeper\n${scoreLine}`;
 }

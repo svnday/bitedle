@@ -95,21 +95,25 @@ export interface MegaClickRecord {
 
 export interface MegaGameRecord {
   clicks: MegaClickRecord[];
+  /** Hidden cells the player marked as possible bombs. */
+  flags: number[];
   status: GameStatus;
   score: number | null;
   finishedAt: number | null;
   /** Null for original daily boards; random per replayed Bitesweeper board. */
   boardSeed: string | null;
+  /** Discord Activity that owns this private board; null for plain web play. */
+  activityInstanceId: string | null;
 }
 
 export interface MegaGameState {
   date: string;
-  puzzleNumber: number;
   username: string;
   named: boolean;
   status: GameStatus;
   score: number | null;
   clicks: MegaClickRecord[];
+  flags: number[];
   nextResetAt: number;
   layout?: MegaCellResult[];
 }
@@ -121,6 +125,7 @@ export interface BitesweeperPlayer {
   status: GameStatus;
   score: number | null;
   clicks: MegaClickRecord[];
+  flags: number[];
 }
 
 export const MEGA_BOARD_COLS = 10;

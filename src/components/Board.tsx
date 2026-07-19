@@ -4,6 +4,7 @@ import type { CellResult, ClickRecord, MegaCellResult, MegaClickRecord } from "@
 
 interface BoardProps {
   clicks: (ClickRecord | MegaClickRecord)[];
+  flags?: number[];
   /** The full board once the game is over; unclicked tiles reveal dimmed. */
   layout: (CellResult | MegaCellResult)[] | null;
   cols?: 5 | 10;
@@ -11,6 +12,7 @@ interface BoardProps {
   shakingIndex?: number | null;
   effect?: "bomb" | "check" | null;
   onCellClick: (index: number) => void;
+  onCellFlag?: (index: number) => void;
 }
 
 const CLASSIC_BACK_FACE: Record<
@@ -71,14 +73,17 @@ const GRID_COLS = { 5: "grid-cols-5", 10: "grid-cols-10" } as const;
 
 export default function Board({
   clicks,
+  flags = [],
   layout,
   cols = 5,
   disabled,
   shakingIndex = null,
   effect = null,
   onCellClick,
+  onCellFlag,
 }: BoardProps) {
   const clicked = new Map(clicks.map((c) => [c.index, c.result]));
+  const flagged = new Set(flags);
   const dense = cols === 10;
   const size = cols * cols;
 
@@ -96,6 +101,7 @@ export default function Board({
           const row = Math.floor(i / cols) + 1;
           const col = (i % cols) + 1;
           const face = result !== undefined ? backFace(result, dense) : null;
+          const isFlagged = result === undefined && flagged.has(i);
           return (
             <div
               key={i}
@@ -107,10 +113,20 @@ export default function Board({
                 type="button"
                 className="relative h-full w-full cursor-pointer disabled:cursor-default"
                 disabled={disabled || result !== undefined}
-                onClick={() => onCellClick(i)}
+                onClick={() => {
+                  if (!isFlagged) onCellClick(i);
+                }}
+                onContextMenu={(event) => {
+                  if (!onCellFlag || disabled || result !== undefined) return;
+                  event.preventDefault();
+                  onCellFlag(i);
+                }}
+                aria-pressed={onCellFlag ? isFlagged : undefined}
                 aria-label={
                   face
                     ? `Row ${row}, column ${col}: ${face.label}${isDim ? " (not clicked)" : ""}`
+                    : isFlagged
+                      ? `Row ${row}, column ${col}: flagged as a possible bomb`
                     : `Row ${row}, column ${col}: hidden`
                 }
               >
@@ -118,7 +134,13 @@ export default function Board({
                   className="tile-inner"
                   style={isDim ? { transitionDelay: `${i * (dense ? 8 : 30)}ms` } : undefined}
                 >
-                  <div className="tile-face tile-front bg-surface" />
+                  <div className="tile-face tile-front bg-surface">
+                    {isFlagged && (
+                      <span className={`${dense ? "text-base" : "text-xl"}`} aria-hidden>
+                        🚩
+                      </span>
+                    )}
+                  </div>
                   {face && (
                     <div className={`tile-face tile-back ${face.className}`}>
                       {face.glyph}

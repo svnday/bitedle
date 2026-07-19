@@ -145,6 +145,27 @@ export default function BitesweeperGame() {
     }
   };
 
+  const handleFlag = async (index: number) => {
+    if (!state || state.status !== "playing" || busy) return;
+    if (state.clicks.some((click) => click.index === index)) return;
+    const previous = state;
+    const nextFlags = state.flags.includes(index)
+      ? state.flags.filter((flaggedIndex) => flaggedIndex !== index)
+      : [...state.flags, index];
+    setState({ ...state, flags: nextFlags });
+    setBusy(true);
+    try {
+      const next = await api.megaFlag(index);
+      setState(next);
+      void refreshPlayers();
+    } catch (error) {
+      setState(previous);
+      toast(error instanceof Error ? error.message : "Couldn't update the flag");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handlePlayAgain = useCallback(async () => {
     if (busy) return;
     setBusy(true);
@@ -172,7 +193,6 @@ export default function BitesweeperGame() {
     if (!state) return;
     const ok = await copyToClipboard(
       megaShareText({
-        puzzleNumber: state.puzzleNumber,
         status: state.status,
         totalClicks: state.clicks.length,
       }),
@@ -200,10 +220,7 @@ export default function BitesweeperGame() {
       </header>
 
       <main className="flex w-full max-w-3xl flex-1 flex-col items-center gap-5 px-4 py-6">
-        <div className="flex w-full max-w-[440px] items-center justify-between gap-2 text-xs">
-          <span className="border-tileborder text-muted rounded border px-2 py-1">
-            Puzzle #{state?.puzzleNumber ?? "—"}
-          </span>
+        <div className="flex w-full max-w-[440px] items-center justify-center gap-2 text-xs">
           <span className="border-tileborder text-muted rounded border px-2 py-1">
             💣 12 hidden
           </span>
@@ -217,11 +234,13 @@ export default function BitesweeperGame() {
           <Board
             cols={10}
             clicks={state?.clicks ?? []}
+            flags={state?.flags ?? []}
             layout={state?.layout ?? null}
             disabled={busy || finished || !state}
             shakingIndex={shakingIndex}
             effect={boardEffect}
             onCellClick={handleCell}
+            onCellFlag={handleFlag}
           />
         </div>
 
@@ -316,11 +335,20 @@ function PlayersPanel({ players }: { players: BitesweeperPlayer[] }) {
 
 function MiniBoard({ player }: { player: BitesweeperPlayer }) {
   const clicked = new Map(player.clicks.map((click) => [click.index, click.result]));
+  const flagged = new Set(player.flags);
   return (
     <div className="grid grid-cols-10 gap-px" aria-label={`${player.name}'s Bitesweeper board`}>
       {Array.from({ length: 100 }, (_, index) => {
         const result = clicked.get(index);
-        return <span key={index} className={`aspect-square rounded-[1px] ${miniCellClass(result)}`} />;
+        const isFlagged = result === undefined && flagged.has(index);
+        return (
+          <span
+            key={index}
+            className={`flex aspect-square items-center justify-center rounded-[1px] text-[5px] ${miniCellClass(result)}`}
+          >
+            {isFlagged ? "🚩" : ""}
+          </span>
+        );
       })}
     </div>
   );

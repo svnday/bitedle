@@ -4,6 +4,7 @@ import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
   type BitesweeperPlayerRow,
+  type BitesweeperPreviewMessage,
   type FinishedGame,
   type LivePreviewMessage,
   type LivePreviewRow,
@@ -86,6 +87,8 @@ export class NeonStore implements Store {
           PRIMARY KEY (date, user_id)
         )`;
       await this.sql`ALTER TABLE games_mega ADD COLUMN IF NOT EXISTS board_seed text`;
+      await this.sql`ALTER TABLE games_mega ADD COLUMN IF NOT EXISTS flags jsonb NOT NULL DEFAULT '[]'`;
+      await this.sql`ALTER TABLE games_mega ADD COLUMN IF NOT EXISTS activity_instance_id text`;
       await this.sql`CREATE INDEX IF NOT EXISTS games_mega_user_idx ON games_mega (user_id)`;
       await this.sql`
         CREATE TABLE IF NOT EXISTS guild_channels (
@@ -101,6 +104,12 @@ export class NeonStore implements Store {
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS live_preview_token_created_at bigint`;
       // Server day the guild's daily recap was last posted for.
       await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS recap_posted_date text`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS bitesweeper_instance_id text`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS bitesweeper_application_id text`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS bitesweeper_webhook_token text`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS bitesweeper_token_created_at bigint`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS bitesweeper_message_id text`;
+      await this.sql`ALTER TABLE guild_channels ADD COLUMN IF NOT EXISTS bitesweeper_updated_at bigint`;
       // A /bitesweeper launch parks a marker on its channel; the Activity
       // instance that boots from it claims Bitesweeper mode (see the
       // /api/activity/mode route). One row per channel, deleted on claim.
@@ -109,6 +118,9 @@ export class NeonStore implements Store {
           channel_id text PRIMARY KEY,
           created_at bigint NOT NULL
         )`;
+      await this.sql`
+        ALTER TABLE bitesweeper_launch_markers
+        ADD COLUMN IF NOT EXISTS expected_instance_id text`;
       // Which game mode each Activity instance is locked to, so every
       // participant (including late joiners) sees the same board type.
       await this.sql`
@@ -401,29 +413,36 @@ export class NeonStore implements Store {
   async getMegaGame(date: string, userId: string): Promise<MegaGameRecord | null> {
     await this.ensureSchema();
     const rows = await this.sql`
-      SELECT clicks, status, score, finished_at, board_seed
+      SELECT clicks, flags, status, score, finished_at, board_seed, activity_instance_id
       FROM games_mega WHERE date = ${date} AND user_id = ${userId}`;
     if (rows.length === 0) return null;
     const row = rows[0];
     return {
       clicks: row.clicks as MegaGameRecord["clicks"],
+      flags: row.flags as number[],
       status: row.status as MegaGameRecord["status"],
       score: row.score === null ? null : Number(row.score),
       finishedAt: row.finished_at === null ? null : Number(row.finished_at),
       boardSeed: row.board_seed as string | null,
+      activityInstanceId: row.activity_instance_id as string | null,
     };
   }
 
   async putMegaGame(date: string, userId: string, game: MegaGameRecord): Promise<void> {
     await this.ensureSchema();
     await this.sql`
-      INSERT INTO games_mega (date, user_id, clicks, status, score, finished_at, board_seed)
+      INSERT INTO games_mega (
+        date, user_id, clicks, flags, status, score, finished_at, board_seed,
+        activity_instance_id
+      )
       VALUES (${date}, ${userId}, ${JSON.stringify(game.clicks)}::jsonb,
-              ${game.status}, ${game.score}, ${game.finishedAt}, ${game.boardSeed})
+              ${JSON.stringify(game.flags)}::jsonb, ${game.status}, ${game.score},
+              ${game.finishedAt}, ${game.boardSeed}, ${game.activityInstanceId})
       ON CONFLICT (date, user_id) DO UPDATE
       SET clicks = EXCLUDED.clicks, status = EXCLUDED.status,
-          score = EXCLUDED.score, finished_at = EXCLUDED.finished_at,
-          board_seed = EXCLUDED.board_seed
+          flags = EXCLUDED.flags, score = EXCLUDED.score, finished_at = EXCLUDED.finished_at,
+          board_seed = EXCLUDED.board_seed,
+          activity_instance_id = EXCLUDED.activity_instance_id
       WHERE games_mega.status = 'playing'`;
   }
 
@@ -431,11 +450,34 @@ export class NeonStore implements Store {
     await this.ensureSchema();
     const rows = await this.sql`
       UPDATE games_mega
-      SET clicks = '[]'::jsonb, status = 'playing', score = NULL,
+      SET clicks = '[]'::jsonb, flags = '[]'::jsonb, status = 'playing', score = NULL,
           finished_at = NULL, board_seed = ${boardSeed}
       WHERE date = ${date} AND user_id = ${userId} AND status <> 'playing'
       RETURNING user_id`;
     return rows.length === 1;
+  }
+
+  async startMegaGameForInstance(
+    date: string,
+    userId: string,
+    instanceId: string,
+    boardSeed: string,
+  ): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO games_mega (
+        date, user_id, clicks, flags, status, score, finished_at, board_seed,
+        activity_instance_id
+      )
+      VALUES (
+        ${date}, ${userId}, '[]'::jsonb, '[]'::jsonb, 'playing', NULL, NULL,
+        ${boardSeed}, ${instanceId}
+      )
+      ON CONFLICT (date, user_id) DO UPDATE
+      SET clicks = '[]'::jsonb, flags = '[]'::jsonb, status = 'playing',
+          score = NULL, finished_at = NULL, board_seed = EXCLUDED.board_seed,
+          activity_instance_id = EXCLUDED.activity_instance_id
+      WHERE games_mega.activity_instance_id IS DISTINCT FROM EXCLUDED.activity_instance_id`;
   }
 
   async recordBitesweeperPresence(
@@ -458,34 +500,149 @@ export class NeonStore implements Store {
   ): Promise<BitesweeperPlayerRow[]> {
     await this.ensureSchema();
     const rows = await this.sql`
-      SELECT p.user_id, u.name, u.discord_user_id, u.discord_avatar,
+      SELECT p.user_id, p.date, u.name, u.discord_user_id, u.discord_avatar,
              COALESCE(g.status, 'playing') AS status, g.score,
-             COALESCE(g.clicks, '[]'::jsonb) AS clicks, p.seen_at
+             COALESCE(g.clicks, '[]'::jsonb) AS clicks,
+             COALESCE(g.flags, '[]'::jsonb) AS flags, p.seen_at
       FROM bitesweeper_presence p
       JOIN users u ON u.id = p.user_id
       LEFT JOIN games_mega g ON g.date = p.date AND g.user_id = p.user_id
       WHERE p.instance_id = ${instanceId}
         AND p.seen_at >= ${activeSince}
         AND u.discord_user_id IS NOT NULL
+        AND (g.activity_instance_id = p.instance_id OR g.activity_instance_id IS NULL)
       ORDER BY p.seen_at ASC`;
     return rows.map((row) => ({
       userId: row.user_id as string,
+      date: row.date as string,
       name: row.name as string,
       discordUserId: row.discord_user_id as string | null,
       discordAvatar: row.discord_avatar as string | null,
       status: row.status as BitesweeperPlayerRow["status"],
       score: row.score === null ? null : Number(row.score),
       clicks: row.clicks as BitesweeperPlayerRow["clicks"],
+      flags: row.flags as number[],
       seenAt: Number(row.seen_at),
     }));
   }
 
-  async markBitesweeperLaunch(channelId: string, at: number): Promise<void> {
+  async getBitesweeperPreview(guildId: string): Promise<BitesweeperPreviewMessage | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT bitesweeper_instance_id, bitesweeper_application_id,
+             bitesweeper_webhook_token, bitesweeper_token_created_at,
+             bitesweeper_message_id, bitesweeper_updated_at
+      FROM guild_channels WHERE guild_id = ${guildId}`;
+    if (
+      rows.length === 0 ||
+      rows[0].bitesweeper_application_id === null ||
+      rows[0].bitesweeper_webhook_token === null
+    ) return null;
+    return {
+      guildId,
+      instanceId: rows[0].bitesweeper_instance_id as string | null,
+      applicationId: rows[0].bitesweeper_application_id as string,
+      webhookToken: rows[0].bitesweeper_webhook_token as string,
+      tokenCreatedAt: Number(rows[0].bitesweeper_token_created_at ?? 0),
+      messageId: rows[0].bitesweeper_message_id as string | null,
+      updatedAt: Number(rows[0].bitesweeper_updated_at ?? 0),
+    };
+  }
+
+  async setBitesweeperPreview(message: BitesweeperPreviewMessage): Promise<void> {
     await this.ensureSchema();
     await this.sql`
-      INSERT INTO bitesweeper_launch_markers (channel_id, created_at)
-      VALUES (${channelId}, ${at})
-      ON CONFLICT (channel_id) DO UPDATE SET created_at = EXCLUDED.created_at`;
+      UPDATE guild_channels
+      SET bitesweeper_instance_id = ${message.instanceId},
+          bitesweeper_application_id = ${message.applicationId},
+          bitesweeper_webhook_token = ${message.webhookToken},
+          bitesweeper_token_created_at = ${message.tokenCreatedAt},
+          bitesweeper_message_id = ${message.messageId},
+          bitesweeper_updated_at = ${message.updatedAt}
+      WHERE guild_id = ${message.guildId}`;
+  }
+
+  async bindBitesweeperPreviewInstance(
+    guildId: string,
+    tokenCreatedAt: number,
+    instanceId: string,
+  ): Promise<boolean> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      UPDATE guild_channels SET bitesweeper_instance_id = ${instanceId}
+      WHERE guild_id = ${guildId}
+        AND bitesweeper_token_created_at = ${tokenCreatedAt}
+        AND (bitesweeper_instance_id IS NULL OR bitesweeper_instance_id = ${instanceId})
+      RETURNING guild_id`;
+    return rows.length === 1;
+  }
+
+  async claimBitesweeperPreviewPost(
+    guildId: string,
+    tokenCreatedAt: number,
+  ): Promise<boolean> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      UPDATE guild_channels SET bitesweeper_message_id = ${LIVE_PREVIEW_POSTING}
+      WHERE guild_id = ${guildId}
+        AND bitesweeper_token_created_at = ${tokenCreatedAt}
+        AND bitesweeper_message_id IS NULL
+      RETURNING guild_id`;
+    return rows.length === 1;
+  }
+
+  async completeBitesweeperPreviewPost(
+    guildId: string,
+    tokenCreatedAt: number,
+    messageId: string,
+    updatedAt: number,
+  ): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      UPDATE guild_channels
+      SET bitesweeper_message_id = ${messageId}, bitesweeper_updated_at = ${updatedAt}
+      WHERE guild_id = ${guildId}
+        AND bitesweeper_token_created_at = ${tokenCreatedAt}
+        AND bitesweeper_message_id = ${LIVE_PREVIEW_POSTING}`;
+  }
+
+  async releaseBitesweeperPreviewPost(
+    guildId: string,
+    tokenCreatedAt: number,
+  ): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      UPDATE guild_channels SET bitesweeper_message_id = NULL
+      WHERE guild_id = ${guildId}
+        AND bitesweeper_token_created_at = ${tokenCreatedAt}
+        AND bitesweeper_message_id = ${LIVE_PREVIEW_POSTING}`;
+  }
+
+  async clearBitesweeperPreviewMessageId(
+    guildId: string,
+    tokenCreatedAt: number,
+    messageId: string,
+  ): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      UPDATE guild_channels SET bitesweeper_message_id = NULL
+      WHERE guild_id = ${guildId}
+        AND bitesweeper_token_created_at = ${tokenCreatedAt}
+        AND bitesweeper_message_id = ${messageId}`;
+  }
+
+  async markBitesweeperLaunch(
+    channelId: string,
+    at: number,
+    expectedInstanceId: string | null = null,
+  ): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO bitesweeper_launch_markers (channel_id, created_at, expected_instance_id)
+      VALUES (${channelId}, ${at}, ${expectedInstanceId})
+      ON CONFLICT (channel_id) DO UPDATE
+      SET created_at = EXCLUDED.created_at,
+          expected_instance_id = EXCLUDED.expected_instance_id`;
   }
 
   async resolveActivityMode(
@@ -508,7 +665,13 @@ export class NeonStore implements Store {
           DELETE FROM bitesweeper_launch_markers
           WHERE channel_id = ${channelId}
             AND created_at >= ${freshMarkerSince}
-            AND NOT EXISTS (SELECT 1 FROM existing)
+            AND (
+              NOT EXISTS (SELECT 1 FROM existing)
+              OR (
+                expected_instance_id = ${instanceId}
+                AND EXISTS (SELECT 1 FROM existing WHERE mode = 'mega')
+              )
+            )
           RETURNING channel_id
         ), inserted AS (
           INSERT INTO activity_modes (instance_id, mode, created_at)

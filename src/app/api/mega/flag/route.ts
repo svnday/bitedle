@@ -5,7 +5,7 @@ import {
   playerDate,
   playerTimeZone,
 } from "@/lib/discord";
-import { megaLayoutFor, megaStateFor } from "@/lib/game-mega";
+import { megaStateFor } from "@/lib/game-mega";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { getStore } from "@/lib/store";
 import { MEGA_BOARD_SIZE, type MegaGameRecord } from "@/lib/types";
@@ -43,58 +43,36 @@ export async function POST(request: NextRequest) {
     boardSeed: null,
     activityInstanceId: null,
   };
-
   if (game.status !== "playing") {
     return attachIdentity(
-      NextResponse.json(
-        {
-          error: "This Bitesweeper board is finished. Choose Play again for a fresh board.",
-          state: await megaStateFor(identity.id, date, timeZone),
-        },
-        { status: 409 },
-      ),
+      NextResponse.json({ error: "This Bitesweeper board is already finished." }, { status: 409 }),
       identity,
     );
   }
   if (game.clicks.some((click) => click.index === index)) {
     return attachIdentity(
-      NextResponse.json({ error: "Cell already revealed" }, { status: 409 }),
-      identity,
-    );
-  }
-  if (game.flags.includes(index)) {
-    return attachIdentity(
-      NextResponse.json({ error: "Remove the flag before revealing this square." }, { status: 409 }),
+      NextResponse.json({ error: "Revealed squares can't be flagged." }, { status: 409 }),
       identity,
     );
   }
 
-  const result = megaLayoutFor(date, game.boardSeed ?? null)[index];
-  game.clicks.push({ index, result });
-  if (result === "bomb") {
-    game.status = "lost";
-    game.finishedAt = Date.now();
-  } else if (result === "check") {
-    game.status = "won";
-    game.score = game.clicks.length;
-    game.finishedAt = Date.now();
-  }
+  game.flags = game.flags.includes(index)
+    ? game.flags.filter((flaggedIndex) => flaggedIndex !== index)
+    : [...game.flags, index].sort((a, b) => a - b);
   await store.putMegaGame(date, identity.id, game);
   await recordBitesweeperPresence(request, store, identity.id, date);
+
   const guildId = guildIdFromRequest(request);
   if (guildId && instanceId) {
     after(() =>
       updateBitesweeperPreview({ guildId, instanceId }).catch((e) => {
-        console.error(`mega-click: preview update failed for guild ${guildId}`, e);
+        console.error(`mega-flag: preview update failed for guild ${guildId}`, e);
       }),
     );
   }
 
   return attachIdentity(
-    NextResponse.json({
-      result,
-      state: await megaStateFor(identity.id, date, timeZone),
-    }),
+    NextResponse.json(await megaStateFor(identity.id, date, timeZone)),
     identity,
   );
 }

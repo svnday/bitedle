@@ -112,6 +112,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ index }),
     }),
+  megaFlag: (index: number) =>
+    request<MegaGameState>("/api/mega/flag", {
+      method: "POST",
+      body: JSON.stringify({ index }),
+    }),
   megaReplay: () =>
     request<MegaGameState>("/api/mega/replay", {
       method: "POST",

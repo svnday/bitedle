@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
       status: row.status,
       score: row.score,
       clicks: row.clicks,
+      flags: row.flags,
     }));
   return NextResponse.json({ players });
 }

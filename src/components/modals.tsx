@@ -673,13 +673,24 @@ export function HelpModal({
           possible.
         </p>
         {mode === "mega" ? (
-          <div className="flex items-center gap-3">
-            <MiniTile kind="number" />
-            <p>
-              A number counts adjacent bombs or the check mark directly up, down, left, or right.
-              Diagonals do not count, and a 0 reveals only itself.
-            </p>
-          </div>
+          <>
+            <div className="flex items-center gap-3">
+              <MiniTile kind="number" />
+              <p>
+                A number counts adjacent bombs or the check mark directly up, down, left, or right.
+                Diagonals do not count, and a 0 reveals only itself.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="border-tileborder bg-surface flex h-11 w-11 shrink-0 items-center justify-center rounded border-2 text-xl">
+                🚩
+              </div>
+              <p>
+                Right-click a hidden square to flag a possible bomb. Flagged squares stay hidden and
+                cannot be revealed until you right-click them again.
+              </p>
+            </div>
+          </>
         ) : (
           <div className="flex items-center gap-3">
             <MiniTile kind="x" />

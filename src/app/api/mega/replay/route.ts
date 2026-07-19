@@ -1,10 +1,17 @@
 import crypto from "node:crypto";
-import { NextResponse, type NextRequest } from "next/server";
-import { isBlockedDiscordId, playerDate, playerTimeZone } from "@/lib/discord";
+import { NextResponse, type NextRequest, after } from "next/server";
+import {
+  activityInstanceIdFromRequest,
+  guildIdFromRequest,
+  isBlockedDiscordId,
+  playerDate,
+  playerTimeZone,
+} from "@/lib/discord";
 import { megaStateFor } from "@/lib/game-mega";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { getStore } from "@/lib/store";
 import { recordBitesweeperPresence } from "@/lib/bitesweeper-presence";
+import { updateBitesweeperPreview } from "@/lib/bitesweeper-discord-preview";
 
 export const runtime = "nodejs";
 
@@ -30,6 +37,15 @@ export async function POST(request: NextRequest) {
   }
 
   await recordBitesweeperPresence(request, store, identity.id, date);
+  const guildId = guildIdFromRequest(request);
+  const instanceId = activityInstanceIdFromRequest(request);
+  if (guildId && instanceId) {
+    after(() =>
+      updateBitesweeperPreview({ guildId, instanceId }).catch((e) => {
+        console.error(`mega-replay: preview update failed for guild ${guildId}`, e);
+      }),
+    );
+  }
 
   return attachIdentity(
     NextResponse.json(await megaStateFor(identity.id, date, timeZone)),

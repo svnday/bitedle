@@ -5,6 +5,7 @@ import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
   type BitesweeperPlayerRow,
+  type BitesweeperPreviewMessage,
   type FinishedGame,
   type LivePreviewMessage,
   type LivePreviewRow,
@@ -32,7 +33,10 @@ interface FileDb {
   launches: Record<string, Record<string, Record<string, number>>>;
   megaGames: Record<string, Record<string, MegaGameRecord>>;
   /** bitesweeperLaunches[channelId] = markedAt — pending /bitesweeper launches. */
-  bitesweeperLaunches: Record<string, number>;
+  bitesweeperLaunches: Record<
+    string,
+    number | { at: number; expectedInstanceId: string | null }
+  >;
   /** activityModes[instanceId] — the mode each Activity instance is locked to. */
   activityModes: Record<string, { mode: GameMode; createdAt: number }>;
   /** bitesweeperPresence[instanceId][userId] = the player's current board and heartbeat. */
@@ -53,6 +57,12 @@ interface FileDb {
       livePreviewMessageId?: string | null;
       livePreviewUpdatedAt?: number;
       recapPostedDate?: string | null;
+      bitesweeperInstanceId?: string | null;
+      bitesweeperApplicationId?: string;
+      bitesweeperWebhookToken?: string;
+      bitesweeperTokenCreatedAt?: number;
+      bitesweeperMessageId?: string | null;
+      bitesweeperUpdatedAt?: number;
     }
   >;
 }
@@ -304,14 +314,26 @@ export class FileStore implements Store {
 
   async getMegaGame(date: string, userId: string): Promise<MegaGameRecord | null> {
     const game = this.db.megaGames[date]?.[userId];
-    return game ? (JSON.parse(JSON.stringify(game)) as MegaGameRecord) : null;
+    return game
+      ? {
+          ...(JSON.parse(JSON.stringify(game)) as MegaGameRecord),
+          flags: game.flags ?? [],
+          activityInstanceId: game.activityInstanceId ?? null,
+        }
+      : null;
   }
 
   async putMegaGame(date: string, userId: string, game: MegaGameRecord): Promise<void> {
     const byUser = (this.db.megaGames[date] ??= {});
     const existing = byUser[userId];
     if (existing && existing.status !== "playing") return;
-    byUser[userId] = JSON.parse(JSON.stringify(game)) as MegaGameRecord;
+    byUser[userId] = JSON.parse(
+      JSON.stringify({
+        ...game,
+        flags: game.flags ?? [],
+        activityInstanceId: game.activityInstanceId ?? null,
+      }),
+    ) as MegaGameRecord;
     this.persist();
   }
 
@@ -320,13 +342,35 @@ export class FileStore implements Store {
     if (!game || game.status === "playing") return false;
     this.db.megaGames[date][userId] = {
       clicks: [],
+      flags: [],
       status: "playing",
       score: null,
       finishedAt: null,
       boardSeed,
+      activityInstanceId: game.activityInstanceId ?? null,
     };
     this.persist();
     return true;
+  }
+
+  async startMegaGameForInstance(
+    date: string,
+    userId: string,
+    instanceId: string,
+    boardSeed: string,
+  ): Promise<void> {
+    const byUser = (this.db.megaGames[date] ??= {});
+    if (byUser[userId]?.activityInstanceId === instanceId) return;
+    byUser[userId] = {
+      clicks: [],
+      flags: [],
+      status: "playing",
+      score: null,
+      finishedAt: null,
+      boardSeed,
+      activityInstanceId: instanceId,
+    };
+    this.persist();
   }
 
   async recordBitesweeperPresence(
@@ -351,22 +395,126 @@ export class FileStore implements Store {
       const user = this.db.users[userId];
       if (!user?.discordUserId) continue;
       const game = this.db.megaGames[presence.date]?.[userId];
+      if (game?.activityInstanceId && game.activityInstanceId !== instanceId) continue;
       out.push({
         userId,
+        date: presence.date,
         name: user.name,
         discordUserId: user.discordUserId,
         discordAvatar: user.discordAvatar ?? null,
         status: game?.status ?? "playing",
         score: game?.score ?? null,
         clicks: game?.clicks ?? [],
+        flags: game?.flags ?? [],
         seenAt: presence.seenAt,
       });
     }
     return out.sort((a, b) => a.seenAt - b.seenAt);
   }
 
-  async markBitesweeperLaunch(channelId: string, at: number): Promise<void> {
-    this.db.bitesweeperLaunches[channelId] = at;
+  async getBitesweeperPreview(guildId: string): Promise<BitesweeperPreviewMessage | null> {
+    const channel = this.db.guildChannels[guildId];
+    if (!channel?.bitesweeperApplicationId || !channel.bitesweeperWebhookToken) return null;
+    return {
+      guildId,
+      instanceId: channel.bitesweeperInstanceId ?? null,
+      applicationId: channel.bitesweeperApplicationId,
+      webhookToken: channel.bitesweeperWebhookToken,
+      tokenCreatedAt: channel.bitesweeperTokenCreatedAt ?? 0,
+      messageId: channel.bitesweeperMessageId ?? null,
+      updatedAt: channel.bitesweeperUpdatedAt ?? 0,
+    };
+  }
+
+  async setBitesweeperPreview(message: BitesweeperPreviewMessage): Promise<void> {
+    const channel = this.db.guildChannels[message.guildId];
+    if (!channel) return;
+    channel.bitesweeperInstanceId = message.instanceId;
+    channel.bitesweeperApplicationId = message.applicationId;
+    channel.bitesweeperWebhookToken = message.webhookToken;
+    channel.bitesweeperTokenCreatedAt = message.tokenCreatedAt;
+    channel.bitesweeperMessageId = message.messageId;
+    channel.bitesweeperUpdatedAt = message.updatedAt;
+    this.persist();
+  }
+
+  async bindBitesweeperPreviewInstance(
+    guildId: string,
+    tokenCreatedAt: number,
+    instanceId: string,
+  ): Promise<boolean> {
+    const channel = this.db.guildChannels[guildId];
+    if (
+      !channel ||
+      channel.bitesweeperTokenCreatedAt !== tokenCreatedAt ||
+      (channel.bitesweeperInstanceId && channel.bitesweeperInstanceId !== instanceId)
+    ) return false;
+    channel.bitesweeperInstanceId = instanceId;
+    this.persist();
+    return true;
+  }
+
+  async claimBitesweeperPreviewPost(guildId: string, tokenCreatedAt: number): Promise<boolean> {
+    const channel = this.db.guildChannels[guildId];
+    if (
+      !channel ||
+      channel.bitesweeperTokenCreatedAt !== tokenCreatedAt ||
+      channel.bitesweeperMessageId !== null
+    ) return false;
+    channel.bitesweeperMessageId = LIVE_PREVIEW_POSTING;
+    this.persist();
+    return true;
+  }
+
+  async completeBitesweeperPreviewPost(
+    guildId: string,
+    tokenCreatedAt: number,
+    messageId: string,
+    updatedAt: number,
+  ): Promise<void> {
+    const channel = this.db.guildChannels[guildId];
+    if (
+      channel?.bitesweeperTokenCreatedAt === tokenCreatedAt &&
+      channel.bitesweeperMessageId === LIVE_PREVIEW_POSTING
+    ) {
+      channel.bitesweeperMessageId = messageId;
+      channel.bitesweeperUpdatedAt = updatedAt;
+      this.persist();
+    }
+  }
+
+  async releaseBitesweeperPreviewPost(guildId: string, tokenCreatedAt: number): Promise<void> {
+    const channel = this.db.guildChannels[guildId];
+    if (
+      channel?.bitesweeperTokenCreatedAt === tokenCreatedAt &&
+      channel.bitesweeperMessageId === LIVE_PREVIEW_POSTING
+    ) {
+      channel.bitesweeperMessageId = null;
+      this.persist();
+    }
+  }
+
+  async clearBitesweeperPreviewMessageId(
+    guildId: string,
+    tokenCreatedAt: number,
+    messageId: string,
+  ): Promise<void> {
+    const channel = this.db.guildChannels[guildId];
+    if (
+      channel?.bitesweeperTokenCreatedAt === tokenCreatedAt &&
+      channel.bitesweeperMessageId === messageId
+    ) {
+      channel.bitesweeperMessageId = null;
+      this.persist();
+    }
+  }
+
+  async markBitesweeperLaunch(
+    channelId: string,
+    at: number,
+    expectedInstanceId: string | null = null,
+  ): Promise<void> {
+    this.db.bitesweeperLaunches[channelId] = { at, expectedInstanceId };
     this.persist();
   }
 
@@ -376,11 +524,21 @@ export class FileStore implements Store {
     freshMarkerSince: number,
   ): Promise<GameMode> {
     const existing = this.db.activityModes[instanceId];
+    const marker = channelId ? this.db.bitesweeperLaunches[channelId] : undefined;
+    const markedAt = typeof marker === "number" ? marker : marker?.at;
+    const expectedInstanceId = typeof marker === "number" ? null : marker?.expectedInstanceId;
+    const hasFreshMarker = markedAt !== undefined && markedAt >= freshMarkerSince;
+    if (
+      hasFreshMarker &&
+      channelId &&
+      (!existing || (existing.mode === "mega" && expectedInstanceId === instanceId))
+    ) {
+      delete this.db.bitesweeperLaunches[channelId];
+      this.persist();
+    }
     if (existing) return existing.mode;
 
-    const markedAt = channelId ? this.db.bitesweeperLaunches[channelId] : undefined;
-    const mode: GameMode = markedAt !== undefined && markedAt >= freshMarkerSince ? "mega" : "classic";
-    if (mode === "mega" && channelId) delete this.db.bitesweeperLaunches[channelId];
+    const mode: GameMode = hasFreshMarker ? "mega" : "classic";
     this.db.activityModes[instanceId] = { mode, createdAt: Date.now() };
     this.persist();
     return mode;

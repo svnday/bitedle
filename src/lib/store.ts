@@ -53,13 +53,26 @@ export interface LivePreviewRow {
 
 export interface BitesweeperPlayerRow {
   userId: string;
+  date: string;
   name: string;
   discordUserId: string | null;
   discordAvatar: string | null;
   status: GameStatus;
   score: number | null;
   clicks: MegaClickRecord[];
+  flags: number[];
   seenAt: number;
+}
+
+/** Editable Discord followup used for one running Bitesweeper Activity. */
+export interface BitesweeperPreviewMessage {
+  guildId: string;
+  instanceId: string | null;
+  applicationId: string;
+  webhookToken: string;
+  tokenCreatedAt: number;
+  messageId: string | null;
+  updatedAt: number;
 }
 
 export interface UserInfo {
@@ -136,6 +149,13 @@ export interface Store {
   putMegaGame(date: string, userId: string, game: MegaGameRecord): Promise<void>;
   /** Replaces a finished Bitesweeper game with a fresh playing board. */
   replayMegaGame(date: string, userId: string, boardSeed: string): Promise<boolean>;
+  /** Starts a private random board once per player per Discord Activity. */
+  startMegaGameForInstance(
+    date: string,
+    userId: string,
+    instanceId: string,
+    boardSeed: string,
+  ): Promise<void>;
   /** Refreshes a player's membership in one running Bitesweeper Activity. */
   recordBitesweeperPresence(
     instanceId: string,
@@ -148,9 +168,33 @@ export interface Store {
     instanceId: string,
     activeSince: number,
   ): Promise<BitesweeperPlayerRow[]>;
+  getBitesweeperPreview(guildId: string): Promise<BitesweeperPreviewMessage | null>;
+  setBitesweeperPreview(message: BitesweeperPreviewMessage): Promise<void>;
+  bindBitesweeperPreviewInstance(
+    guildId: string,
+    tokenCreatedAt: number,
+    instanceId: string,
+  ): Promise<boolean>;
+  claimBitesweeperPreviewPost(guildId: string, tokenCreatedAt: number): Promise<boolean>;
+  completeBitesweeperPreviewPost(
+    guildId: string,
+    tokenCreatedAt: number,
+    messageId: string,
+    updatedAt: number,
+  ): Promise<void>;
+  releaseBitesweeperPreviewPost(guildId: string, tokenCreatedAt: number): Promise<void>;
+  clearBitesweeperPreviewMessageId(
+    guildId: string,
+    tokenCreatedAt: number,
+    messageId: string,
+  ): Promise<void>;
   /** Records a /bitesweeper launch in a channel. The next unbound Activity
    *  instance that boots from this channel claims Bitesweeper mode. Upserts. */
-  markBitesweeperLaunch(channelId: string, at: number): Promise<void>;
+  markBitesweeperLaunch(
+    channelId: string,
+    at: number,
+    expectedInstanceId?: string | null,
+  ): Promise<void>;
   /** Resolves and permanently binds an Activity instance's mode. The marker
    *  claim and first binding are one atomic operation, so simultaneous
    *  participants cannot race a Bitesweeper launch back to Classic. */

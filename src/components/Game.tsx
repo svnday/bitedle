@@ -71,7 +71,6 @@ function usePrefersReducedMotion() {
 function gameShareText(state: GameState | MegaGameState, mode: GameMode): string {
   if (mode === "mega") {
     return megaShareText({
-      puzzleNumber: state.puzzleNumber,
       status: state.status,
       totalClicks: state.clicks.length,
     });
@@ -291,6 +290,26 @@ export default function Game({
     }
   };
 
+  const handleFlag = async (index: number) => {
+    if (mode !== "mega" || !state || state.status !== "playing" || busy) return;
+    const megaState = state as MegaGameState;
+    if (megaState.clicks.some((click) => click.index === index)) return;
+    const previous = megaState;
+    const flags = megaState.flags.includes(index)
+      ? megaState.flags.filter((flaggedIndex) => flaggedIndex !== index)
+      : [...megaState.flags, index];
+    setState({ ...megaState, flags });
+    setBusy(true);
+    try {
+      setState(await api.megaFlag(index));
+    } catch (e) {
+      setState(previous);
+      toast(e instanceof Error ? e.message : "Couldn't update the flag");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openChannelStats = useCallback(() => {
     setModal("channelStats");
     if (guildEntries === null && channelStats === null) {
@@ -331,7 +350,7 @@ export default function Game({
     return (
       <>
         <WelcomeBackScreen
-          puzzleNumber={state?.puzzleNumber ?? 0}
+          puzzleNumber={(state as GameState | null)?.puzzleNumber ?? 0}
           date={state?.date ?? ""}
           firstTry={state?.status === "won" && state?.score === 1}
           onChannelStats={openChannelStats}
@@ -445,9 +464,11 @@ export default function Game({
           }`}
         >
           <div className="flex items-center gap-2">
-            <span className="border-tileborder text-muted rounded border px-2 py-1">
-              Puzzle #{state?.puzzleNumber ?? "—"}
-            </span>
+            {mode === "classic" && (
+              <span className="border-tileborder text-muted rounded border px-2 py-1">
+                Puzzle #{(state as GameState | null)?.puzzleNumber ?? "—"}
+              </span>
+            )}
             <span className="border-tileborder text-muted rounded border px-2 py-1">
               💣{" "}
               {mode === "mega"
@@ -497,22 +518,26 @@ export default function Game({
             <Board
               cols={mode === "mega" ? 10 : 5}
               clicks={state?.clicks ?? []}
+              flags={mode === "mega" ? (state as MegaGameState | null)?.flags ?? [] : []}
               layout={state?.layout ?? null}
               disabled={busy || finished || !state}
               shakingIndex={shakingIndex}
               effect={boardEffect}
               onCellClick={handleCell}
+              onCellFlag={mode === "mega" ? handleFlag : undefined}
             />
           </div>
         ) : (
           <Board
             cols={mode === "mega" ? 10 : 5}
             clicks={state?.clicks ?? []}
+            flags={mode === "mega" ? (state as MegaGameState | null)?.flags ?? [] : []}
             layout={state?.layout ?? null}
             disabled={busy || finished || !state}
             shakingIndex={shakingIndex}
             effect={boardEffect}
             onCellClick={handleCell}
+            onCellFlag={mode === "mega" ? handleFlag : undefined}
           />
         )}
 

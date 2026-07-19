@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { boardSecret, dayNum, mulberry32 } from "./game";
+import { boardSecret, mulberry32 } from "./game";
 import { getStore } from "./store";
 import { nextResetAt } from "./time";
 import {
@@ -9,12 +9,6 @@ import {
   type MegaCellResult,
   type MegaGameState,
 } from "./types";
-
-export const MEGA_EPOCH_DATE = "2026-07-15";
-
-export function megaPuzzleNumber(date: string): number {
-  return dayNum(date) - dayNum(MEGA_EPOCH_DATE) + 1;
-}
 
 interface MegaDraw {
   checkIndex: number;
@@ -87,12 +81,12 @@ export async function megaStateFor(
   const status = game?.status ?? "playing";
   const state: MegaGameState = {
     date,
-    puzzleNumber: megaPuzzleNumber(date),
     username: user?.name ?? "Player",
     named: user?.named ?? false,
     status,
     score: game?.score ?? null,
     clicks: game?.clicks ?? [],
+    flags: game?.flags ?? [],
     nextResetAt: nextResetAt(new Date(), timeZone),
   };
   if (status !== "playing") state.layout = megaLayoutFor(date, game?.boardSeed ?? null);
