@@ -253,6 +253,7 @@ try {
   assert.ok(previewSource.includes('result === undefined ? "#3a3b3e"'));
   assert.ok(previewSource.includes("clicked.get(index)"));
   assert.ok(previewSource.includes('isFlagged ? "🚩"'));
+  assert.ok(!previewSource.includes('row.clicks.length} click'));
   assert.ok(!previewSource.includes("Bitesweeper No."));
   assert.ok(previewSource.includes(">\n          Bitesweeper\n"));
   const bitesweeperSource = fs.readFileSync(

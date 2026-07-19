@@ -170,7 +170,7 @@ export function renderBitesweeperPreviewImage(rows: BitesweeperPreviewPlayer[]) 
   const gap = 3;
   const boardSize = 10 * tile + 9 * gap;
   const cardWidth = boardSize + 32;
-  const cardHeight = 282;
+  const cardHeight = 266;
   const cardGap = 18;
   const margin = 38;
   const titleBlock = 64;
@@ -273,9 +273,6 @@ export function renderBitesweeperPreviewImage(rows: BitesweeperPreviewPlayer[]) 
                   }}
                 >
                   {row.name}
-                </div>
-                <div style={{ display: "flex", marginTop: 3, fontSize: 11, color: "#a1a1aa" }}>
-                  {`${row.clicks.length} click${row.clicks.length === 1 ? "" : "s"}`}
                 </div>
                 <div
                   style={{
