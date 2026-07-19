@@ -8,6 +8,7 @@ import { megaShareText, shareText } from "@/lib/share-text";
 import {
   DISTRIBUTION_BUCKETS,
   FIXED_BOMB_COUNT_FROM,
+  MEGA_BOMB_COUNT,
   type GameMode,
   type GameState,
   type MegaGameState,
@@ -269,10 +270,6 @@ export default function Game({
         if (boardEffectTimer.current) clearTimeout(boardEffectTimer.current);
         boardEffectTimer.current = setTimeout(() => setBoardEffect(null), BOARD_EFFECT_MS);
       }
-      if (mode === "mega" && result === "bomb" && next.status === "playing") {
-        const lives = (next as MegaGameState).livesRemaining;
-        toast(`Bomb hit — ${lives} ${lives === 1 ? "life" : "lives"} left`);
-      }
       if (next.status !== "playing") {
         // Let the tile flip and board-level effect breathe before the result splash covers it.
         if (resultModalTimer.current) clearTimeout(resultModalTimer.current);
@@ -299,14 +296,32 @@ export default function Game({
     if (mode !== "mega" || !state || state.status !== "playing" || busy) return;
     const megaState = state as MegaGameState;
     if (megaState.clicks.some((click) => click.index === index)) return;
+    const removing = megaState.flags.includes(index);
+    if (!removing && megaState.flags.length >= MEGA_BOMB_COUNT) {
+      toast("All 12 flags are placed — remove one first.");
+      return;
+    }
     const previous = megaState;
-    const flags = megaState.flags.includes(index)
+    const flags = removing
       ? megaState.flags.filter((flaggedIndex) => flaggedIndex !== index)
       : [...megaState.flags, index];
     setState({ ...megaState, flags });
     setBusy(true);
     try {
-      setState(await api.megaFlag(index));
+      const next = await api.megaFlag(index);
+      setState(next);
+      if (next.status === "won") {
+        if (!reducedMotion) {
+          setBoardEffect("check");
+          if (boardEffectTimer.current) clearTimeout(boardEffectTimer.current);
+          boardEffectTimer.current = setTimeout(() => setBoardEffect(null), BOARD_EFFECT_MS);
+        }
+        if (resultModalTimer.current) clearTimeout(resultModalTimer.current);
+        resultModalTimer.current = setTimeout(
+          () => setModal("result"),
+          reducedMotion ? 0 : RESULT_MODAL_DELAY_MS,
+        );
+      }
     } catch (e) {
       setState(previous);
       toast(e instanceof Error ? e.message : "Couldn't update the flag");
@@ -477,21 +492,15 @@ export default function Game({
             {mode === "mega" && (
               <span
                 className="border-tileborder text-muted rounded border px-2 py-1 tabular-nums"
-                title="Lives remaining"
+                title="Flags remaining"
               >
-                ❤️ {(state as MegaGameState | null)?.livesRemaining ?? 3}
+                🚩 {MEGA_BOMB_COUNT - ((state as MegaGameState | null)?.flags.length ?? 0)}
               </span>
             )}
             <span className="border-tileborder text-muted rounded border px-2 py-1">
               💣{" "}
               {mode === "mega"
-                ? Math.max(
-                    0,
-                    12 -
-                      ((state as MegaGameState | null)?.clicks.filter(
-                        (click) => click.result === "bomb",
-                      ).length ?? 0),
-                  )
+                ? MEGA_BOMB_COUNT
                 : state && state.date < FIXED_BOMB_COUNT_FROM
                   ? "3–5"
                   : "3"}{" "}
@@ -568,9 +577,11 @@ export default function Game({
           >
             <p className="text-center font-bold">
               {state.status === "won"
-                ? `You found it in ${state.score} ${state.score === 1 ? "click" : "clicks"}! ✓`
+                ? state.score === 0
+                  ? "You flagged every bomb without a single click! ✓"
+                  : `You found it in ${state.score} ${state.score === 1 ? "click" : "clicks"}! ✓`
                 : mode === "mega"
-                  ? "💥 Out of lives! The check mark got away."
+                  ? "💥 Boom! You hit a bomb."
                   : "💥 Boom! The check mark got away today."}
             </p>
             <div className="flex w-full items-center">

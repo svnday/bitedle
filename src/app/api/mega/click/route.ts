@@ -5,12 +5,7 @@ import {
   playerDate,
   playerTimeZone,
 } from "@/lib/discord";
-import {
-  megaLayoutFor,
-  megaLivesRemaining,
-  megaPerfectClearReached,
-  megaStateFor,
-} from "@/lib/game-mega";
+import { megaLayoutFor, megaStateFor } from "@/lib/game-mega";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { getStore } from "@/lib/store";
 import { MEGA_BOARD_SIZE, type MegaGameRecord } from "@/lib/types";
@@ -78,20 +73,11 @@ export async function POST(request: NextRequest) {
   const result = layout[index];
   game.clicks.push({ index, result });
   if (result === "bomb") {
-    if (megaLivesRemaining(game.clicks) === 0) {
-      game.status = "lost";
-      game.finishedAt = Date.now();
-    }
+    game.status = "lost";
+    game.finishedAt = Date.now();
   } else if (result === "check") {
     game.status = "won";
     game.score = game.clicks.length;
-    game.finishedAt = Date.now();
-  } else if (megaPerfectClearReached(game.clicks)) {
-    const checkIndex = layout.indexOf("check");
-    game.score = game.clicks.length;
-    game.clicks.push({ index: checkIndex, result: "check" });
-    game.flags = game.flags.filter((flaggedIndex) => flaggedIndex !== checkIndex);
-    game.status = "won";
     game.finishedAt = Date.now();
   }
   await store.putMegaGame(date, identity.id, game);

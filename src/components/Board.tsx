@@ -51,6 +51,10 @@ const NUMBER_STYLES = [
   { className: "bg-correct", textClass: "text-white", label: "2 adjacent" },
   { className: "bg-[#806719]", textClass: "text-[#fff0a6]", label: "3 adjacent" },
   { className: "bg-[#7a2f2b]", textClass: "text-white", label: "4 adjacent" },
+  { className: "bg-[#8a4a1f]", textClass: "text-white", label: "5 adjacent" },
+  { className: "bg-[#94321f]", textClass: "text-white", label: "6 adjacent" },
+  { className: "bg-[#7c2447]", textClass: "text-white", label: "7 adjacent" },
+  { className: "bg-[#5b2a86]", textClass: "text-white", label: "8 adjacent" },
 ] as const;
 
 function backFace(result: CellResult | MegaCellResult, dense: boolean) {

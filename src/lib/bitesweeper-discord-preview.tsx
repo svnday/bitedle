@@ -10,7 +10,7 @@ import {
   type BitesweeperPreviewMessage,
 } from "./store";
 import {
-  MEGA_STARTING_LIVES,
+  MEGA_BOMB_COUNT,
   type MegaCellResult,
   type MegaClickRecord,
 } from "./types";
@@ -155,6 +155,10 @@ const TILE_COLORS: Record<string, string> = {
   2: "#538d4e",
   3: "#806719",
   4: "#7a2f2b",
+  5: "#8a4a1f",
+  6: "#94321f",
+  7: "#7c2447",
+  8: "#5b2a86",
   bomb: "#b3392f",
   check: "#538d4e",
 };
@@ -165,6 +169,10 @@ const TILE_TEXT: Record<string, string> = {
   2: "2",
   3: "3",
   4: "4",
+  5: "5",
+  6: "6",
+  7: "7",
+  8: "8",
   bomb: "●",
   check: "✓",
 };
@@ -235,10 +243,6 @@ export function renderBitesweeperPreviewImage(rows: BitesweeperPreviewPlayer[]) 
             const avatarUrl = discordAvatarUrl(row.discordUserId, row.discordAvatar);
             const clicked = new Map(row.clicks.map((click) => [click.index, click.result]));
             const flagged = new Set(row.flags);
-            const livesRemaining = Math.max(
-              0,
-              MEGA_STARTING_LIVES - row.clicks.filter((click) => click.result === "bomb").length,
-            );
             return (
               <div
                 key={row.userId}
@@ -314,7 +318,7 @@ export function renderBitesweeperPreviewImage(rows: BitesweeperPreviewPlayer[]) 
                       lineHeight: 1,
                     }}
                   >
-                    {`♥ ${livesRemaining}`}
+                    {`⚑ ${row.flags.length}/${MEGA_BOMB_COUNT}`}
                   </span>
                 </div>
                 <div

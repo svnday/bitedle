@@ -179,7 +179,7 @@ try {
   assert.equal(megaState.status, 200, "Bitesweeper must accept Discord guild requests");
   const state = await megaState.json();
   assert.equal(state.status, "playing");
-  assert.equal(state.livesRemaining, 3);
+  assert.equal("livesRemaining" in state, false, "lives were removed from Bitesweeper");
   assert.equal("puzzleNumber" in state, false, "Bitesweeper state must not expose numbering");
   assert.equal("layout" in state, false, "a playing state must not reveal the board");
 
@@ -229,10 +229,7 @@ try {
   assert.equal(players[0].name, "Second player");
   assert.equal(players[0].clicks.length, 1, "presence must include the other player's board");
   assert.deepEqual(players[0].flags, [6], "presence must include the other player's flags");
-  assert.equal(
-    players[0].livesRemaining,
-    3 - players[0].clicks.filter((click) => click.result === "bomb").length,
-  );
+  assert.equal("livesRemaining" in players[0], false, "presence must not expose removed lives");
 
   const gameTabsSource = fs.readFileSync(path.join(repoRoot, "src/components/GameTabs.tsx"), "utf8");
   assert.match(
@@ -260,7 +257,8 @@ try {
   assert.ok(previewSource.includes('result === undefined ? "#3a3b3e"'));
   assert.ok(previewSource.includes("clicked.get(index)"));
   assert.ok(previewSource.includes('isFlagged ? "🚩"'));
-  assert.ok(previewSource.includes("livesRemaining"));
+  assert.ok(!previewSource.includes("livesRemaining"), "the preview card must not render lives");
+  assert.ok(previewSource.includes("row.flags.length"), "the preview card must show placed flags");
   assert.ok(previewSource.includes("const avatarSize = 44"));
   assert.ok(previewSource.includes("const cardBottomBreathingRoom = 12"));
   assert.ok(!previewSource.includes('row.clicks.length} click'));
@@ -318,74 +316,132 @@ try {
     "players in the same Activity must receive private random boards",
   );
 
-  const livesPlayer = await linkedPlayer("912345678901234567", "Three lives player");
-  const livesInstanceId = "three-lives-instance";
-  const livesStateResponse = await embeddedFetch(
+  const bombPlayer = await linkedPlayer("912345678901234567", "Instant loss player");
+  const bombInstanceId = "instant-loss-instance";
+  const bombStateResponse = await embeddedFetch(
     "/api/mega/state",
-    livesPlayer,
-    livesInstanceId,
+    bombPlayer,
+    bombInstanceId,
   );
-  const livesState = await livesStateResponse.json();
-  const livesGame = storedMegaGame(livesPlayer);
-  const { bombIndices } = megaDrawIndices(livesState.date, livesGame.boardSeed);
-  for (let bombNumber = 1; bombNumber <= 3; bombNumber++) {
-    const hit = await embeddedFetch("/api/mega/click", livesPlayer, livesInstanceId, {
-      method: "POST",
-      body: JSON.stringify({ index: bombIndices[bombNumber - 1] }),
-    });
-    assert.equal(hit.status, 200);
-    const payload = await hit.json();
-    assert.equal(payload.result, "bomb");
-    assert.equal(payload.state.livesRemaining, 3 - bombNumber);
-    assert.equal(payload.state.status, bombNumber < 3 ? "playing" : "lost");
-  }
+  const bombState = await bombStateResponse.json();
+  const bombGame = storedMegaGame(bombPlayer);
+  const { bombIndices } = megaDrawIndices(bombState.date, bombGame.boardSeed);
+  const hit = await embeddedFetch("/api/mega/click", bombPlayer, bombInstanceId, {
+    method: "POST",
+    body: JSON.stringify({ index: bombIndices[0] }),
+  });
+  assert.equal(hit.status, 200);
+  const hitPayload = await hit.json();
+  assert.equal(hitPayload.result, "bomb");
+  assert.equal(hitPayload.state.status, "lost", "revealing a bomb must end the run instantly");
+  assert.equal(hitPayload.state.score, null);
+  assert.equal(hitPayload.state.clicks.length, 1);
+  assert.ok("layout" in hitPayload.state, "a finished board must reveal its layout");
 
-  const clearPlayer = await linkedPlayer("923456789012345678", "Perfect clear player");
-  const clearInstanceId = "perfect-clear-instance";
-  const clearStateResponse = await embeddedFetch(
+  const flagPlayer = await linkedPlayer("923456789012345678", "Flag win player");
+  const flagInstanceId = "flag-win-instance";
+  const flagStateResponse = await embeddedFetch(
     "/api/mega/state",
-    clearPlayer,
-    clearInstanceId,
+    flagPlayer,
+    flagInstanceId,
     { headers: { "X-Bitedle-Guild-Id": "" } },
   );
-  const clearState = await clearStateResponse.json();
-  const clearGame = storedMegaGame(clearPlayer);
-  const clearDraw = megaDrawIndices(clearState.date, clearGame.boardSeed);
-  for (const bombIndex of clearDraw.bombIndices.slice(0, 2)) {
-    const bombHit = await embeddedFetch("/api/mega/click", clearPlayer, clearInstanceId, {
+  const flagState = await flagStateResponse.json();
+  const flagGame = storedMegaGame(flagPlayer);
+  const flagDraw = megaDrawIndices(flagState.date, flagGame.boardSeed);
+  const flagFor = (index) =>
+    embeddedFetch("/api/mega/flag", flagPlayer, flagInstanceId, {
       method: "POST",
       headers: { "X-Bitedle-Guild-Id": "" },
-      body: JSON.stringify({ index: bombIndex }),
+      body: JSON.stringify({ index }),
     });
-    assert.equal(bombHit.status, 200);
-    const bombPayload = await bombHit.json();
-    assert.equal(bombPayload.result, "bomb");
-    assert.equal(bombPayload.state.status, "playing");
+  const wrongFlag = flagDraw.safeIndices[0];
+  for (const index of [...flagDraw.bombIndices.slice(0, 11), wrongFlag]) {
+    const flagResponse = await flagFor(index);
+    assert.equal(flagResponse.status, 200);
+    assert.equal(
+      (await flagResponse.json()).status,
+      "playing",
+      "11 bombs plus a wrong flag must not win",
+    );
   }
-  let perfectClearPayload;
-  for (let safeNumber = 0; safeNumber < clearDraw.safeIndices.length; safeNumber++) {
-    const click = await embeddedFetch("/api/mega/click", clearPlayer, clearInstanceId, {
+  const overflow = await flagFor(flagDraw.safeIndices[1]);
+  assert.equal(overflow.status, 409, "a 13th flag must be rejected");
+  assert.equal(storedMegaGame(flagPlayer).flags.length, 12);
+  for (const index of flagDraw.safeIndices.slice(2, 4)) {
+    const reveal = await embeddedFetch("/api/mega/click", flagPlayer, flagInstanceId, {
       method: "POST",
       headers: { "X-Bitedle-Guild-Id": "" },
-      body: JSON.stringify({ index: clearDraw.safeIndices[safeNumber] }),
+      body: JSON.stringify({ index }),
     });
-    assert.equal(click.status, 200);
-    perfectClearPayload = await click.json();
-    if (safeNumber < clearDraw.safeIndices.length - 1) {
-      assert.equal(perfectClearPayload.state.status, "playing");
-    }
+    assert.equal(reveal.status, 200);
+    const revealPayload = await reveal.json();
+    assert.equal(typeof revealPayload.result, "number");
+    assert.equal(revealPayload.state.status, "playing");
   }
-  assert.equal(perfectClearPayload.state.status, "won");
-  assert.equal(perfectClearPayload.state.score, 89);
-  assert.equal(perfectClearPayload.state.livesRemaining, 1);
-  assert.equal(perfectClearPayload.state.clicks.length, 90);
-  assert.deepEqual(perfectClearPayload.state.clicks.at(-1), {
-    index: clearDraw.checkIndex,
-    result: "check",
-  });
-  assert.equal(perfectClearPayload.state.layout[clearDraw.checkIndex], "check");
+  const unflagWrong = await flagFor(wrongFlag);
+  assert.equal(unflagWrong.status, 200);
+  assert.equal((await unflagWrong.json()).flags.length, 11, "unflagging must return the flag");
+  const winningFlag = await flagFor(flagDraw.bombIndices[11]);
+  assert.equal(winningFlag.status, 200);
+  const winState = await winningFlag.json();
+  assert.equal(winState.status, "won", "flagging every bomb must win the board");
+  assert.equal(winState.score, 2, "score must count reveals only — flag churn is free");
+  assert.equal(winState.clicks.length, 2, "a flag win must not append a synthetic check click");
+  assert.deepEqual(
+    winState.flags,
+    [...flagDraw.bombIndices].sort((a, b) => a - b),
+  );
+  assert.equal(winState.layout[flagDraw.checkIndex], "check");
+  for (const bombIndex of flagDraw.bombIndices) {
+    assert.equal(winState.layout[bombIndex], "bomb");
+  }
+  const afterWin = await flagFor(flagDraw.safeIndices[5]);
+  assert.equal(afterWin.status, 409, "a finished board must reject further flags");
 
-  console.log("Bitesweeper verification passed: isolated launch surface, perfect-clear auto-win, three-hit lives, mobile and desktop flags, private launch-random boards, live PNG preview, and atomic mode binding.");
+  const checkPlayer = await linkedPlayer("934567890123456789", "Check finder");
+  const checkInstanceId = "check-win-instance";
+  const checkStateResponse = await embeddedFetch(
+    "/api/mega/state",
+    checkPlayer,
+    checkInstanceId,
+    { headers: { "X-Bitedle-Guild-Id": "" } },
+  );
+  const checkState = await checkStateResponse.json();
+  const checkGame = storedMegaGame(checkPlayer);
+  const checkDraw = megaDrawIndices(checkState.date, checkGame.boardSeed);
+  const bombSet = new Set(checkDraw.bombIndices);
+  const probeIndex = checkDraw.safeIndices.find((index) =>
+    neighborIndices(index).includes(checkDraw.checkIndex),
+  );
+  let revealsBeforeWin = 0;
+  if (probeIndex !== undefined) {
+    revealsBeforeWin = 1;
+    const probe = await embeddedFetch("/api/mega/click", checkPlayer, checkInstanceId, {
+      method: "POST",
+      headers: { "X-Bitedle-Guild-Id": "" },
+      body: JSON.stringify({ index: probeIndex }),
+    });
+    assert.equal(probe.status, 200);
+    assert.equal(
+      (await probe.json()).result,
+      neighborIndices(probeIndex).filter((neighbor) => bombSet.has(neighbor)).length,
+      "numbers must count 8-adjacent bombs and ignore the check mark",
+    );
+  }
+  const checkClick = await embeddedFetch("/api/mega/click", checkPlayer, checkInstanceId, {
+    method: "POST",
+    headers: { "X-Bitedle-Guild-Id": "" },
+    body: JSON.stringify({ index: checkDraw.checkIndex }),
+  });
+  assert.equal(checkClick.status, 200);
+  const checkPayload = await checkClick.json();
+  assert.equal(checkPayload.result, "check");
+  assert.equal(checkPayload.state.status, "won", "revealing the check must stay an instant win");
+  assert.equal(checkPayload.state.score, revealsBeforeWin + 1);
+  assert.equal(checkPayload.state.layout[checkDraw.checkIndex], "check");
+
+  console.log("Bitesweeper verification passed: isolated launch surface, flag-all-bombs win, 12-flag cap, instant bomb loss, check instant win, 8-way bomb-only adjacency, mobile and desktop flags, private launch-random boards, live PNG preview, and atomic mode binding.");
 } catch (error) {
   console.error(output);
   throw error;
@@ -507,6 +563,22 @@ function megaDrawIndices(date, boardSeed) {
     bombIndices: indices.slice(1, 13),
     safeIndices: indices.slice(13),
   };
+}
+
+function neighborIndices(index) {
+  const row = Math.floor(index / 10);
+  const col = index % 10;
+  const neighbors = [];
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const r = row + dr;
+      const c = col + dc;
+      if (r < 0 || r >= 10 || c < 0 || c >= 10) continue;
+      neighbors.push(r * 10 + c);
+    }
+  }
+  return neighbors;
 }
 
 function mulberry32(seed) {

@@ -25,15 +25,16 @@ hiding too, and one wrong click ends your day.
 ## Bitesweeper
 
 **Bitesweeper** is a replayable 10×10 variant with 12 bombs and one
-check mark. Safe tiles reveal how many bombs-or-checks sit directly above,
-below, left, or right; diagonals do not count. Bitesweeper is deliberately
-game-only: it has Play again and Share, but no statistics or leaderboards.
-Players start each board with three lives, and each revealed bomb removes one;
-the third bomb ends the run. Right-clicking an unrevealed square—or pressing
-and holding it on mobile—toggles a 🚩 without revealing it; a flagged square
-must be unflagged before it can be opened. Revealing all 87 numbered squares
-with at least one life remaining automatically reveals the check and wins the
-board; any bomb hits count toward the final click score.
+check mark. Safe tiles reveal how many bombs sit in the 8 surrounding
+squares, diagonals included. Bitesweeper is deliberately game-only: it has
+Play again and Share, but no statistics or leaderboards. Revealing a bomb
+ends the run instantly. Right-clicking an unrevealed square—or pressing and
+holding it on mobile—toggles a 🚩 without revealing it; a flagged square must
+be unflagged before it can be opened. Each player gets exactly **12 flags**
+(unflagging returns one), and **flagging all 12 bombs wins the board**.
+Revealing the hidden check mark is an alternate instant win. The score is the
+number of squares revealed — flags are free — so lower is better and a
+flag-only win scores 0.
 
 In Discord, `/bitesweeper` launches an Activity locked to Bitesweeper. `/play`
 and `/bitedle` remain locked to Classic, and embedded Activities never show the

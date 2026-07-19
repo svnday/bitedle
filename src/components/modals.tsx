@@ -488,9 +488,11 @@ export function ResultModal({
       />
       <p className="mt-4 text-center font-bold">
         {won && score !== null
-          ? `${praiseFor(score, mode)} Found in ${score} ${score === 1 ? "click" : "clicks"}. ✓`
+          ? mode === "mega" && score === 0
+            ? `${praiseFor(score, mode)} Flagged every bomb without a single click. ✓`
+            : `${praiseFor(score, mode)} Found in ${score} ${score === 1 ? "click" : "clicks"}. ✓`
           : mode === "mega"
-            ? "💥 Out of lives! You hit three bombs. Ready for another board?"
+            ? "💥 BOOM! You hit a bomb. Ready for another board?"
             : "💥 BOOM! That was a bomb. See you tomorrow."}
       </p>
 
@@ -668,17 +670,25 @@ export function HelpModal({
     <Modal title="How to play" onClose={onClose}>
       <div className="space-y-4 text-sm leading-snug">
         <p>
-          Somewhere on the {mode === "mega" ? "10×10" : "5×5"} board hides{" "}
-          <strong>one green check mark</strong>. Click tiles to find it in as few clicks as
-          possible.
+          {mode === "mega" ? (
+            <>
+              Twelve bombs hide on the 10×10 board. <strong>Flag all 12 bombs</strong> to win, using
+              as few clicks as possible.
+            </>
+          ) : (
+            <>
+              Somewhere on the 5×5 board hides <strong>one green check mark</strong>. Click tiles to
+              find it in as few clicks as possible.
+            </>
+          )}
         </p>
         {mode === "mega" ? (
           <>
             <div className="flex items-center gap-3">
               <MiniTile kind="number" />
               <p>
-                A number counts adjacent bombs or the check mark directly up, down, left, or right.
-                Diagonals do not count, and a 0 reveals only itself.
+                A number counts the bombs in all 8 surrounding squares, diagonals included. A 0
+                reveals only itself.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -686,8 +696,9 @@ export function HelpModal({
                 🚩
               </div>
               <p>
-                Right-click a hidden square, or press and hold on mobile, to flag a possible bomb.
-                Flagged squares stay hidden and cannot be revealed until you remove the flag.
+                Right-click a hidden square, or press and hold on mobile, to flag a bomb. You have
+                exactly <strong>12 flags</strong> — removing a flag returns it. Flag all 12 bombs to
+                win; a wrong flag blocks the win until you move it.
               </p>
             </div>
           </>
@@ -704,8 +715,8 @@ export function HelpModal({
           <p>
             {mode === "mega" ? (
               <>
-                You start with <strong>3 lives</strong>. Each bomb costs one life, and the third bomb
-                ends your run. There are exactly 12 bombs hidden across the larger board.
+                Revealing a <strong>bomb</strong> ends your run instantly. There are exactly 12 of
+                them hidden across the board.
               </>
             ) : legacyBombRange ? (
               <>
@@ -723,14 +734,23 @@ export function HelpModal({
         <div className="flex items-center gap-3">
           <MiniTile kind="check" />
           <p>
-            The <strong>check mark</strong> wins the game. Your score is the total clicks it took
-            — lower is better, and 1 is perfection.
+            {mode === "mega" ? (
+              <>
+                One hidden <strong>check mark</strong> is an instant win if you reveal it. Your
+                score is the number of squares you revealed — lower is better.
+              </>
+            ) : (
+              <>
+                The <strong>check mark</strong> wins the game. Your score is the total clicks it
+                took — lower is better, and 1 is perfection.
+              </>
+            )}
           </p>
         </div>
         {mode === "mega" && (
           <p className="border-tileborder bg-raised rounded border p-3">
-            Reveal all 87 numbered squares with at least one life remaining and the check reveals
-            itself automatically. Any bomb hits still count toward your final click score.
+            Flags never count toward your click score — only revealed squares do. Placing the 12th
+            correct flag wins on the spot.
           </p>
         )}
         <p className="border-tileborder text-muted border-t pt-4">

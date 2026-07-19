@@ -5,10 +5,10 @@ import {
   playerDate,
   playerTimeZone,
 } from "@/lib/discord";
-import { megaStateFor } from "@/lib/game-mega";
+import { megaAllBombsFlagged, megaLayoutFor, megaStateFor } from "@/lib/game-mega";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { getStore } from "@/lib/store";
-import { MEGA_BOARD_SIZE, type MegaGameRecord } from "@/lib/types";
+import { MEGA_BOARD_SIZE, MEGA_BOMB_COUNT, type MegaGameRecord } from "@/lib/types";
 import {
   ensureBitesweeperBoard,
   recordBitesweeperPresence,
@@ -56,9 +56,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  game.flags = game.flags.includes(index)
+  const isRemoving = game.flags.includes(index);
+  if (!isRemoving && game.flags.length >= MEGA_BOMB_COUNT) {
+    return attachIdentity(
+      NextResponse.json(
+        { error: "All 12 flags are placed — remove one to flag this square." },
+        { status: 409 },
+      ),
+      identity,
+    );
+  }
+  game.flags = isRemoving
     ? game.flags.filter((flaggedIndex) => flaggedIndex !== index)
     : [...game.flags, index].sort((a, b) => a - b);
+  if (!isRemoving && megaAllBombsFlagged(game.flags, megaLayoutFor(date, game.boardSeed ?? null))) {
+    game.status = "won";
+    game.score = game.clicks.length;
+    game.finishedAt = Date.now();
+  }
   await store.putMegaGame(date, identity.id, game);
   await recordBitesweeperPresence(request, store, identity.id, date);
 

@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/client-api";
 import { copyToClipboard } from "@/lib/clipboard";
 import { megaShareText } from "@/lib/share-text";
-import type {
-  BitesweeperPlayer,
-  MegaCellResult,
-  MegaGameState,
+import {
+  MEGA_BOMB_COUNT,
+  type BitesweeperPlayer,
+  type MegaCellResult,
+  type MegaGameState,
 } from "@/lib/types";
 import Board from "./Board";
 import { HelpModal, LOSE_GIF, MadeByFooter, ResultModal, WIN_GIF } from "./modals";
@@ -104,6 +105,19 @@ export default function BitesweeperGame() {
     }
   }, []);
 
+  const finishBoard = (effect: "bomb" | "check") => {
+    if (!reducedMotion) {
+      setBoardEffect(effect);
+      if (boardEffectTimer.current) clearTimeout(boardEffectTimer.current);
+      boardEffectTimer.current = setTimeout(() => setBoardEffect(null), BOARD_EFFECT_MS);
+    }
+    if (resultModalTimer.current) clearTimeout(resultModalTimer.current);
+    resultModalTimer.current = setTimeout(
+      () => setModal("result"),
+      reducedMotion ? 0 : RESULT_MODAL_DELAY_MS,
+    );
+  };
+
   const handleCell = async (index: number) => {
     if (!state || state.status !== "playing" || busy) return;
     setBusy(true);
@@ -111,7 +125,7 @@ export default function BitesweeperGame() {
     if (!reducedMotion) setShakingIndex(index);
     const startedAt = performance.now();
     try {
-      const { result, state: next } = await api.megaClick(index);
+      const { state: next } = await api.megaClick(index);
       if (!reducedMotion) {
         const remaining = TILE_SHAKE_MS - (performance.now() - startedAt);
         if (remaining > 0) await wait(remaining);
@@ -119,21 +133,8 @@ export default function BitesweeperGame() {
       setShakingIndex(null);
       setState(next);
       void refreshPlayers();
-      const resolvedEffect = next.status === "won" ? "check" : result === "bomb" ? "bomb" : null;
-      if (!reducedMotion && resolvedEffect) {
-        setBoardEffect(resolvedEffect);
-        if (boardEffectTimer.current) clearTimeout(boardEffectTimer.current);
-        boardEffectTimer.current = setTimeout(() => setBoardEffect(null), BOARD_EFFECT_MS);
-      }
-      if (result === "bomb" && next.status === "playing") {
-        toast(`Bomb hit — ${next.livesRemaining} ${next.livesRemaining === 1 ? "life" : "lives"} left`);
-      }
       if (next.status !== "playing") {
-        if (resultModalTimer.current) clearTimeout(resultModalTimer.current);
-        resultModalTimer.current = setTimeout(
-          () => setModal("result"),
-          reducedMotion ? 0 : RESULT_MODAL_DELAY_MS,
-        );
+        finishBoard(next.status === "won" ? "check" : "bomb");
       }
     } catch (error) {
       setShakingIndex(null);
@@ -152,8 +153,13 @@ export default function BitesweeperGame() {
   const handleFlag = async (index: number) => {
     if (!state || state.status !== "playing" || busy) return;
     if (state.clicks.some((click) => click.index === index)) return;
+    const removing = state.flags.includes(index);
+    if (!removing && state.flags.length >= MEGA_BOMB_COUNT) {
+      toast("All 12 flags are placed — remove one first.");
+      return;
+    }
     const previous = state;
-    const nextFlags = state.flags.includes(index)
+    const nextFlags = removing
       ? state.flags.filter((flaggedIndex) => flaggedIndex !== index)
       : [...state.flags, index];
     setState({ ...state, flags: nextFlags });
@@ -162,6 +168,7 @@ export default function BitesweeperGame() {
       const next = await api.megaFlag(index);
       setState(next);
       void refreshPlayers();
+      if (next.status === "won") finishBoard("check");
     } catch (error) {
       setState(previous);
       toast(error instanceof Error ? error.message : "Couldn't update the flag");
@@ -227,12 +234,12 @@ export default function BitesweeperGame() {
         <div className="flex w-full max-w-[440px] items-center justify-center gap-2 text-xs">
           <span
             className="border-tileborder text-muted rounded border px-2 py-1 tabular-nums"
-            title="Lives remaining"
+            title="Flags remaining"
           >
-            ❤️ {state?.livesRemaining ?? 3}
+            🚩 {MEGA_BOMB_COUNT - (state?.flags.length ?? 0)}
           </span>
           <span className="border-tileborder text-muted rounded border px-2 py-1">
-            💣 {Math.max(0, 12 - (state?.clicks.filter((click) => click.result === "bomb").length ?? 0))} hidden
+            💣 {MEGA_BOMB_COUNT} hidden
           </span>
           <span className="border-tileborder text-muted rounded border px-2 py-1 tabular-nums">
             Clicks: {state?.clicks.length ?? 0}
@@ -258,8 +265,10 @@ export default function BitesweeperGame() {
           <div className="animate-rise border-tileborder bg-raised flex w-full max-w-[440px] flex-col items-center gap-4 rounded-lg border p-4">
             <p className="text-center font-bold">
               {state.status === "won"
-                ? `You found it in ${state.score} ${state.score === 1 ? "click" : "clicks"}! ✓`
-                : "💥 Out of lives! The check mark got away."}
+                ? state.score === 0
+                  ? "You flagged every bomb without a single click! ✓"
+                  : `You found it in ${state.score} ${state.score === 1 ? "click" : "clicks"}! ✓`
+                : "💥 Boom! You hit a bomb."}
             </p>
             <div className="grid w-full max-w-72 grid-cols-2 gap-2">
               <button
@@ -334,9 +343,9 @@ function PlayersPanel({ players }: { players: BitesweeperPlayer[] }) {
                 <span className="min-w-0 flex-1 truncate text-xs font-bold">{player.name}</span>
                 <span
                   className="text-muted text-[10px] tabular-nums"
-                  title={`${player.livesRemaining} lives remaining`}
+                  title={`${player.flags.length} of ${MEGA_BOMB_COUNT} flags placed`}
                 >
-                  ❤️ {player.livesRemaining}
+                  🚩 {player.flags.length}/{MEGA_BOMB_COUNT}
                 </span>
               </div>
               <MiniBoard player={player} />
@@ -377,6 +386,10 @@ function miniCellClass(result: MegaCellResult | undefined): string {
   if (result === 2) return "bg-[#538d4e]";
   if (result === 3) return "bg-[#806719]";
   if (result === 4) return "bg-[#7a2f2b]";
+  if (result === 5) return "bg-[#8a4a1f]";
+  if (result === 6) return "bg-[#94321f]";
+  if (result === 7) return "bg-[#7c2447]";
+  if (result === 8) return "bg-[#5b2a86]";
   return "bg-tileborder";
 }
 

@@ -6,22 +6,12 @@ import {
   MEGA_BOARD_COLS,
   MEGA_BOARD_SIZE,
   MEGA_BOMB_COUNT,
-  MEGA_STARTING_LIVES,
-  MEGA_SAFE_CELL_COUNT,
   type MegaCellResult,
-  type MegaClickRecord,
   type MegaGameState,
 } from "./types";
 
-export function megaLivesRemaining(clicks: MegaClickRecord[]): number {
-  const bombHits = clicks.filter((click) => click.result === "bomb").length;
-  return Math.max(0, MEGA_STARTING_LIVES - bombHits);
-}
-
-export function megaPerfectClearReached(clicks: MegaClickRecord[]): boolean {
-  const safeClicks = clicks.filter((click) => typeof click.result === "number").length;
-  const foundCheck = clicks.some((click) => click.result === "check");
-  return safeClicks === MEGA_SAFE_CELL_COUNT && !foundCheck && megaLivesRemaining(clicks) > 0;
+export function megaAllBombsFlagged(flags: number[], layout: MegaCellResult[]): boolean {
+  return flags.length === MEGA_BOMB_COUNT && flags.every((index) => layout[index] === "bomb");
 }
 
 interface MegaDraw {
@@ -70,14 +60,22 @@ export function megaLayoutFor(date: string, boardSeed: string | null = null): Me
   cells[checkIndex] = "check";
   for (const bomb of bombs) cells[bomb] = "bomb";
 
+  const rows = MEGA_BOARD_SIZE / MEGA_BOARD_COLS;
   for (let index = 0; index < MEGA_BOARD_SIZE; index++) {
     if (occupied.has(index)) continue;
-    const neighbors: number[] = [];
-    if (index % MEGA_BOARD_COLS > 0) neighbors.push(index - 1);
-    if (index % MEGA_BOARD_COLS < MEGA_BOARD_COLS - 1) neighbors.push(index + 1);
-    if (index - MEGA_BOARD_COLS >= 0) neighbors.push(index - MEGA_BOARD_COLS);
-    if (index + MEGA_BOARD_COLS < MEGA_BOARD_SIZE) neighbors.push(index + MEGA_BOARD_COLS);
-    cells[index] = neighbors.filter((neighbor) => occupied.has(neighbor)).length;
+    const row = Math.floor(index / MEGA_BOARD_COLS);
+    const col = index % MEGA_BOARD_COLS;
+    let adjacentBombs = 0;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const r = row + dr;
+        const c = col + dc;
+        if (r < 0 || r >= rows || c < 0 || c >= MEGA_BOARD_COLS) continue;
+        if (bombs.has(r * MEGA_BOARD_COLS + c)) adjacentBombs++;
+      }
+    }
+    cells[index] = adjacentBombs;
   }
   return cells;
 }
@@ -101,7 +99,6 @@ export async function megaStateFor(
     score: game?.score ?? null,
     clicks: game?.clicks ?? [],
     flags: game?.flags ?? [],
-    livesRemaining: megaLivesRemaining(game?.clicks ?? []),
     nextResetAt: nextResetAt(new Date(), timeZone),
   };
   if (status !== "playing") state.layout = megaLayoutFor(date, game?.boardSeed ?? null);
