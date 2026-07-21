@@ -41,3 +41,11 @@ export function megaShareText(game: {
       : `10×10 — boom in ${totalClicks} 💥`;
   return `Bitesweeper\n${scoreLine}`;
 }
+
+export function biteracerShareText(game: {
+  passageNumber: number;
+  netWpm: number;
+  accuracy: number;
+}): string {
+  return `Biteracer #${game.passageNumber}\n${game.netWpm} WPM · ${game.accuracy}% accuracy ⌨️`;
+}

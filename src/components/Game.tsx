@@ -17,6 +17,7 @@ import {
 } from "@/lib/types";
 import Board from "./Board";
 import Countdown from "./Countdown";
+import GameNav from "./GameNav";
 import {
   ChannelStatsScreen,
   HelpModal,
@@ -227,7 +228,9 @@ export default function Game({
       setBoardEffect(null);
       toast("Fresh Bitesweeper board ready");
     } catch (e) {
-      if (e instanceof ApiError && e.state) setState(e.state);
+      // This component only calls classic/mega endpoints, so an attached
+      // authoritative state can never be the Biteracer shape.
+      if (e instanceof ApiError && e.state) setState(e.state as GameState | MegaGameState);
       toast(e instanceof Error ? e.message : "Couldn't start a new board");
     } finally {
       setBusy(false);
@@ -282,7 +285,8 @@ export default function Game({
       setShakingIndex(null);
       setBoardEffect(null);
       if (e instanceof ApiError) {
-        if (e.state) setState(e.state);
+        // Classic/mega endpoints only — never the Biteracer state shape.
+        if (e.state) setState(e.state as GameState | MegaGameState);
         toast(e.message);
       } else {
         toast("Couldn't reach the server");
@@ -451,30 +455,7 @@ export default function Game({
       </header>
 
       {!isDiscordEmbed() && onModeChange && (
-        <nav className="border-tileborder bg-raised/40 flex w-full justify-center border-b px-4">
-          <div className="flex w-full max-w-lg" aria-label="Game mode">
-            {(
-              [
-                ["classic", "Classic"],
-                ["mega", "Bitesweeper"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => onModeChange(value)}
-                aria-current={mode === value ? "page" : undefined}
-                className={`flex-1 cursor-pointer border-b-2 py-2.5 text-sm font-bold transition-colors ${
-                  mode === value
-                    ? "border-correct text-foreground"
-                    : "text-muted hover:text-foreground border-transparent"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </nav>
+        <GameNav mode={mode} onModeChange={onModeChange} />
       )}
 
       <main className="flex w-full max-w-lg flex-1 flex-col items-center gap-5 px-4 py-6">

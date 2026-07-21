@@ -1,11 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { GameMode, GameRecord, MegaGameRecord } from "./types";
+import type { BiteracerGameRecord, GameMode, GameRecord, MegaGameRecord } from "./types";
 import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
+  type BiteracerAllTimeRow,
+  type BiteracerTodayRow,
   type BitesweeperPlayerRow,
   type BitesweeperPreviewMessage,
+  type FinishedBiteracerGame,
   type FinishedGame,
   type LivePreviewMessage,
   type LivePreviewRow,
@@ -32,6 +35,8 @@ interface FileDb {
    *  opened the Activity in that day (guild membership for previews/recaps). */
   launches: Record<string, Record<string, Record<string, number>>>;
   megaGames: Record<string, Record<string, MegaGameRecord>>;
+  /** biteracerGames[date][userId] — today's/finished Biteracer runs. */
+  biteracerGames: Record<string, Record<string, BiteracerGameRecord>>;
   /** bitesweeperLaunches[channelId] = markedAt — pending /bitesweeper launches. */
   bitesweeperLaunches: Record<
     string,
@@ -96,6 +101,7 @@ export class FileStore implements Store {
           games: raw.games,
           launches: raw.launches ?? {},
           megaGames: raw.megaGames ?? {},
+          biteracerGames: raw.biteracerGames ?? {},
           bitesweeperLaunches: raw.bitesweeperLaunches ?? {},
           activityModes: raw.activityModes ?? {},
           bitesweeperPresence: raw.bitesweeperPresence ?? {},
@@ -120,6 +126,7 @@ export class FileStore implements Store {
       games: {},
       launches: {},
       megaGames: {},
+      biteracerGames: {},
       bitesweeperLaunches: {},
       activityModes: {},
       bitesweeperPresence: {},
@@ -197,6 +204,12 @@ export class FileStore implements Store {
       delete byUser[fromUserId];
     }
     for (const byUser of Object.values(this.db.megaGames)) {
+      const orphanGame = byUser[fromUserId];
+      if (!orphanGame) continue;
+      if (!byUser[toUserId]) byUser[toUserId] = orphanGame;
+      delete byUser[fromUserId];
+    }
+    for (const byUser of Object.values(this.db.biteracerGames)) {
       const orphanGame = byUser[fromUserId];
       if (!orphanGame) continue;
       if (!byUser[toUserId]) byUser[toUserId] = orphanGame;
@@ -371,6 +384,117 @@ export class FileStore implements Store {
       activityInstanceId: instanceId,
     };
     this.persist();
+  }
+
+  async getBiteracerGame(date: string, userId: string): Promise<BiteracerGameRecord | null> {
+    const g = this.db.biteracerGames[date]?.[userId];
+    // Deep-copy so callers can't mutate stored state without the store methods.
+    return g ? (JSON.parse(JSON.stringify(g)) as BiteracerGameRecord) : null;
+  }
+
+  async startBiteracerGame(
+    date: string,
+    userId: string,
+    passageId: string,
+    startedAt: number,
+  ): Promise<BiteracerGameRecord> {
+    const byUser = (this.db.biteracerGames[date] ??= {});
+    // First call wins — a repeat call (refresh/reconnect) never resets the clock.
+    if (!byUser[userId]) {
+      byUser[userId] = {
+        passageId,
+        startedAt,
+        finishedAt: null,
+        status: "playing",
+        netWpm: null,
+        rawWpm: null,
+        accuracy: null,
+        elapsedMs: null,
+        correctChars: null,
+        errorCount: null,
+        guildId: null,
+      };
+      this.persist();
+    }
+    return JSON.parse(JSON.stringify(byUser[userId])) as BiteracerGameRecord;
+  }
+
+  async finishBiteracerGame(
+    date: string,
+    userId: string,
+    result: {
+      finishedAt: number;
+      netWpm: number;
+      rawWpm: number;
+      accuracy: number;
+      elapsedMs: number;
+      correctChars: number;
+      errorCount: number;
+    },
+  ): Promise<BiteracerGameRecord | null> {
+    const existing = this.db.biteracerGames[date]?.[userId];
+    if (!existing || existing.status !== "playing") return null;
+    Object.assign(existing, {
+      status: "finished" as const,
+      finishedAt: result.finishedAt,
+      netWpm: result.netWpm,
+      rawWpm: result.rawWpm,
+      accuracy: result.accuracy,
+      elapsedMs: result.elapsedMs,
+      correctChars: result.correctChars,
+      errorCount: result.errorCount,
+    });
+    this.persist();
+    return JSON.parse(JSON.stringify(existing)) as BiteracerGameRecord;
+  }
+
+  async finishedBiteracerGamesFor(userId: string): Promise<FinishedBiteracerGame[]> {
+    const out: FinishedBiteracerGame[] = [];
+    for (const [date, byUser] of Object.entries(this.db.biteracerGames)) {
+      const g = byUser[userId];
+      if (g?.status === "finished") out.push({ date, netWpm: g.netWpm!, accuracy: g.accuracy! });
+    }
+    return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async finishedBiteracerGamesOn(date: string): Promise<BiteracerTodayRow[]> {
+    const out: BiteracerTodayRow[] = [];
+    for (const [userId, g] of Object.entries(this.db.biteracerGames[date] ?? {})) {
+      const user = this.db.users[userId];
+      if (g.status !== "finished" || !user?.named) continue;
+      out.push({
+        userId,
+        name: user.name,
+        discordUserId: user.discordUserId ?? null,
+        discordAvatar: user.discordAvatar ?? null,
+        netWpm: g.netWpm!,
+        rawWpm: g.rawWpm!,
+        accuracy: g.accuracy!,
+        elapsedMs: g.elapsedMs!,
+        finishedAt: g.finishedAt ?? 0,
+      });
+    }
+    return out;
+  }
+
+  async allFinishedBiteracerGames(): Promise<BiteracerAllTimeRow[]> {
+    const out: BiteracerAllTimeRow[] = [];
+    for (const [date, byUser] of Object.entries(this.db.biteracerGames)) {
+      for (const [userId, g] of Object.entries(byUser)) {
+        const user = this.db.users[userId];
+        if (g.status !== "finished" || !user?.named) continue;
+        out.push({
+          userId,
+          name: user.name,
+          discordUserId: user.discordUserId ?? null,
+          discordAvatar: user.discordAvatar ?? null,
+          date,
+          netWpm: g.netWpm!,
+          accuracy: g.accuracy!,
+        });
+      }
+    }
+    return out.sort((a, b) => a.date.localeCompare(b.date));
   }
 
   async recordBitesweeperPresence(

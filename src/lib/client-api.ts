@@ -7,6 +7,9 @@ import {
   isDiscordEmbed,
 } from "./discord-context";
 import type {
+  BiteracerGameState,
+  BiteracerLeaderboard,
+  BiteracerUserStats,
   BitesweeperPlayer,
   CellResult,
   GameMode,
@@ -41,9 +44,13 @@ function localTimeZone(): string {
 export class ApiError extends Error {
   status: number;
   /** Some errors (e.g. "already played") include the authoritative state. */
-  state?: GameState | MegaGameState;
+  state?: GameState | MegaGameState | BiteracerGameState;
 
-  constructor(message: string, status: number, state?: GameState | MegaGameState) {
+  constructor(
+    message: string,
+    status: number,
+    state?: GameState | MegaGameState | BiteracerGameState,
+  ) {
     super(message);
     this.status = status;
     this.state = state;
@@ -137,4 +144,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  biteracerState: () => request<BiteracerGameState>("/api/biteracer/state"),
+  biteracerStart: () =>
+    request<BiteracerGameState>("/api/biteracer/start", { method: "POST" }),
+  biteracerFinish: (typedText: string) =>
+    request<BiteracerGameState>("/api/biteracer/finish", {
+      method: "POST",
+      body: JSON.stringify({ typedText }),
+    }),
+  biteracerLeaderboard: () => request<BiteracerLeaderboard>("/api/biteracer/leaderboard"),
+  biteracerStats: () => request<BiteracerUserStats>("/api/biteracer/stats"),
 };

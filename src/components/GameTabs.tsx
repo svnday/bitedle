@@ -9,6 +9,7 @@ import {
   launchModeSettled,
 } from "@/lib/discord-context";
 import Game from "./Game";
+import BiteracerGame from "./BiteracerGame";
 import BitesweeperGame from "./BitesweeperGame";
 
 export default function GameTabs() {
@@ -42,6 +43,11 @@ export default function GameTabs() {
   if (runtime.mode === "unavailable") return <ActivityLoadError />;
   if (runtime.embedded && runtime.mode === "mega") return <BitesweeperGame />;
   const setWebMode = (mode: GameMode) => setRuntime({ embedded: false, mode });
+  // Website-only: an embedded session's mode comes from resolveActivityMode,
+  // which only ever binds "classic" or "mega" — Biteracer can't reach embeds.
+  if (!runtime.embedded && runtime.mode === "biteracer") {
+    return <BiteracerGame onModeChange={setWebMode} />;
+  }
   return (
     <Game
       key={runtime.mode}

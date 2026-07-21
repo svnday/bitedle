@@ -85,7 +85,7 @@ export const DAILY_BOMB_COUNT = 3;
 export const FIXED_BOMB_COUNT_FROM = "2026-07-19";
 export const DISTRIBUTION_BUCKETS = ["1", "2", "3", "4", "5", "6+", "X"] as const;
 
-export type GameMode = "classic" | "mega";
+export type GameMode = "classic" | "mega" | "biteracer";
 export type MegaCellResult = "bomb" | "check" | number;
 
 export interface MegaClickRecord {
@@ -131,3 +131,91 @@ export interface BitesweeperPlayer {
 export const MEGA_BOARD_COLS = 10;
 export const MEGA_BOARD_SIZE = 100;
 export const MEGA_BOMB_COUNT = 12;
+
+export type BiteracerStatus = "playing" | "finished";
+
+/** One curated excerpt, bundled statically (see biteracer-passages.ts). */
+export interface BiteracerPassage {
+  id: string;
+  book: string;
+  author: string;
+  text: string;
+}
+
+/** Final scoring for one finished run — net (accuracy-adjusted) WPM is the ranking metric. */
+export interface BiteracerResult {
+  netWpm: number;
+  rawWpm: number;
+  /** 0-100, one decimal. */
+  accuracy: number;
+  elapsedMs: number;
+  correctChars: number;
+  errorCount: number;
+}
+
+/** Persisted row shape, mirroring GameRecord/MegaGameRecord. */
+export interface BiteracerGameRecord {
+  passageId: string;
+  /** Epoch ms — the authoritative clock start, set once by /api/biteracer/start. */
+  startedAt: number;
+  finishedAt: number | null;
+  status: BiteracerStatus;
+  netWpm: number | null;
+  rawWpm: number | null;
+  accuracy: number | null;
+  elapsedMs: number | null;
+  correctChars: number | null;
+  errorCount: number | null;
+  /** Reserved for future Discord parity; always null while website-only. */
+  guildId: string | null;
+}
+
+/** Client-facing state — passage is always included (nothing to hide, unlike Bitedle's board). */
+export interface BiteracerGameState {
+  date: string;
+  passageNumber: number;
+  status: BiteracerStatus;
+  username: string;
+  named: boolean;
+  passage: BiteracerPassage;
+  /** Null until the player's first keystroke calls /api/biteracer/start. */
+  startedAt: number | null;
+  nextResetAt: number;
+  result: BiteracerResult | null;
+}
+
+export interface BiteracerTodayEntry {
+  name: string;
+  discordAvatarUrl: string | null;
+  netWpm: number;
+  rawWpm: number;
+  accuracy: number;
+  elapsedMs: number;
+  me: boolean;
+}
+
+export interface BiteracerAllTimeEntry {
+  name: string;
+  discordAvatarUrl: string | null;
+  gamesPlayed: number;
+  avgNetWpm: number;
+  bestNetWpm: number;
+  currentStreak: number;
+  maxStreak: number;
+  me: boolean;
+}
+
+export interface BiteracerLeaderboard {
+  date: string;
+  today: BiteracerTodayEntry[];
+  allTime: BiteracerAllTimeEntry[];
+}
+
+export interface BiteracerUserStats {
+  played: number;
+  avgNetWpm: number | null;
+  bestNetWpm: number | null;
+  avgAccuracy: number | null;
+  currentStreak: number;
+  maxStreak: number;
+}

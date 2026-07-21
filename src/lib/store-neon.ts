@@ -1,10 +1,13 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
-import type { GameMode, GameRecord, MegaGameRecord } from "./types";
+import type { BiteracerGameRecord, GameMode, GameRecord, MegaGameRecord } from "./types";
 import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
+  type BiteracerAllTimeRow,
+  type BiteracerTodayRow,
   type BitesweeperPlayerRow,
   type BitesweeperPreviewMessage,
+  type FinishedBiteracerGame,
   type FinishedGame,
   type LivePreviewMessage,
   type LivePreviewRow,
@@ -90,6 +93,27 @@ export class NeonStore implements Store {
       await this.sql`ALTER TABLE games_mega ADD COLUMN IF NOT EXISTS flags jsonb NOT NULL DEFAULT '[]'`;
       await this.sql`ALTER TABLE games_mega ADD COLUMN IF NOT EXISTS activity_instance_id text`;
       await this.sql`CREATE INDEX IF NOT EXISTS games_mega_user_idx ON games_mega (user_id)`;
+      // Biteracer daily typing runs. started_at is the server-authoritative
+      // clock start; scoring columns stay NULL until the run is finished.
+      // guild_id is a future-Discord-parity placeholder, always NULL for now.
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS biteracer_games (
+          date text NOT NULL,
+          user_id uuid NOT NULL REFERENCES users(id),
+          passage_id text NOT NULL,
+          started_at bigint NOT NULL,
+          finished_at bigint,
+          status text NOT NULL DEFAULT 'playing',
+          net_wpm real,
+          raw_wpm real,
+          accuracy real,
+          elapsed_ms bigint,
+          correct_chars int,
+          error_count int,
+          guild_id text,
+          PRIMARY KEY (date, user_id)
+        )`;
+      await this.sql`CREATE INDEX IF NOT EXISTS biteracer_games_user_idx ON biteracer_games (user_id)`;
       await this.sql`
         CREATE TABLE IF NOT EXISTS guild_channels (
           guild_id text PRIMARY KEY,
@@ -279,6 +303,13 @@ export class NeonStore implements Store {
           WHERE p2.instance_id = p.instance_id AND p2.user_id = ${toUserId}
         )`;
     await this.sql`DELETE FROM bitesweeper_presence WHERE user_id = ${fromUserId}`;
+    await this.sql`
+      UPDATE biteracer_games g SET user_id = ${toUserId}
+      WHERE g.user_id = ${fromUserId}
+        AND NOT EXISTS (
+          SELECT 1 FROM biteracer_games g2 WHERE g2.date = g.date AND g2.user_id = ${toUserId}
+        )`;
+    await this.sql`DELETE FROM biteracer_games WHERE user_id = ${fromUserId}`;
     // Anonymize: unlinked (lookup never returns it), unnamed (hidden from
     // leaderboards), and with no games left it can't reach livePreviewGamesOn.
     await this.sql`
@@ -478,6 +509,124 @@ export class NeonStore implements Store {
           score = NULL, finished_at = NULL, board_seed = EXCLUDED.board_seed,
           activity_instance_id = EXCLUDED.activity_instance_id
       WHERE games_mega.activity_instance_id IS DISTINCT FROM EXCLUDED.activity_instance_id`;
+  }
+
+  private mapBiteracerRow(r: Record<string, unknown>): BiteracerGameRecord {
+    return {
+      passageId: r.passage_id as string,
+      startedAt: Number(r.started_at),
+      finishedAt: r.finished_at === null ? null : Number(r.finished_at),
+      status: r.status as BiteracerGameRecord["status"],
+      netWpm: r.net_wpm === null ? null : Number(r.net_wpm),
+      rawWpm: r.raw_wpm === null ? null : Number(r.raw_wpm),
+      accuracy: r.accuracy === null ? null : Number(r.accuracy),
+      elapsedMs: r.elapsed_ms === null ? null : Number(r.elapsed_ms),
+      correctChars: r.correct_chars === null ? null : Number(r.correct_chars),
+      errorCount: r.error_count === null ? null : Number(r.error_count),
+      guildId: r.guild_id as string | null,
+    };
+  }
+
+  async getBiteracerGame(date: string, userId: string): Promise<BiteracerGameRecord | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT passage_id, started_at, finished_at, status, net_wpm, raw_wpm, accuracy,
+             elapsed_ms, correct_chars, error_count, guild_id
+      FROM biteracer_games WHERE date = ${date} AND user_id = ${userId}`;
+    return rows.length === 0 ? null : this.mapBiteracerRow(rows[0]);
+  }
+
+  async startBiteracerGame(
+    date: string,
+    userId: string,
+    passageId: string,
+    startedAt: number,
+  ): Promise<BiteracerGameRecord> {
+    await this.ensureSchema();
+    // First insert wins — a repeat call (refresh/reconnect) never resets the clock.
+    await this.sql`
+      INSERT INTO biteracer_games (date, user_id, passage_id, started_at, status)
+      VALUES (${date}, ${userId}, ${passageId}, ${startedAt}, 'playing')
+      ON CONFLICT (date, user_id) DO NOTHING`;
+    return (await this.getBiteracerGame(date, userId))!;
+  }
+
+  async finishBiteracerGame(
+    date: string,
+    userId: string,
+    result: {
+      finishedAt: number;
+      netWpm: number;
+      rawWpm: number;
+      accuracy: number;
+      elapsedMs: number;
+      correctChars: number;
+      errorCount: number;
+    },
+  ): Promise<BiteracerGameRecord | null> {
+    await this.ensureSchema();
+    // The WHERE guard makes finished runs immutable even under a race.
+    const rows = await this.sql`
+      UPDATE biteracer_games
+      SET status = 'finished', finished_at = ${result.finishedAt}, net_wpm = ${result.netWpm},
+          raw_wpm = ${result.rawWpm}, accuracy = ${result.accuracy},
+          elapsed_ms = ${result.elapsedMs}, correct_chars = ${result.correctChars},
+          error_count = ${result.errorCount}
+      WHERE date = ${date} AND user_id = ${userId} AND status = 'playing'
+      RETURNING passage_id, started_at, finished_at, status, net_wpm, raw_wpm, accuracy,
+                elapsed_ms, correct_chars, error_count, guild_id`;
+    return rows.length === 1 ? this.mapBiteracerRow(rows[0]) : null;
+  }
+
+  async finishedBiteracerGamesFor(userId: string): Promise<FinishedBiteracerGame[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT date, net_wpm, accuracy FROM biteracer_games
+      WHERE user_id = ${userId} AND status = 'finished'
+      ORDER BY date`;
+    return rows.map((r) => ({
+      date: r.date as string,
+      netWpm: Number(r.net_wpm),
+      accuracy: Number(r.accuracy),
+    }));
+  }
+
+  async finishedBiteracerGamesOn(date: string): Promise<BiteracerTodayRow[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar,
+             g.net_wpm, g.raw_wpm, g.accuracy, g.elapsed_ms, g.finished_at
+      FROM biteracer_games g JOIN users u ON u.id = g.user_id
+      WHERE g.date = ${date} AND g.status = 'finished' AND u.named`;
+    return rows.map((r) => ({
+      userId: r.user_id as string,
+      name: r.name as string,
+      discordUserId: r.discord_user_id as string | null,
+      discordAvatar: r.discord_avatar as string | null,
+      netWpm: Number(r.net_wpm),
+      rawWpm: Number(r.raw_wpm),
+      accuracy: Number(r.accuracy),
+      elapsedMs: Number(r.elapsed_ms),
+      finishedAt: r.finished_at === null ? 0 : Number(r.finished_at),
+    }));
+  }
+
+  async allFinishedBiteracerGames(): Promise<BiteracerAllTimeRow[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT g.user_id, u.name, u.discord_user_id, u.discord_avatar, g.date, g.net_wpm, g.accuracy
+      FROM biteracer_games g JOIN users u ON u.id = g.user_id
+      WHERE g.status = 'finished' AND u.named
+      ORDER BY g.date`;
+    return rows.map((r) => ({
+      userId: r.user_id as string,
+      name: r.name as string,
+      discordUserId: r.discord_user_id as string | null,
+      discordAvatar: r.discord_avatar as string | null,
+      date: r.date as string,
+      netWpm: Number(r.net_wpm),
+      accuracy: Number(r.accuracy),
+    }));
   }
 
   async recordBitesweeperPresence(

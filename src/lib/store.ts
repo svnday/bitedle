@@ -1,4 +1,5 @@
 import type {
+  BiteracerGameRecord,
   ClickRecord,
   GameMode,
   GameRecord,
@@ -84,6 +85,34 @@ export interface UserInfo {
   discordAvatar: string | null;
 }
 
+/** A finished Biteracer run, as needed for stats/streak computation. */
+export interface FinishedBiteracerGame {
+  date: string;
+  netWpm: number;
+  accuracy: number;
+}
+
+/** A finished run on a given day, as needed for the daily leaderboard. */
+export interface BiteracerTodayRow {
+  userId: string;
+  name: string;
+  discordUserId: string | null;
+  discordAvatar: string | null;
+  netWpm: number;
+  rawWpm: number;
+  accuracy: number;
+  elapsedMs: number;
+  finishedAt: number;
+}
+
+/** A finished run with its player, for the all-time leaderboard. */
+export interface BiteracerAllTimeRow extends FinishedBiteracerGame {
+  userId: string;
+  name: string;
+  discordUserId: string | null;
+  discordAvatar: string | null;
+}
+
 
 /** Sentinel stored as the live-preview messageId while a POST is in flight,
  *  so concurrent invocations neither double-post nor try to PATCH it. */
@@ -156,6 +185,40 @@ export interface Store {
     instanceId: string,
     boardSeed: string,
   ): Promise<void>;
+  /** Today's Biteracer row for a player, or null if they haven't started. */
+  getBiteracerGame(date: string, userId: string): Promise<BiteracerGameRecord | null>;
+  /** Idempotently starts today's run: the FIRST call records the authoritative
+   *  clock start (started_at) and which passage was served; every later call
+   *  the same day (refresh, reconnect) returns the SAME row untouched — the
+   *  clock never resets. Also a no-op (returns the existing row) once finished. */
+  startBiteracerGame(
+    date: string,
+    userId: string,
+    passageId: string,
+    startedAt: number,
+  ): Promise<BiteracerGameRecord>;
+  /** Finishes today's run — guarded by status = 'playing' so a finished row is
+   *  immutable under races (same pattern as putGame/putMegaGame). Returns null
+   *  if the player never started today or already finished (caller 409s). */
+  finishBiteracerGame(
+    date: string,
+    userId: string,
+    result: {
+      finishedAt: number;
+      netWpm: number;
+      rawWpm: number;
+      accuracy: number;
+      elapsedMs: number;
+      correctChars: number;
+      errorCount: number;
+    },
+  ): Promise<BiteracerGameRecord | null>;
+  /** Every finished Biteracer run for one player (their private stats). */
+  finishedBiteracerGamesFor(userId: string): Promise<FinishedBiteracerGame[]>;
+  /** Leaderboard feed: finished runs today, NAMED players only. */
+  finishedBiteracerGamesOn(date: string): Promise<BiteracerTodayRow[]>;
+  /** Leaderboard feed: every finished run, NAMED players only. */
+  allFinishedBiteracerGames(): Promise<BiteracerAllTimeRow[]>;
   /** Refreshes a player's membership in one running Bitesweeper Activity. */
   recordBitesweeperPresence(
     instanceId: string,
