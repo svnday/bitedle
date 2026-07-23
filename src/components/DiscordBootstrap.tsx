@@ -57,9 +57,10 @@ export default function DiscordBootstrap() {
         // the leaderboard to this server.
         setGuildId(discordSdk.guildId ?? null);
 
-        // Which mode this Activity instance is locked to (/bitesweeper vs
-        // /play). Own try/catch: falling into the outer catch would clobber
-        // the real guildId that was just set.
+        // Which mode this player's session resolves to (/bitesweeper vs
+        // /play — per player, via the identity cookie, so channel-mates can
+        // play different games). Own try/catch: falling into the outer catch
+        // would clobber the real guildId that was just set.
         try {
           const { mode } = await api.activityMode({
             instanceId: discordSdk.instanceId,

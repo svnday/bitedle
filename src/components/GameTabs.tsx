@@ -13,10 +13,11 @@ import BiteracerGame from "./BiteracerGame";
 import BitesweeperGame from "./BitesweeperGame";
 
 export default function GameTabs() {
-  // Embedded: the mode is locked to whichever command launched the Activity
-  // (/play → classic, /bitesweeper → mega) and isn't known until the Discord
-  // handshake settles — hold rendering until then (bounded by the bootstrap's
-  // 5s safety timeout) instead of flashing a classic board first.
+  // Embedded: the mode is resolved per player from whichever command THEY ran
+  // (/play → classic, /bitesweeper → mega; channel-mates can differ) and isn't
+  // known until the Discord handshake settles — hold rendering until then
+  // (bounded by the bootstrap's 5s safety timeout) instead of flashing a
+  // classic board first.
   const [runtime, setRuntime] = useState<{
     embedded: boolean;
     mode: ActivityLaunchMode;
@@ -43,8 +44,9 @@ export default function GameTabs() {
   if (runtime.mode === "unavailable") return <ActivityLoadError />;
   if (runtime.embedded && runtime.mode === "mega") return <BitesweeperGame />;
   const setWebMode = (mode: GameMode) => setRuntime({ embedded: false, mode });
-  // Website-only: an embedded session's mode comes from resolveActivityMode,
-  // which only ever binds "classic" or "mega" — Biteracer can't reach embeds.
+  // Website-only: an embedded session's mode comes from the activity-mode
+  // resolution, which only ever yields "classic" or "mega" — Biteracer can't
+  // reach embeds.
   if (!runtime.embedded && runtime.mode === "biteracer") {
     return <BiteracerGame onModeChange={setWebMode} />;
   }

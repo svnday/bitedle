@@ -132,6 +132,28 @@ async function handleShare(body: Interaction): Promise<NextResponse> {
 }
 
 /**
+ * Records which game the caller just asked for, so their booting Activity
+ * client picks it over the channel's shared instance mode (channel-mates can
+ * play different games at once). viaEntryPoint marks the generic "play"
+ * command, which Discord's App Launcher also fires — that weaker signal must
+ * not yank the user out of a game they're already in. Awaited, not after() —
+ * serverless.
+ */
+async function recordIntent(
+  body: Interaction,
+  mode: "classic" | "mega",
+  viaEntryPoint: boolean,
+): Promise<void> {
+  const callerId = body.member?.user?.id ?? body.user?.id;
+  if (!callerId) return;
+  try {
+    await getStore().recordLaunchIntent(callerId, mode, Date.now(), viaEntryPoint);
+  } catch (e) {
+    console.warn("interactions: failed to record launch intent", e);
+  }
+}
+
+/**
  * Launches the Activity (response type 12) and refreshes the live channel
  * preview off the response path, riding this interaction's webhook token —
  * Bitedle has no bot member in these servers, so the interaction webhook is
@@ -266,18 +288,28 @@ export async function POST(request: NextRequest) {
     // The entry point command "play" (APP_HANDLER, so it reaches us here
     // instead of Discord auto-posting a "Game Invitation" card) and the
     // ordinary /bitedle command both launch the same way — an app can have
-    // only one PRIMARY_ENTRY_POINT.
+    // only one PRIMARY_ENTRY_POINT. "play" is weak intent: the App Launcher
+    // fires it too, and reopening the app mustn't switch a running game.
+    await recordIntent(body, "classic", body.data?.name === "play");
     return launchActivity(body);
   }
 
   if (body?.type === 2 && body?.data?.name === "bitesweeper") {
-    // Bitesweeper launch: park a channel-keyed marker the booting Activity
-    // instance claims via /api/activity/mode. Awaited, not after() —
-    // serverless. Its channel preview is separate from Classic's preview and
-    // starts as a gray board, then the Activity state/click routes edit it.
+    // Bitesweeper launch: record the caller's intent, and park a channel-keyed
+    // marker (the fallback for players whose browser isn't Discord-linked yet)
+    // the booting Activity instance claims via /api/activity/mode. Awaited,
+    // not after() — serverless. Its channel preview is separate from Classic's
+    // preview and starts as a gray board, then the Activity state/click routes
+    // edit it.
+    await recordIntent(body, "mega", false);
     if (body.channel_id) {
       try {
-        await getStore().markBitesweeperLaunch(body.channel_id, Date.now());
+        await getStore().markBitesweeperLaunch(
+          body.channel_id,
+          Date.now(),
+          null,
+          body.member?.user?.id ?? body.user?.id ?? null,
+        );
       } catch (e) {
         console.warn("interactions: failed to mark Bitesweeper launch", e);
       }
@@ -287,6 +319,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (body?.type === 3 && body?.data?.custom_id === BITESWEEPER_LAUNCH_BUTTON_ID) {
+    await recordIntent(body, "mega", false);
     if (body.channel_id) {
       const preview = body.guild_id
         ? await getStore().getBitesweeperPreview(body.guild_id)
@@ -295,6 +328,7 @@ export async function POST(request: NextRequest) {
         body.channel_id,
         Date.now(),
         preview?.instanceId ?? null,
+        body.member?.user?.id ?? body.user?.id ?? null,
       );
     }
     // A fresh preview can keep using its original webhook token. An old
@@ -307,6 +341,7 @@ export async function POST(request: NextRequest) {
     // "Play now!" button on the live preview message. Launching from it also
     // mints a fresh interaction token, extending how long the preview stays
     // editable.
+    await recordIntent(body, "classic", false);
     return launchActivity(body);
   }
 

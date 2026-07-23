@@ -252,11 +252,25 @@ export interface Store {
     messageId: string,
   ): Promise<void>;
   /** Records a /bitesweeper launch in a channel. The next unbound Activity
-   *  instance that boots from this channel claims Bitesweeper mode. Upserts. */
+   *  instance that boots from this channel claims Bitesweeper mode. Upserts.
+   *  discordUserId marks whose marker it is, so a booting player only ever
+   *  consumes their own. */
   markBitesweeperLaunch(
     channelId: string,
     at: number,
     expectedInstanceId?: string | null,
+    discordUserId?: string | null,
+  ): Promise<void>;
+  /** Records which game a Discord user last explicitly asked for (slash
+   *  command or launch button). viaEntryPoint marks the generic "play" entry
+   *  point command (also fired by Discord's App Launcher) — a weaker signal
+   *  that must not yank the user out of a game they already bound to in the
+   *  booting instance. Upserts; one pending intent per Discord user. */
+  recordLaunchIntent(
+    discordUserId: string,
+    mode: GameMode,
+    at: number,
+    viaEntryPoint?: boolean,
   ): Promise<void>;
   /** Resolves and permanently binds an Activity instance's mode. The marker
    *  claim and first binding are one atomic operation, so simultaneous
@@ -265,6 +279,16 @@ export interface Store {
     instanceId: string,
     channelId: string | null,
     freshMarkerSince: number,
+  ): Promise<GameMode>;
+  /** Per-user mode for a booting participant, so channel-mates can play
+   *  different games in the same Activity instance. Precedence: the user's
+   *  fresh launch intent (consumed on claim) > their existing binding in this
+   *  instance > the instance-level resolveActivityMode fallback. */
+  resolveActivityModeForUser(
+    instanceId: string,
+    channelId: string | null,
+    userId: string | null,
+    freshSince: number,
   ): Promise<GameMode>;
   /** Records the channel a server most recently used a command in. Nothing
    *  posts to it anymore (delivery rides interaction webhooks), but the call

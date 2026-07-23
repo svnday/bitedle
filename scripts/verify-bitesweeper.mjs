@@ -173,6 +173,110 @@ try {
     { mode: "mega" },
   );
 
+  // Per-user modes: channel-mates share one Activity instance but each gets
+  // the game THEY asked for, matched via launch intents + the identity cookie.
+  const sweeper = await linkedPlayer("945678901234567890", "Sweeper player");
+  const classicSeeker = await linkedPlayer("956789012345678901", "Classic seeker");
+  const sharedChannel = "223456789012345678";
+  const sharedInstance = "shared-per-user-instance";
+  const sharedInteraction = {
+    channel_id: sharedChannel,
+    guild_id: guildId,
+    application_id: "234567890123456789",
+  };
+  const modeAs = (player) =>
+    postJsonAs(
+      "/api/activity/mode",
+      { instanceId: sharedInstance, channelId: sharedChannel },
+      player.cookie,
+    );
+
+  const sweeperLaunch = await signedInteraction({
+    type: 2,
+    data: { name: "bitesweeper" },
+    ...sharedInteraction,
+    token: "PER_USER_SWEEPER",
+    user: { id: sweeper.discordUserId },
+  });
+  assert.equal(sweeperLaunch.status, 200);
+  let perUserDb = readDb();
+  assert.equal(perUserDb.launchIntents?.[sweeper.discordUserId]?.mode, "mega");
+  assert.equal(
+    perUserDb.bitesweeperLaunches?.[sharedChannel]?.discordUserId,
+    sweeper.discordUserId,
+    "a /bitesweeper marker must record whose launch it is",
+  );
+  const bitedleLaunch = await signedInteraction({
+    type: 2,
+    data: { name: "bitedle" },
+    ...sharedInteraction,
+    token: "PER_USER_BITEDLE",
+    user: { id: classicSeeker.discordUserId },
+  });
+  assert.equal(bitedleLaunch.status, 200);
+  assert.equal(readDb().launchIntents?.[classicSeeker.discordUserId]?.mode, "classic");
+
+  assert.deepEqual(await modeAs(sweeper), { mode: "mega" });
+  assert.deepEqual(
+    await modeAs(classicSeeker),
+    { mode: "classic" },
+    "a /bitedle player must not be pulled into a channel-mate's Bitesweeper",
+  );
+  assert.deepEqual(await modeAs(sweeper), { mode: "mega" }, "refreshes must stay stable");
+  assert.deepEqual(await modeAs(classicSeeker), { mode: "classic" });
+  perUserDb = readDb();
+  assert.equal(
+    perUserDb.launchIntents?.[sweeper.discordUserId],
+    undefined,
+    "a claimed intent must be consumed",
+  );
+  assert.equal(
+    perUserDb.bitesweeperLaunches?.[sharedChannel],
+    undefined,
+    "a mega claim must consume the claimant's own channel marker",
+  );
+  assert.deepEqual(
+    await postJson("/api/activity/mode", {
+      instanceId: sharedInstance,
+      channelId: sharedChannel,
+    }),
+    { mode: "mega" },
+    "intent-less joiners must land in the instance's launched game",
+  );
+
+  await signedInteraction({
+    type: 2,
+    data: { name: "bitedle" },
+    ...sharedInteraction,
+    token: "PER_USER_SWITCH",
+    user: { id: sweeper.discordUserId },
+  });
+  assert.deepEqual(
+    await modeAs(sweeper),
+    { mode: "classic" },
+    "an explicit command must switch the player mid-instance",
+  );
+  await signedInteraction({
+    type: 2,
+    data: { name: "bitesweeper" },
+    ...sharedInteraction,
+    token: "PER_USER_BACK",
+    user: { id: sweeper.discordUserId },
+  });
+  assert.deepEqual(await modeAs(sweeper), { mode: "mega" });
+  await signedInteraction({
+    type: 2,
+    data: { name: "play" },
+    ...sharedInteraction,
+    token: "PER_USER_ENTRY",
+    user: { id: sweeper.discordUserId },
+  });
+  assert.deepEqual(
+    await modeAs(sweeper),
+    { mode: "mega" },
+    "reopening via the App Launcher must resume the player's running game",
+  );
+
   const megaState = await fetch(`${baseUrl}/api/mega/state`, {
     headers: { "X-Bitedle-Guild-Id": guildId },
   });
@@ -441,7 +545,7 @@ try {
   assert.equal(checkPayload.state.score, revealsBeforeWin + 1);
   assert.equal(checkPayload.state.layout[checkDraw.checkIndex], "check");
 
-  console.log("Bitesweeper verification passed: isolated launch surface, flag-all-bombs win, 12-flag cap, instant bomb loss, check instant win, 8-way bomb-only adjacency, mobile and desktop flags, private launch-random boards, live PNG preview, and atomic mode binding.");
+  console.log("Bitesweeper verification passed: isolated launch surface, flag-all-bombs win, 12-flag cap, instant bomb loss, check instant win, 8-way bomb-only adjacency, mobile and desktop flags, private launch-random boards, live PNG preview, atomic mode binding, and per-user launch intents (channel-mates play the games they each asked for).");
 } catch (error) {
   console.error(output);
   throw error;
@@ -508,6 +612,20 @@ async function postJson(pathname, body) {
   });
   assert.equal(response.status, 200, `${pathname} returned ${response.status}`);
   return response.json();
+}
+
+async function postJsonAs(pathname, body, cookie) {
+  const response = await fetch(`${baseUrl}${pathname}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify(body),
+  });
+  assert.equal(response.status, 200, `${pathname} returned ${response.status}`);
+  return response.json();
+}
+
+function readDb() {
+  return JSON.parse(fs.readFileSync(dbPath, "utf8"));
 }
 
 async function linkedPlayer(discordUserId, discordName) {

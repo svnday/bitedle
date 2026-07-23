@@ -145,13 +145,37 @@ export class NeonStore implements Store {
       await this.sql`
         ALTER TABLE bitesweeper_launch_markers
         ADD COLUMN IF NOT EXISTS expected_instance_id text`;
-      // Which game mode each Activity instance is locked to, so every
-      // participant (including late joiners) sees the same board type.
+      await this.sql`
+        ALTER TABLE bitesweeper_launch_markers
+        ADD COLUMN IF NOT EXISTS discord_user_id text`;
+      // Which game mode each Activity instance defaults to — what intent-less
+      // joiners (the embed's Join button fires no interaction) land in.
       await this.sql`
         CREATE TABLE IF NOT EXISTS activity_modes (
           instance_id text PRIMARY KEY,
           mode text NOT NULL,
           created_at bigint NOT NULL
+        )`;
+      // The game a Discord user last explicitly asked for (/bitedle,
+      // /bitesweeper, a launch button). Claimed (deleted) by that user's next
+      // Activity boot, overriding the shared instance mode — this is what
+      // lets channel-mates play different games at the same time.
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS launch_intents (
+          discord_user_id text PRIMARY KEY,
+          mode text NOT NULL,
+          via_entry_point boolean NOT NULL DEFAULT false,
+          created_at bigint NOT NULL
+        )`;
+      // Which game each participant is playing within an Activity instance,
+      // written when an intent is claimed so refreshes stay stable.
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS activity_user_modes (
+          instance_id text NOT NULL,
+          user_id uuid NOT NULL REFERENCES users(id),
+          mode text NOT NULL,
+          created_at bigint NOT NULL,
+          PRIMARY KEY (instance_id, user_id)
         )`;
       await this.sql`
         CREATE TABLE IF NOT EXISTS bitesweeper_presence (
@@ -303,6 +327,14 @@ export class NeonStore implements Store {
           WHERE p2.instance_id = p.instance_id AND p2.user_id = ${toUserId}
         )`;
     await this.sql`DELETE FROM bitesweeper_presence WHERE user_id = ${fromUserId}`;
+    await this.sql`
+      UPDATE activity_user_modes m SET user_id = ${toUserId}
+      WHERE m.user_id = ${fromUserId}
+        AND NOT EXISTS (
+          SELECT 1 FROM activity_user_modes m2
+          WHERE m2.instance_id = m.instance_id AND m2.user_id = ${toUserId}
+        )`;
+    await this.sql`DELETE FROM activity_user_modes WHERE user_id = ${fromUserId}`;
     await this.sql`
       UPDATE biteracer_games g SET user_id = ${toUserId}
       WHERE g.user_id = ${fromUserId}
@@ -784,14 +816,32 @@ export class NeonStore implements Store {
     channelId: string,
     at: number,
     expectedInstanceId: string | null = null,
+    discordUserId: string | null = null,
   ): Promise<void> {
     await this.ensureSchema();
     await this.sql`
-      INSERT INTO bitesweeper_launch_markers (channel_id, created_at, expected_instance_id)
-      VALUES (${channelId}, ${at}, ${expectedInstanceId})
+      INSERT INTO bitesweeper_launch_markers (channel_id, created_at, expected_instance_id, discord_user_id)
+      VALUES (${channelId}, ${at}, ${expectedInstanceId}, ${discordUserId})
       ON CONFLICT (channel_id) DO UPDATE
       SET created_at = EXCLUDED.created_at,
-          expected_instance_id = EXCLUDED.expected_instance_id`;
+          expected_instance_id = EXCLUDED.expected_instance_id,
+          discord_user_id = EXCLUDED.discord_user_id`;
+  }
+
+  async recordLaunchIntent(
+    discordUserId: string,
+    mode: GameMode,
+    at: number,
+    viaEntryPoint = false,
+  ): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO launch_intents (discord_user_id, mode, via_entry_point, created_at)
+      VALUES (${discordUserId}, ${mode}, ${viaEntryPoint}, ${at})
+      ON CONFLICT (discord_user_id) DO UPDATE
+      SET mode = EXCLUDED.mode,
+          via_entry_point = EXCLUDED.via_entry_point,
+          created_at = EXCLUDED.created_at`;
   }
 
   async resolveActivityMode(
@@ -837,6 +887,74 @@ export class NeonStore implements Store {
         LIMIT 1`,
     ]);
     return rows[0]?.mode === "mega" ? "mega" : "classic";
+  }
+
+  async resolveActivityModeForUser(
+    instanceId: string,
+    channelId: string | null,
+    userId: string | null,
+    freshSince: number,
+  ): Promise<GameMode> {
+    if (!userId) return this.resolveActivityMode(instanceId, channelId, freshSince);
+    await this.ensureSchema();
+    const now = Date.now();
+    // One statement claims the intent, writes the per-user binding, and (for
+    // mega) binds the instance default + consumes the claimant's own channel
+    // marker — atomic, so a refresh racing the first boot can't double-claim.
+    // Every CTE reads the statement-start snapshot, which is why the result
+    // must come from bound's RETURNING and why the existing-binding branch is
+    // guarded with NOT EXISTS(effective) instead of relying on branch order.
+    const [, , , rows] = await this.sql.transaction([
+      this.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`bitedle-activity-user:${instanceId}:${userId}`}, 0))`,
+      this.sql`DELETE FROM launch_intents WHERE created_at < ${now - 30 * 86_400_000}`,
+      this.sql`DELETE FROM activity_user_modes WHERE created_at < ${now - 30 * 86_400_000}`,
+      this.sql`
+        WITH me AS MATERIALIZED (
+          SELECT discord_user_id FROM users
+          WHERE id = ${userId} AND discord_user_id IS NOT NULL
+        ), claimed AS MATERIALIZED (
+          DELETE FROM launch_intents li USING me
+          WHERE li.discord_user_id = me.discord_user_id AND li.created_at >= ${freshSince}
+          RETURNING li.mode, li.via_entry_point
+        ), effective AS MATERIALIZED (
+          -- A weak (entry-point / App Launcher) classic intent yields to a
+          -- binding the user already has here: reopening the app resumes
+          -- their Bitesweeper game instead of yanking them to classic.
+          SELECT mode FROM claimed
+          WHERE NOT (mode = 'classic' AND via_entry_point AND EXISTS (
+            SELECT 1 FROM activity_user_modes
+            WHERE instance_id = ${instanceId} AND user_id = ${userId}))
+        ), bound AS (
+          INSERT INTO activity_user_modes (instance_id, user_id, mode, created_at)
+          SELECT ${instanceId}, ${userId}, mode, ${now} FROM effective
+          ON CONFLICT (instance_id, user_id) DO UPDATE
+          SET mode = EXCLUDED.mode, created_at = EXCLUDED.created_at
+          RETURNING mode
+        ), inst AS (
+          -- A mega claim also binds the instance default (if unbound) so
+          -- intent-less joiners land in the launched game. Classic never
+          -- binds: it's the default anyway, and binding it would lock out a
+          -- pending unlinked /bitesweeper marker claim.
+          INSERT INTO activity_modes (instance_id, mode, created_at)
+          SELECT ${instanceId}, 'mega', ${now} FROM effective WHERE mode = 'mega'
+          ON CONFLICT (instance_id) DO NOTHING
+        ), marker AS (
+          -- Consume the claimant's OWN channel marker so it can't later
+          -- hijack an unlinked classic boot — never someone else's.
+          DELETE FROM bitesweeper_launch_markers m USING me, effective e
+          WHERE e.mode = 'mega' AND m.channel_id = ${channelId}
+            AND m.discord_user_id = me.discord_user_id
+        )
+        SELECT mode FROM bound
+        UNION ALL
+        SELECT mode FROM activity_user_modes
+        WHERE instance_id = ${instanceId} AND user_id = ${userId}
+          AND NOT EXISTS (SELECT 1 FROM effective)
+        LIMIT 1`,
+    ]);
+    const mode = rows[0]?.mode;
+    if (mode === "mega" || mode === "classic") return mode;
+    return this.resolveActivityMode(instanceId, channelId, freshSince);
   }
 
   async setGuildChannel(guildId: string, channelId: string): Promise<void> {

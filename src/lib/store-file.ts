@@ -40,10 +40,20 @@ interface FileDb {
   /** bitesweeperLaunches[channelId] = markedAt — pending /bitesweeper launches. */
   bitesweeperLaunches: Record<
     string,
-    number | { at: number; expectedInstanceId: string | null }
+    number | { at: number; expectedInstanceId: string | null; discordUserId?: string | null }
   >;
-  /** activityModes[instanceId] — the mode each Activity instance is locked to. */
+  /** activityModes[instanceId] — the mode an Activity instance defaults to
+   *  (what intent-less joiners land in). */
   activityModes: Record<string, { mode: GameMode; createdAt: number }>;
+  /** launchIntents[discordUserId] — the game that user last explicitly asked
+   *  for; claimed by their next Activity boot. */
+  launchIntents: Record<
+    string,
+    { mode: GameMode; viaEntryPoint: boolean; createdAt: number }
+  >;
+  /** activityUserModes[instanceId][userId] — which game each participant is
+   *  playing within an instance. */
+  activityUserModes: Record<string, Record<string, { mode: GameMode; createdAt: number }>>;
   /** bitesweeperPresence[instanceId][userId] = the player's current board and heartbeat. */
   bitesweeperPresence: Record<
     string,
@@ -104,6 +114,8 @@ export class FileStore implements Store {
           biteracerGames: raw.biteracerGames ?? {},
           bitesweeperLaunches: raw.bitesweeperLaunches ?? {},
           activityModes: raw.activityModes ?? {},
+          launchIntents: raw.launchIntents ?? {},
+          activityUserModes: raw.activityUserModes ?? {},
           bitesweeperPresence: raw.bitesweeperPresence ?? {},
           guildChannels: raw.guildChannels ?? {},
         };
@@ -129,6 +141,8 @@ export class FileStore implements Store {
       biteracerGames: {},
       bitesweeperLaunches: {},
       activityModes: {},
+      launchIntents: {},
+      activityUserModes: {},
       bitesweeperPresence: {},
       guildChannels: {},
     };
@@ -221,6 +235,15 @@ export class FileStore implements Store {
       const canonicalPresence = byUser[toUserId];
       if (!canonicalPresence || orphanPresence.seenAt > canonicalPresence.seenAt) {
         byUser[toUserId] = orphanPresence;
+      }
+      delete byUser[fromUserId];
+    }
+    for (const byUser of Object.values(this.db.activityUserModes)) {
+      const orphanMode = byUser[fromUserId];
+      if (!orphanMode) continue;
+      const canonicalMode = byUser[toUserId];
+      if (!canonicalMode || orphanMode.createdAt > canonicalMode.createdAt) {
+        byUser[toUserId] = orphanMode;
       }
       delete byUser[fromUserId];
     }
@@ -637,8 +660,19 @@ export class FileStore implements Store {
     channelId: string,
     at: number,
     expectedInstanceId: string | null = null,
+    discordUserId: string | null = null,
   ): Promise<void> {
-    this.db.bitesweeperLaunches[channelId] = { at, expectedInstanceId };
+    this.db.bitesweeperLaunches[channelId] = { at, expectedInstanceId, discordUserId };
+    this.persist();
+  }
+
+  async recordLaunchIntent(
+    discordUserId: string,
+    mode: GameMode,
+    at: number,
+    viaEntryPoint = false,
+  ): Promise<void> {
+    this.db.launchIntents[discordUserId] = { mode, viaEntryPoint, createdAt: at };
     this.persist();
   }
 
@@ -666,6 +700,54 @@ export class FileStore implements Store {
     this.db.activityModes[instanceId] = { mode, createdAt: Date.now() };
     this.persist();
     return mode;
+  }
+
+  async resolveActivityModeForUser(
+    instanceId: string,
+    channelId: string | null,
+    userId: string | null,
+    freshSince: number,
+  ): Promise<GameMode> {
+    if (!userId) return this.resolveActivityMode(instanceId, channelId, freshSince);
+
+    const discordUserId = this.db.users[userId]?.discordUserId ?? null;
+    const intent = discordUserId ? this.db.launchIntents[discordUserId] : undefined;
+    const binding = this.db.activityUserModes[instanceId]?.[userId];
+
+    if (discordUserId && intent && intent.createdAt >= freshSince) {
+      delete this.db.launchIntents[discordUserId];
+      // A weak (entry-point / App Launcher) classic intent yields to a
+      // binding the user already has here: reopening the app resumes their
+      // Bitesweeper game instead of yanking them to classic.
+      const suppressed = intent.mode === "classic" && intent.viaEntryPoint && binding;
+      if (!suppressed) {
+        (this.db.activityUserModes[instanceId] ??= {})[userId] = {
+          mode: intent.mode,
+          createdAt: Date.now(),
+        };
+        if (intent.mode === "mega") {
+          // Bind the instance default (if unbound) so intent-less joiners
+          // land in the launched game, and consume the claimant's OWN channel
+          // marker so it can't later hijack an unlinked classic boot.
+          this.db.activityModes[instanceId] ??= { mode: "mega", createdAt: Date.now() };
+          const marker = channelId ? this.db.bitesweeperLaunches[channelId] : undefined;
+          if (
+            channelId &&
+            marker &&
+            typeof marker !== "number" &&
+            marker.discordUserId === discordUserId
+          ) {
+            delete this.db.bitesweeperLaunches[channelId];
+          }
+        }
+        this.persist();
+        return intent.mode;
+      }
+      this.persist();
+    }
+
+    if (binding) return binding.mode;
+    return this.resolveActivityMode(instanceId, channelId, freshSince);
   }
 
   async setGuildChannel(guildId: string, channelId: string): Promise<void> {
