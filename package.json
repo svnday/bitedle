@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "verify:bitesweeper": "node scripts/verify-bitesweeper.mjs"
+    "verify:bitesweeper": "node scripts/verify-bitesweeper.mjs",
+    "verify:biteracer-race": "node scripts/verify-biteracer-race.mjs"
   },
   "dependencies": {
     "@discord/embedded-app-sdk": "^2.5.0",

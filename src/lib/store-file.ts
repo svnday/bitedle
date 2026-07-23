@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { BiteracerGameRecord, GameMode, GameRecord, MegaGameRecord } from "./types";
+import type {
+  BiteracerGameRecord,
+  BiteracerRaceRecord,
+  GameMode,
+  GameRecord,
+  MegaGameRecord,
+} from "./types";
 import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
@@ -37,6 +43,8 @@ interface FileDb {
   megaGames: Record<string, Record<string, MegaGameRecord>>;
   /** biteracerGames[date][userId] — today's/finished Biteracer runs. */
   biteracerGames: Record<string, Record<string, BiteracerGameRecord>>;
+  biteracerRaces: Record<string, BiteracerRaceRecord>;
+  biteracerRaceLaunches: Record<string, { raceId: string; createdAt: number }>;
   /** bitesweeperLaunches[channelId] = markedAt — pending /bitesweeper launches. */
   bitesweeperLaunches: Record<
     string,
@@ -112,6 +120,8 @@ export class FileStore implements Store {
           launches: raw.launches ?? {},
           megaGames: raw.megaGames ?? {},
           biteracerGames: raw.biteracerGames ?? {},
+          biteracerRaces: raw.biteracerRaces ?? {},
+          biteracerRaceLaunches: raw.biteracerRaceLaunches ?? {},
           bitesweeperLaunches: raw.bitesweeperLaunches ?? {},
           activityModes: raw.activityModes ?? {},
           launchIntents: raw.launchIntents ?? {},
@@ -139,6 +149,8 @@ export class FileStore implements Store {
       launches: {},
       megaGames: {},
       biteracerGames: {},
+      biteracerRaces: {},
+      biteracerRaceLaunches: {},
       bitesweeperLaunches: {},
       activityModes: {},
       launchIntents: {},
@@ -518,6 +530,41 @@ export class FileStore implements Store {
       }
     }
     return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  async createBiteracerRace(race: BiteracerRaceRecord): Promise<void> {
+    if (!this.db.biteracerRaces[race.id]) {
+      this.db.biteracerRaces[race.id] = structuredClone(race);
+      this.persist();
+    }
+  }
+
+  async getBiteracerRace(raceId: string): Promise<BiteracerRaceRecord | null> {
+    const race = this.db.biteracerRaces[raceId];
+    return race ? structuredClone(race) : null;
+  }
+
+  async putBiteracerRace(race: BiteracerRaceRecord): Promise<void> {
+    this.db.biteracerRaces[race.id] = structuredClone(race);
+    this.persist();
+  }
+
+  async setBiteracerRaceLaunch(
+    discordUserId: string,
+    raceId: string,
+    at: number,
+  ): Promise<void> {
+    this.db.biteracerRaceLaunches[discordUserId] = { raceId, createdAt: at };
+    this.persist();
+  }
+
+  async claimBiteracerRaceLaunch(
+    discordUserId: string,
+    createdSince: number,
+  ): Promise<string | null> {
+    const launch = this.db.biteracerRaceLaunches[discordUserId];
+    if (!launch || launch.createdAt < createdSince) return null;
+    return launch.raceId;
   }
 
   async recordBitesweeperPresence(

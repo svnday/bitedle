@@ -8,6 +8,10 @@ import { renderSummaryImage, sortTodayRows } from "@/lib/discord-summary";
 import { LAUNCH_BUTTON_ID, updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { isBlockedDiscordId } from "@/lib/discord";
 import { getStore } from "@/lib/store";
+import { passageFor } from "@/lib/game-biteracer";
+import { BITERACER_CHALLENGE_TTL_MS, racePlayer } from "@/lib/biteracer-race";
+import type { BiteracerRaceRecord } from "@/lib/types";
+import { updateBiteracerPreview } from "@/lib/biteracer-discord-preview";
 import {
   beginBitesweeperPreview,
   updateBitesweeperPreview,
@@ -41,11 +45,17 @@ interface InteractionUser {
   username?: string;
   global_name?: string | null;
   avatar?: string | null;
+  bot?: boolean;
 }
 
 interface Interaction {
   type: number;
-  data?: { name?: string; custom_id?: string };
+  data?: {
+    name?: string;
+    custom_id?: string;
+    options?: { name: string; value: string }[];
+    resolved?: { users?: Record<string, InteractionUser> };
+  };
   member?: { user?: InteractionUser };
   user?: InteractionUser;
   channel_id?: string;
@@ -53,6 +63,132 @@ interface Interaction {
   /** Present on all interactions — needed for interaction-webhook posts/edits. */
   application_id?: string;
   token?: string;
+}
+
+const BITERACER_JOIN_PREFIX = "biteracer-join:";
+const BITERACER_DECLINE_PREFIX = "biteracer-decline:";
+
+function interactionName(user: InteractionUser | undefined): string {
+  return user?.global_name ?? user?.username ?? "Player";
+}
+
+async function handleBiteracerChallenge(body: Interaction): Promise<NextResponse> {
+  const challenger = body.member?.user ?? body.user;
+  const opponentId = body.data?.options?.find((option) => option.name === "opponent")?.value;
+  const opponent = opponentId ? body.data?.resolved?.users?.[opponentId] : undefined;
+  if (!challenger?.id || !opponentId || !opponent) {
+    return reply("Couldn't identify both racers. Try the command again.", true);
+  }
+  if (challenger.id === opponentId) return reply("You can't race yourself.", true);
+  if (opponent.bot) return reply("Bots are quick, but they can't enter Biteracer.", true);
+
+  const now = Date.now();
+  const race: BiteracerRaceRecord = {
+    id: crypto.randomUUID(),
+    guildId: body.guild_id ?? null,
+    channelId: body.channel_id ?? null,
+    passage: passageFor(todayStr()),
+    status: "pending",
+    createdAt: now,
+    acceptedAt: null,
+    countdownAt: null,
+    startedAt: null,
+    finishedAt: null,
+    winnerDiscordUserId: null,
+    rematchOf: null,
+    preview:
+      body.application_id && body.token
+        ? {
+            applicationId: body.application_id,
+            webhookToken: body.token,
+            tokenCreatedAt: now,
+          }
+        : null,
+    players: [
+      racePlayer({
+        discordUserId: challenger.id,
+        name: interactionName(challenger),
+        avatar: challenger.avatar ?? null,
+      }),
+      racePlayer({
+        discordUserId: opponentId,
+        name: interactionName(opponent),
+        avatar: opponent.avatar ?? null,
+      }),
+    ],
+  };
+  await getStore().createBiteracerRace(race);
+  return NextResponse.json({
+    type: 4,
+    data: {
+      content: `🏁 **${race.players[0].name}** challenged **${race.players[1].name}** to a Biteracer 1v1!`,
+      allowed_mentions: { parse: [] },
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 3,
+              label: "Accept / Join race",
+              custom_id: `${BITERACER_JOIN_PREFIX}${race.id}`,
+            },
+            {
+              type: 2,
+              style: 4,
+              label: "Decline",
+              custom_id: `${BITERACER_DECLINE_PREFIX}${race.id}`,
+            },
+          ],
+        },
+      ],
+    },
+  });
+}
+
+async function handleBiteracerButton(body: Interaction): Promise<NextResponse> {
+  const customId = body.data?.custom_id ?? "";
+  const decline = customId.startsWith(BITERACER_DECLINE_PREFIX);
+  const raceId = customId.slice(
+    decline ? BITERACER_DECLINE_PREFIX.length : BITERACER_JOIN_PREFIX.length,
+  );
+  const callerId = body.member?.user?.id ?? body.user?.id;
+  const store = getStore();
+  const race = await store.getBiteracerRace(raceId);
+  if (!callerId || !race) return reply("That race no longer exists.", true);
+  const playerIndex = race.players.findIndex((player) => player.discordUserId === callerId);
+  if (playerIndex < 0) return reply("Only the two challenged racers can use these buttons.", true);
+  if (race.status === "pending" && Date.now() - race.createdAt > BITERACER_CHALLENGE_TTL_MS) {
+    race.status = "expired";
+    race.finishedAt = Date.now();
+    await store.putBiteracerRace(race);
+    after(() => updateBiteracerPreview(race.id, true));
+    return reply("That challenge expired. Start a new one with /biteracer.", true);
+  }
+
+  if (decline) {
+    if (playerIndex !== 1 || race.status !== "pending") {
+      return reply("This race can no longer be declined.", true);
+    }
+    race.status = "declined";
+    race.finishedAt = Date.now();
+    await store.putBiteracerRace(race);
+    after(() => updateBiteracerPreview(race.id, true));
+    return reply("Race declined.", true);
+  }
+
+  if (race.status === "pending") {
+    if (playerIndex !== 1) return reply("Waiting for your opponent to accept.", true);
+    race.status = "accepted";
+    race.acceptedAt = Date.now();
+    await store.putBiteracerRace(race);
+    after(() => updateBiteracerPreview(race.id, true));
+  }
+  if (!["accepted", "countdown", "racing"].includes(race.status)) {
+    return reply("That race is already over.", true);
+  }
+  await store.setBiteracerRaceLaunch(callerId, race.id, Date.now());
+  return NextResponse.json({ type: 12 });
 }
 
 function bitesweeperFallbackPlayers(body: Interaction): BitesweeperPreviewPlayer[] {
@@ -292,6 +428,18 @@ export async function POST(request: NextRequest) {
     // fires it too, and reopening the app mustn't switch a running game.
     await recordIntent(body, "classic", body.data?.name === "play");
     return launchActivity(body);
+  }
+
+  if (body?.type === 2 && body?.data?.name === "biteracer") {
+    return handleBiteracerChallenge(body);
+  }
+
+  if (
+    body?.type === 3 &&
+    (body?.data?.custom_id?.startsWith(BITERACER_JOIN_PREFIX) ||
+      body?.data?.custom_id?.startsWith(BITERACER_DECLINE_PREFIX))
+  ) {
+    return handleBiteracerButton(body);
   }
 
   if (body?.type === 2 && body?.data?.name === "bitesweeper") {

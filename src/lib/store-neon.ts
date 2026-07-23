@@ -1,5 +1,11 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
-import type { BiteracerGameRecord, GameMode, GameRecord, MegaGameRecord } from "./types";
+import type {
+  BiteracerGameRecord,
+  BiteracerRaceRecord,
+  GameMode,
+  GameRecord,
+  MegaGameRecord,
+} from "./types";
 import {
   LIVE_PREVIEW_POSTING,
   type AllTimeRow,
@@ -114,6 +120,18 @@ export class NeonStore implements Store {
           PRIMARY KEY (date, user_id)
         )`;
       await this.sql`CREATE INDEX IF NOT EXISTS biteracer_games_user_idx ON biteracer_games (user_id)`;
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS biteracer_races (
+          id text PRIMARY KEY,
+          state jsonb NOT NULL,
+          updated_at bigint NOT NULL
+        )`;
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS biteracer_race_launches (
+          discord_user_id text PRIMARY KEY,
+          race_id text NOT NULL,
+          created_at bigint NOT NULL
+        )`;
       await this.sql`
         CREATE TABLE IF NOT EXISTS guild_channels (
           guild_id text PRIMARY KEY,
@@ -659,6 +677,54 @@ export class NeonStore implements Store {
       netWpm: Number(r.net_wpm),
       accuracy: Number(r.accuracy),
     }));
+  }
+
+  async createBiteracerRace(race: BiteracerRaceRecord): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO biteracer_races (id, state, updated_at)
+      VALUES (${race.id}, ${JSON.stringify(race)}::jsonb, ${Date.now()})
+      ON CONFLICT (id) DO NOTHING`;
+  }
+
+  async getBiteracerRace(raceId: string): Promise<BiteracerRaceRecord | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`SELECT state FROM biteracer_races WHERE id = ${raceId}`;
+    if (rows.length === 0) return null;
+    const state = rows[0].state;
+    return (typeof state === "string" ? JSON.parse(state) : state) as BiteracerRaceRecord;
+  }
+
+  async putBiteracerRace(race: BiteracerRaceRecord): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      UPDATE biteracer_races
+      SET state = ${JSON.stringify(race)}::jsonb, updated_at = ${Date.now()}
+      WHERE id = ${race.id}`;
+  }
+
+  async setBiteracerRaceLaunch(
+    discordUserId: string,
+    raceId: string,
+    at: number,
+  ): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO biteracer_race_launches (discord_user_id, race_id, created_at)
+      VALUES (${discordUserId}, ${raceId}, ${at})
+      ON CONFLICT (discord_user_id) DO UPDATE
+      SET race_id = EXCLUDED.race_id, created_at = EXCLUDED.created_at`;
+  }
+
+  async claimBiteracerRaceLaunch(
+    discordUserId: string,
+    createdSince: number,
+  ): Promise<string | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT race_id FROM biteracer_race_launches
+      WHERE discord_user_id = ${discordUserId} AND created_at >= ${createdSince}`;
+    return rows.length === 0 ? null : (rows[0].race_id as string);
   }
 
   async recordBitesweeperPresence(

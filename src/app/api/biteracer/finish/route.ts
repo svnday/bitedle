@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { playerDate, playerTimeZone } from "@/lib/discord";
-import { biteracerStateFor, passageFor } from "@/lib/game-biteracer";
+import { biteracerStateFor, passageById } from "@/lib/game-biteracer";
 import { attachIdentity, ensureUser } from "@/lib/identity";
 import { getStore } from "@/lib/store";
 
@@ -16,7 +16,12 @@ export async function POST(request: NextRequest) {
   const identity = await ensureUser(request);
   const date = playerDate(request);
   const timeZone = playerTimeZone(request);
-  const passage = passageFor(date);
+  const store = getStore();
+  const game = await store.getBiteracerGame(date, identity.id);
+  const passage = game ? passageById(game.passageId) : null;
+  if (!passage) {
+    return NextResponse.json({ error: "This passage is no longer available." }, { status: 409 });
+  }
 
   // The client hard-caps input at the passage length and auto-submits on
   // reaching it, so anything else is an incomplete or malformed submission —
@@ -28,8 +33,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const store = getStore();
-  const game = await store.getBiteracerGame(date, identity.id);
   if (!game || game.status !== "playing") {
     return attachIdentity(
       NextResponse.json(

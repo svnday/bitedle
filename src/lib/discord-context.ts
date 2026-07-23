@@ -11,6 +11,7 @@ export type ActivityLaunchMode = GameMode | "unavailable";
 let guildId: string | null = null;
 let discordUserId: string | null = null;
 let activityInstanceId: string | null = null;
+let biteracerRaceId: string | null = null;
 
 // Resolves once DiscordBootstrap's handshake has settled — either a real
 // guildId, or a definitive null (missing client id, failed ready(), or the
@@ -56,6 +57,14 @@ export function setActivityInstanceId(id: string | null): void {
 
 export function getActivityInstanceId(): string | null {
   return activityInstanceId;
+}
+
+export function setBiteracerRaceId(id: string | null): void {
+  biteracerRaceId = id;
+}
+
+export function getBiteracerRaceId(): string | null {
+  return biteracerRaceId;
 }
 
 export function guildContextSettled(): Promise<void> {

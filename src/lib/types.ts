@@ -219,3 +219,55 @@ export interface BiteracerUserStats {
   currentStreak: number;
   maxStreak: number;
 }
+
+export type BiteracerRaceStatus =
+  | "pending"
+  | "accepted"
+  | "countdown"
+  | "racing"
+  | "finished"
+  | "declined"
+  | "cancelled"
+  | "expired";
+
+export interface BiteracerRacePlayer {
+  discordUserId: string;
+  userId: string | null;
+  name: string;
+  discordAvatarUrl: string | null;
+  readyAt: number | null;
+  progress: number;
+  correctChars: number;
+  errorCount: number;
+  sequence: number;
+  lastUpdateAt: number | null;
+  finishedAt: number | null;
+  result: BiteracerResult | null;
+}
+
+/** Persisted shared 1v1 race. Daily Biteracer rows remain completely separate. */
+export interface BiteracerRaceRecord {
+  id: string;
+  guildId: string | null;
+  channelId: string | null;
+  passage: BiteracerPassage;
+  status: BiteracerRaceStatus;
+  createdAt: number;
+  acceptedAt: number | null;
+  countdownAt: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  winnerDiscordUserId: string | null;
+  rematchOf: string | null;
+  preview: {
+    applicationId: string;
+    webhookToken: string;
+    tokenCreatedAt: number;
+  } | null;
+  players: [BiteracerRacePlayer, BiteracerRacePlayer];
+}
+
+export interface BiteracerRaceState extends BiteracerRaceRecord {
+  meDiscordUserId: string;
+  serverNow: number;
+}

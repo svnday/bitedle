@@ -1,5 +1,6 @@
 import type {
   BiteracerGameRecord,
+  BiteracerRaceRecord,
   ClickRecord,
   GameMode,
   GameRecord,
@@ -219,6 +220,15 @@ export interface Store {
   finishedBiteracerGamesOn(date: string): Promise<BiteracerTodayRow[]>;
   /** Leaderboard feed: every finished run, NAMED players only. */
   allFinishedBiteracerGames(): Promise<BiteracerAllTimeRow[]>;
+  createBiteracerRace(race: BiteracerRaceRecord): Promise<void>;
+  getBiteracerRace(raceId: string): Promise<BiteracerRaceRecord | null>;
+  /** Replaces a race only when its current serialized version still matches. */
+  putBiteracerRace(race: BiteracerRaceRecord): Promise<void>;
+  setBiteracerRaceLaunch(discordUserId: string, raceId: string, at: number): Promise<void>;
+  claimBiteracerRaceLaunch(
+    discordUserId: string,
+    createdSince: number,
+  ): Promise<string | null>;
   /** Refreshes a player's membership in one running Bitesweeper Activity. */
   recordBitesweeperPresence(
     instanceId: string,

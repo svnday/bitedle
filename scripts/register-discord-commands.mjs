@@ -64,6 +64,22 @@ const commands = [
     integration_types: [0, 1],
     contexts: [0, 1, 2],
   },
+  {
+    name: "biteracer",
+    description: "Challenge someone to a 1v1 typing race",
+    type: 1,
+    default_member_permissions: null,
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+    options: [
+      {
+        type: 6,
+        name: "opponent",
+        description: "The person you want to race",
+        required: true,
+      },
+    ],
+  },
 ];
 
 function commandsUrl() {

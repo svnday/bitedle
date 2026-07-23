@@ -11,6 +11,7 @@ import {
 import Game from "./Game";
 import BiteracerGame from "./BiteracerGame";
 import BitesweeperGame from "./BitesweeperGame";
+import BiteracerRaceGame from "./BiteracerRaceGame";
 
 export default function GameTabs() {
   // Embedded: the mode is resolved per player from whichever command THEY ran
@@ -43,6 +44,7 @@ export default function GameTabs() {
   if (runtime === null) return null;
   if (runtime.mode === "unavailable") return <ActivityLoadError />;
   if (runtime.embedded && runtime.mode === "mega") return <BitesweeperGame />;
+  if (runtime.embedded && runtime.mode === "biteracer") return <BiteracerRaceGame />;
   const setWebMode = (mode: GameMode) => setRuntime({ embedded: false, mode });
   // Website-only: an embedded session's mode comes from the activity-mode
   // resolution, which only ever yields "classic" or "mega" — Biteracer can't

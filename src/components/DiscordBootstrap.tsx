@@ -6,6 +6,7 @@ import { api } from "@/lib/client-api";
 import {
   isDiscordEmbed,
   setActivityInstanceId,
+  setBiteracerRaceId,
   setDiscordUserId,
   setGuildId,
   setLaunchMode,
@@ -62,12 +63,20 @@ export default function DiscordBootstrap() {
         // play different games). Own try/catch: falling into the outer catch
         // would clobber the real guildId that was just set.
         try {
-          const { mode } = await api.activityMode({
+          await linkDiscordIdentity(discordSdk, clientId);
+        } catch (e) {
+          console.warn("Bitedle: Discord identity link failed", e);
+          setDiscordUserId(null);
+        }
+
+        try {
+          const { mode, raceId } = await api.activityMode({
             instanceId: discordSdk.instanceId,
             channelId: discordSdk.channelId ?? null,
           });
           if (cancelled) return;
-          setLaunchMode(mode === "mega" ? "mega" : "classic");
+          setBiteracerRaceId(raceId ?? null);
+          setLaunchMode(mode === "mega" || mode === "biteracer" ? mode : "classic");
         } catch (e) {
           console.warn("Bitedle: activity mode lookup failed", e);
           setLaunchMode("unavailable");
@@ -75,10 +84,6 @@ export default function DiscordBootstrap() {
 
         // Fire-and-forget: links the real Discord identity for avatars. Never
         // awaited — a slow or declined consent prompt must not block anything.
-        void linkDiscordIdentity(discordSdk, clientId).catch((e) => {
-          console.warn("Bitedle: Discord identity link failed", e);
-          setDiscordUserId(null);
-        });
       } catch (e) {
         console.warn("Bitedle: Discord handshake failed", e);
         setGuildId(null);

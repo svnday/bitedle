@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SNOWFLAKE_RE } from "@/lib/discord";
+import { DISCORD_USER_HEADER_NAME, SNOWFLAKE_RE } from "@/lib/discord";
 import { resolveUser } from "@/lib/identity";
 import { getStore } from "@/lib/store";
 
@@ -29,6 +29,15 @@ export async function POST(request: NextRequest) {
     typeof body?.channelId === "string" && SNOWFLAKE_RE.test(body.channelId) ? body.channelId : null;
   // Fail safe, never 4xx: a broken payload just plays classic.
   if (!instanceId) return NextResponse.json({ mode: "classic" });
+
+  const discordUserId = request.headers.get(DISCORD_USER_HEADER_NAME);
+  if (discordUserId && SNOWFLAKE_RE.test(discordUserId)) {
+    const raceId = await getStore().claimBiteracerRaceLaunch(
+      discordUserId,
+      Date.now() - MARKER_TTL_MS,
+    );
+    if (raceId) return NextResponse.json({ mode: "biteracer", raceId });
+  }
 
   // Read-only identity: never provision a user from a boot ping, and never
   // let an identity hiccup break the boot.

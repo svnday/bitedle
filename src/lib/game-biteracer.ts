@@ -68,6 +68,10 @@ export function passageFor(date: string): BiteracerPassage {
   return BITERACER_PASSAGES[passageIndexFor(date)];
 }
 
+export function passageById(id: string): BiteracerPassage | null {
+  return BITERACER_PASSAGES.find((passage) => passage.id === id) ?? null;
+}
+
 const BITERACER_FIRST_PUZZLE = 1;
 export const BITERACER_EPOCH_DATE = "2026-07-21"; // ship date — first puzzle is #1
 
@@ -91,7 +95,7 @@ export async function biteracerStateFor(
     status: game?.status ?? "playing",
     username: user?.name ?? "Player",
     named: user?.named ?? false,
-    passage: passageFor(date),
+    passage: game ? (passageById(game.passageId) ?? passageFor(date)) : passageFor(date),
     startedAt: game?.startedAt ?? null,
     nextResetAt: nextResetAt(new Date(), timeZone),
     result:

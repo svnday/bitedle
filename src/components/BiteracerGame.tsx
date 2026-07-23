@@ -54,6 +54,7 @@ export default function BiteracerGame({
   const toastId = useRef(0);
   const introChecked = useRef(false);
   const startedRef = useRef(false);
+  const startPromiseRef = useRef<Promise<BiteracerGameState> | null>(null);
   // Cosmetic local clock for the live WPM/timer readout — the server's own
   // started_at is what actually scores the run. Plain state (not a ref +
   // Date.now() in render) so the readout renders purely.
@@ -74,6 +75,11 @@ export default function BiteracerGame({
     return api.biteracerState().then(
       (next) => {
         setState(next);
+        if (next.startedAt !== null && next.status === "playing") {
+          startedRef.current = true;
+          setClockStart(next.startedAt);
+          setNowMs(Date.now());
+        }
         if (!introChecked.current) {
           introChecked.current = true;
           if (!localStorage.getItem("biteracer:seenHelp")) {
@@ -119,12 +125,12 @@ export default function BiteracerGame({
       const now = Date.now();
       setClockStart(now);
       setNowMs(now);
-      // Fire-and-forget: the server records its own authoritative clock start.
-      api.biteracerStart().catch(() => {});
+      startPromiseRef.current = api.biteracerStart();
     }
     if (value.length === passageText.length) {
       setBusy(true);
       try {
+        if (startPromiseRef.current) await startPromiseRef.current;
         const next = await api.biteracerFinish(value);
         setState(next);
         if (!next.named) {
@@ -289,9 +295,6 @@ export default function BiteracerGame({
                     onChange={(e) => void handleChange(e.target.value)}
                     onPaste={(e) => e.preventDefault()}
                     onDrop={(e) => e.preventDefault()}
-                    onBlur={() => {
-                      if (state && !finished && modal === null) inputRef.current?.focus();
-                    }}
                     spellCheck={false}
                     autoComplete="off"
                     autoCorrect="off"

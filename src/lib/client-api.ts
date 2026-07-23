@@ -9,6 +9,7 @@ import {
 import type {
   BiteracerGameState,
   BiteracerLeaderboard,
+  BiteracerRaceState,
   BiteracerUserStats,
   BitesweeperPlayer,
   CellResult,
@@ -70,7 +71,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const url = embedded ? `/.proxy${path}` : path;
   const guildId = embedded ? getGuildId() : null;
   let discordUserId: string | null = null;
-  if (embedded && !IDENTITY_BOOTSTRAP_PATHS.has(path)) {
+  if (embedded && path === "/api/activity/mode") {
+    discordUserId = getDiscordUserId();
+  } else if (embedded && !IDENTITY_BOOTSTRAP_PATHS.has(path)) {
     await discordIdentitySettled();
     discordUserId = getDiscordUserId();
     if (!discordUserId && guildId && IDENTITY_REQUIRED_PATHS.has(path)) {
@@ -130,7 +133,7 @@ export const api = {
     }),
   bitesweeperPlayers: () => request<{ players: BitesweeperPlayer[] }>("/api/mega/players"),
   activityMode: (payload: { instanceId: string; channelId: string | null }) =>
-    request<{ mode: GameMode }>("/api/activity/mode", {
+    request<{ mode: GameMode; raceId?: string }>("/api/activity/mode", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
@@ -154,4 +157,15 @@ export const api = {
     }),
   biteracerLeaderboard: () => request<BiteracerLeaderboard>("/api/biteracer/leaderboard"),
   biteracerStats: () => request<BiteracerUserStats>("/api/biteracer/stats"),
+  biteracerRaceState: (raceId: string) =>
+    request<BiteracerRaceState>(`/api/biteracer/race?raceId=${encodeURIComponent(raceId)}`),
+  biteracerRaceAction: (
+    raceId: string,
+    action: "ready" | "progress" | "finish" | "rematch",
+    payload: Record<string, unknown> = {},
+  ) =>
+    request<BiteracerRaceState>("/api/biteracer/race", {
+      method: "POST",
+      body: JSON.stringify({ raceId, action, ...payload }),
+    }),
 };
