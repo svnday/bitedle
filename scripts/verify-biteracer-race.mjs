@@ -221,6 +221,20 @@ try {
   );
   assert.match(interactionSource, /randomRacePassage/);
   assert.doesNotMatch(interactionSource, /passageFor\(todayStr\(\)\)/);
+  assert.match(
+    interactionSource,
+    /content:\s*`[^`]*<@\$\{opponentId\}>[^`]*challenged you to a Biteracer 1v1!/,
+  );
+  assert.match(interactionSource, /allowed_mentions:\s*\{\s*users:\s*\[opponentId\]\s*\}/);
+  const discordSummarySource = fs.readFileSync(
+    path.join(repoRoot, "src", "lib", "discord-summary.tsx"),
+    "utf8",
+  );
+  assert.match(
+    discordSummarySource,
+    /function patchImageWebhookMessage[\s\S]*allowed_mentions:\s*\{\s*parse:\s*\[\]\s*\}/,
+    "live preview edits must remain zero-ping",
+  );
   const previewSource = fs.readFileSync(
     path.join(repoRoot, "src", "lib", "biteracer-discord-preview.tsx"),
     "utf8",

@@ -128,8 +128,11 @@ async function handleBiteracerChallenge(body: Interaction): Promise<NextResponse
   return NextResponse.json({
     type: 4,
     data: {
-      content: `🏁 **${race.players[0].name}** challenged **${race.players[1].name}** to a Biteracer 1v1!`,
-      allowed_mentions: { parse: [] },
+      content: `🏁 <@${opponentId}> — **${race.players[0].name}** challenged you to a Biteracer 1v1!`,
+      // Deliberately allow exactly one notification: the selected opponent
+      // on the initial challenge. All preview edits and later replies keep
+      // allowed_mentions.parse empty, so the race cannot repeatedly ping.
+      allowed_mentions: { users: [opponentId] },
       components: [
         {
           type: 1,
