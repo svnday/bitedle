@@ -695,6 +695,15 @@ export class NeonStore implements Store {
     return (typeof state === "string" ? JSON.parse(state) : state) as BiteracerRaceRecord;
   }
 
+  async allBiteracerRaces(): Promise<BiteracerRaceRecord[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`SELECT state FROM biteracer_races ORDER BY updated_at`;
+    return rows.map((row) => {
+      const state = row.state;
+      return (typeof state === "string" ? JSON.parse(state) : state) as BiteracerRaceRecord;
+    });
+  }
+
   async putBiteracerRace(race: BiteracerRaceRecord): Promise<void> {
     await this.ensureSchema();
     await this.sql`

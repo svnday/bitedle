@@ -271,3 +271,14 @@ export interface BiteracerRaceState extends BiteracerRaceRecord {
   meDiscordUserId: string;
   serverNow: number;
 }
+
+export interface BiteracerRaceLeaderboardEntry {
+  discordUserId: string;
+  name: string;
+  discordAvatarUrl: string | null;
+  wins: number;
+  losses: number;
+  races: number;
+  winPct: number;
+  me: boolean;
+}

@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/client-api";
 import { getBiteracerRaceId, setBiteracerRaceId } from "@/lib/discord-context";
-import type { BiteracerRacePlayer, BiteracerRaceState } from "@/lib/types";
+import type {
+  BiteracerRaceLeaderboardEntry,
+  BiteracerRacePlayer,
+  BiteracerRaceState,
+} from "@/lib/types";
 
 function wordChunks(text: string): { text: string; offset: number }[] {
   let offset = 0;
@@ -70,6 +74,8 @@ export default function BiteracerRaceGame() {
   const [race, setRace] = useState<BiteracerRaceState | null>(null);
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [leaderboard, setLeaderboard] = useState<BiteracerRaceLeaderboardEntry[] | null>(null);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [now, setNow] = useState(0);
   const sequence = useRef(0);
   const lastSentAt = useRef(0);
@@ -140,12 +146,31 @@ export default function BiteracerRaceGame() {
     }
   };
 
+  const openLeaderboard = async () => {
+    setShowLeaderboard(true);
+    setLeaderboard(null);
+    try {
+      const result = await api.biteracerRaceLeaderboard();
+      setLeaderboard(result.entries);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't load the leaderboard");
+      setShowLeaderboard(false);
+    }
+  };
+
   return (
     <main className="flex min-h-screen w-full justify-center px-4 py-6">
       <div className="flex w-full max-w-2xl flex-col gap-5">
-        <header className="text-center">
+        <header className="relative text-center">
           <p className="text-correct text-xs font-bold tracking-[0.3em] uppercase">Discord 1v1</p>
           <h1 className="mt-1 text-3xl font-extrabold tracking-[0.14em]">BITERACER</h1>
+          <button
+            type="button"
+            onClick={() => void openLeaderboard()}
+            className="border-tileborder hover:border-tilehover absolute top-1/2 right-0 -translate-y-1/2 cursor-pointer rounded border px-3 py-1.5 text-xs font-bold"
+          >
+            Leaderboard
+          </button>
         </header>
 
         <section className="border-tileborder bg-raised space-y-4 rounded-xl border p-4">
@@ -273,7 +298,97 @@ export default function BiteracerRaceGame() {
         )}
         {error && <p className="text-danger text-center text-sm">{error}</p>}
       </div>
+      {showLeaderboard && (
+        <RaceLeaderboard
+          entries={leaderboard}
+          onClose={() => setShowLeaderboard(false)}
+        />
+      )}
     </main>
+  );
+}
+
+function RaceLeaderboard({
+  entries,
+  onClose,
+}: {
+  entries: BiteracerRaceLeaderboardEntry[] | null;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="race-leaderboard-title"
+      className="bg-surface/90 fixed inset-0 z-50 grid place-items-center p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section className="border-tileborder bg-raised flex max-h-[80vh] w-full max-w-md flex-col rounded-xl border shadow-2xl">
+        <header className="border-tileborder flex items-center justify-between border-b px-4 py-3">
+          <div>
+            <h2 id="race-leaderboard-title" className="text-lg font-extrabold">
+              1v1 Leaderboard
+            </h2>
+            <p className="text-muted text-xs">Ranked by total wins</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close leaderboard"
+            className="text-muted hover:text-foreground cursor-pointer p-2 text-xl"
+          >
+            ×
+          </button>
+        </header>
+        <div className="overflow-y-auto p-3">
+          {entries === null ? (
+            <p className="text-muted py-8 text-center text-sm">Loading…</p>
+          ) : entries.length === 0 ? (
+            <p className="text-muted py-8 text-center text-sm">No finished races yet.</p>
+          ) : (
+            <ol className="space-y-2">
+              {entries.map((entry, index) => (
+                <li
+                  key={entry.discordUserId}
+                  className={`border-tileborder flex items-center gap-3 rounded-lg border p-3 ${entry.me ? "bg-correct/10" : "bg-surface"}`}
+                >
+                  <span className="text-muted w-6 text-center text-sm font-black tabular-nums">
+                    {index + 1}
+                  </span>
+                  {entry.discordAvatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={entry.discordAvatarUrl}
+                      alt=""
+                      className="size-9 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span className="border-tileborder grid size-9 place-items-center rounded-full border font-bold">
+                      {entry.name.slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-bold">
+                      {entry.name}
+                      {entry.me ? " (you)" : ""}
+                    </div>
+                    <div className="text-muted text-xs">{entry.winPct}% win rate</div>
+                  </div>
+                  <div className="text-right tabular-nums">
+                    <div className="font-extrabold">
+                      {entry.wins}W – {entry.losses}L
+                    </div>
+                    <div className="text-muted text-[10px]">{entry.races} races</div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 

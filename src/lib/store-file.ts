@@ -544,6 +544,10 @@ export class FileStore implements Store {
     return race ? structuredClone(race) : null;
   }
 
+  async allBiteracerRaces(): Promise<BiteracerRaceRecord[]> {
+    return Object.values(this.db.biteracerRaces).map((race) => structuredClone(race));
+  }
+
   async putBiteracerRace(race: BiteracerRaceRecord): Promise<void> {
     this.db.biteracerRaces[race.id] = structuredClone(race);
     this.persist();

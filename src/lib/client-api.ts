@@ -10,6 +10,7 @@ import type {
   BiteracerGameState,
   BiteracerLeaderboard,
   BiteracerRaceState,
+  BiteracerRaceLeaderboardEntry,
   BiteracerUserStats,
   BitesweeperPlayer,
   CellResult,
@@ -168,4 +169,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ raceId, action, ...payload }),
     }),
+  biteracerRaceLeaderboard: () =>
+    request<{ entries: BiteracerRaceLeaderboardEntry[] }>(
+      "/api/biteracer/race/leaderboard",
+    ),
 };

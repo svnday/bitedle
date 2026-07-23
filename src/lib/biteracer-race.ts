@@ -3,6 +3,7 @@ import { BITERACER_PASSAGES } from "./biteracer-passages";
 import { getStore } from "./store";
 import type {
   BiteracerRacePlayer,
+  BiteracerRaceLeaderboardEntry,
   BiteracerRaceRecord,
   BiteracerRaceState,
   BiteracerResult,
@@ -11,6 +12,58 @@ import type {
 export const BITERACER_CHALLENGE_TTL_MS = 2 * 60_000;
 export const BITERACER_COUNTDOWN_MS = 3_000;
 export const BITERACER_RACE_TIMEOUT_MS = 5 * 60_000;
+
+export function randomRacePassage(usedPassageIds: string[] = []) {
+  const used = new Set(usedPassageIds);
+  let candidates = BITERACER_PASSAGES.filter((passage) => !used.has(passage.id));
+  // Once the full corpus has been used, begin a new cycle while still
+  // preventing the most recent passage from appearing twice in a row.
+  if (candidates.length === 0) {
+    const mostRecent = usedPassageIds[usedPassageIds.length - 1];
+    candidates = BITERACER_PASSAGES.filter((passage) => passage.id !== mostRecent);
+  }
+  const draw = new Uint32Array(1);
+  crypto.getRandomValues(draw);
+  return candidates[draw[0] % candidates.length];
+}
+
+export function raceLeaderboardFrom(
+  races: BiteracerRaceRecord[],
+  meDiscordUserId: string,
+): BiteracerRaceLeaderboardEntry[] {
+  const players = new Map<
+    string,
+    Omit<BiteracerRaceLeaderboardEntry, "races" | "winPct" | "me">
+  >();
+  for (const race of races.sort((a, b) => a.createdAt - b.createdAt)) {
+    if (race.status !== "finished" || !race.winnerDiscordUserId) continue;
+    for (const player of race.players) {
+      const entry = players.get(player.discordUserId) ?? {
+        discordUserId: player.discordUserId,
+        name: player.name,
+        discordAvatarUrl: player.discordAvatarUrl,
+        wins: 0,
+        losses: 0,
+      };
+      entry.name = player.name;
+      entry.discordAvatarUrl = player.discordAvatarUrl;
+      if (player.discordUserId === race.winnerDiscordUserId) entry.wins++;
+      else entry.losses++;
+      players.set(player.discordUserId, entry);
+    }
+  }
+  return [...players.values()]
+    .map((entry) => {
+      const races = entry.wins + entry.losses;
+      return {
+        ...entry,
+        races,
+        winPct: Math.round((entry.wins / races) * 1000) / 10,
+        me: entry.discordUserId === meDiscordUserId,
+      };
+    })
+    .sort((a, b) => b.wins - a.wins || a.losses - b.losses || a.name.localeCompare(b.name));
+}
 
 export function racePlayer(input: {
   discordUserId: string;
@@ -201,10 +254,11 @@ export async function rematchRace(
     throw new Error("Race not found");
   }
   if (previous.status !== "finished") throw new Error("Finish this race before a rematch");
-  const previousIndex = BITERACER_PASSAGES.findIndex(
-    (passage) => passage.id === previous.passage.id,
-  );
-  const passage = BITERACER_PASSAGES[(previousIndex + 1) % BITERACER_PASSAGES.length];
+  const history = await store.allBiteracerRaces();
+  const passage = randomRacePassage([
+    ...history.sort((a, b) => a.createdAt - b.createdAt).map((race) => race.passage.id),
+    previous.passage.id,
+  ]);
   const race: BiteracerRaceRecord = {
     id: crypto.randomUUID(),
     guildId: previous.guildId,

@@ -189,6 +189,15 @@ try {
   });
   assert.equal(state.status, "finished");
   assert.equal(state.winnerDiscordUserId, discordA, "the first valid finisher stays the winner");
+  const leaderboard = await leaderboardRequest(userA, discordA);
+  assert.deepEqual(
+    leaderboard.entries.map(({ name, wins, losses }) => ({ name, wins, losses })),
+    [
+      { name: "Alpha", wins: 1, losses: 0 },
+      { name: "Beta", wins: 0, losses: 1 },
+    ],
+  );
+  assert.equal(leaderboard.entries[0].me, true);
 
   const rematch = await raceRequest(userA, discordA, {
     raceId,
@@ -197,6 +206,7 @@ try {
   assert.equal(rematch.status, "accepted");
   assert.equal(rematch.rematchOf, raceId);
   assert.notEqual(rematch.id, raceId);
+  assert.notEqual(rematch.passage.id, state.passage.id);
   assert.ok(rematch.players.every((entry) => entry.readyAt === null));
 
   const commandSource = fs.readFileSync(
@@ -205,6 +215,12 @@ try {
   );
   assert.match(commandSource, /name:\s*"biteracer"/);
   assert.match(commandSource, /type:\s*6/);
+  const interactionSource = fs.readFileSync(
+    path.join(repoRoot, "src", "app", "api", "discord", "interactions", "route.ts"),
+    "utf8",
+  );
+  assert.match(interactionSource, /randomRacePassage/);
+  assert.doesNotMatch(interactionSource, /passageFor\(todayStr\(\)\)/);
   const previewSource = fs.readFileSync(
     path.join(repoRoot, "src", "lib", "biteracer-discord-preview.tsx"),
     "utf8",
@@ -265,6 +281,19 @@ async function modeRequest(userId, discordUserId, instanceId) {
   });
   assert.equal(response.status, 200);
   return response.json();
+}
+
+async function leaderboardRequest(userId, discordUserId) {
+  const response = await fetch(`${baseUrl}/api/biteracer/race/leaderboard`, {
+    headers: {
+      Cookie: `bitedle_id=${userId}`,
+      "X-Bitedle-Discord-User-Id": discordUserId,
+      "X-Bitedle-Guild-Id": "333333333333333333",
+    },
+  });
+  const data = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(data));
+  return data;
 }
 
 async function availablePort() {

@@ -8,8 +8,11 @@ import { renderSummaryImage, sortTodayRows } from "@/lib/discord-summary";
 import { LAUNCH_BUTTON_ID, updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { isBlockedDiscordId } from "@/lib/discord";
 import { getStore } from "@/lib/store";
-import { passageFor } from "@/lib/game-biteracer";
-import { BITERACER_CHALLENGE_TTL_MS, racePlayer } from "@/lib/biteracer-race";
+import {
+  BITERACER_CHALLENGE_TTL_MS,
+  racePlayer,
+  randomRacePassage,
+} from "@/lib/biteracer-race";
 import type { BiteracerRaceRecord } from "@/lib/types";
 import { updateBiteracerPreview } from "@/lib/biteracer-discord-preview";
 import {
@@ -83,11 +86,15 @@ async function handleBiteracerChallenge(body: Interaction): Promise<NextResponse
   if (opponent.bot) return reply("Bots are quick, but they can't enter Biteracer.", true);
 
   const now = Date.now();
+  const store = getStore();
+  const raceHistory = (await store.allBiteracerRaces()).sort(
+    (a, b) => a.createdAt - b.createdAt,
+  );
   const race: BiteracerRaceRecord = {
     id: crypto.randomUUID(),
     guildId: body.guild_id ?? null,
     channelId: body.channel_id ?? null,
-    passage: passageFor(todayStr()),
+    passage: randomRacePassage(raceHistory.map((previous) => previous.passage.id)),
     status: "pending",
     createdAt: now,
     acceptedAt: null,
@@ -117,7 +124,7 @@ async function handleBiteracerChallenge(body: Interaction): Promise<NextResponse
       }),
     ],
   };
-  await getStore().createBiteracerRace(race);
+  await store.createBiteracerRace(race);
   return NextResponse.json({
     type: 4,
     data: {

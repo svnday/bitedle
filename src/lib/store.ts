@@ -222,6 +222,7 @@ export interface Store {
   allFinishedBiteracerGames(): Promise<BiteracerAllTimeRow[]>;
   createBiteracerRace(race: BiteracerRaceRecord): Promise<void>;
   getBiteracerRace(raceId: string): Promise<BiteracerRaceRecord | null>;
+  allBiteracerRaces(): Promise<BiteracerRaceRecord[]>;
   /** Replaces a race only when its current serialized version still matches. */
   putBiteracerRace(race: BiteracerRaceRecord): Promise<void>;
   setBiteracerRaceLaunch(discordUserId: string, raceId: string, at: number): Promise<void>;
