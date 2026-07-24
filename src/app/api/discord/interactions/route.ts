@@ -311,7 +311,7 @@ async function handleBitefightButton(body: Interaction): Promise<NextResponse> {
   if (!callerId || !match) return reply("That fight no longer exists.", true);
   const playerIndex = match.players.findIndex((player) => player.discordUserId === callerId);
   if (playerIndex < 0) return reply("Only the two fighters can use these buttons.", true);
-  if (match.status === "pending" && Date.now() - match.createdAt > BITEFIGHT_CHALLENGE_TTL_MS) {
+  if (match.status === "pending" && Date.now() - match.createdAt >= BITEFIGHT_CHALLENGE_TTL_MS) {
     await expireBitefight(match.id);
     after(() => updateBitefightPreview(match.id, true));
     return reply("That challenge expired. Start a new one with /bitefight.", true);

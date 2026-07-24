@@ -45,7 +45,8 @@ website's mode tabs.
 `/biteracer opponent:@user` starts a typing race with a fresh passage.
 `/bitefight opponent:@user` starts a robot fight in a shared 3D toy-boxing
 arena where both players ready up, wait through one shared three-second
-countdown, then click or tap to throw an animated mechanical punch.
+countdown, then click or tap to throw an animated mechanical punch. The
+challenged opponent has one minute to accept before the challenge expires.
 Bitefight includes rematches, a wins/losses/draws leaderboard, and a live
 no-repeat-ping fight preview. The website’s Bitefight tab is a local sparring
 demo; it does not create multiplayer matches or leaderboard results.

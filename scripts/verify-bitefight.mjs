@@ -40,6 +40,7 @@ const players = {
 };
 const knockoutId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const timeoutId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const expiredId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const now = Date.now();
 
 fs.writeFileSync(
@@ -83,6 +84,12 @@ fs.writeFileSync(
         firstHealth: 80,
         secondHealth: 62,
       }),
+      [expiredId]: pendingFightFixture({
+        id: expiredId,
+        first: players.alpha,
+        second: players.beta,
+        createdAt: now - 60_001,
+      }),
     },
     bitefightLaunches: {},
     bitesweeperLaunches: {},
@@ -125,6 +132,21 @@ server.stderr.on("data", (chunk) => (output += chunk.toString()));
 
 try {
   await waitForServer();
+
+  const expiredAccept = await signedInteraction(
+    buttonInteraction(`bitefight-join:${expiredId}`, players.beta),
+  );
+  const expiredPayload = await expiredAccept.json();
+  assert.equal(expiredPayload.data.flags, 64);
+  assert.match(expiredPayload.data.content, /challenge expired/i);
+  const expiredState = await fightRequest(players.alpha, expiredId);
+  assert.equal(expiredState.status, "expired");
+  assert.ok(expiredState.finishedAt >= expiredState.createdAt + 60_000);
+  assert.equal(
+    (await modeRequest(players.beta, "expired-beta-instance")).mode,
+    "classic",
+    "an expired challenge must not create an Activity launch",
+  );
 
   const timedOut = await fightRequest(players.timer, timeoutId);
   assert.equal(timedOut.status, "finished");
@@ -400,6 +422,10 @@ try {
   );
   assert.match(interactionSource, /challenged you to a Bitefight/);
   assert.match(interactionSource, /allowed_mentions:\s*\{\s*users:\s*\[opponentId\]\s*\}/);
+  assert.match(
+    interactionSource,
+    /Date\.now\(\) - match\.createdAt >= BITEFIGHT_CHALLENGE_TTL_MS/,
+  );
   const fightSource = fs.readFileSync(
     path.join(repoRoot, "src", "components", "BitefightGame.tsx"),
     "utf8",
@@ -435,6 +461,15 @@ try {
     "utf8",
   );
   assert.match(constantsSource, /BITEFIGHT_PUNCH_DAMAGE = 1/);
+  assert.match(constantsSource, /BITEFIGHT_CHALLENGE_TTL_MS = 60_000/);
+  const lifecycleSource = fs.readFileSync(
+    path.join(repoRoot, "src", "lib", "bitefight.ts"),
+    "utf8",
+  );
+  assert.match(
+    lifecycleSource,
+    /now - match\.createdAt >= BITEFIGHT_CHALLENGE_TTL_MS/,
+  );
   const stageSource = fs.readFileSync(
     path.join(repoRoot, "src", "components", "BitefightStage3D.tsx"),
     "utf8",
@@ -574,6 +609,30 @@ function fightFixture({
     rematchMatchId: null,
     preview: null,
     players: [fighter(first, firstHealth), fighter(second, secondHealth)],
+  };
+}
+
+function pendingFightFixture({ id, first, second, createdAt }) {
+  return {
+    id,
+    revision: 0,
+    guildId,
+    channelId,
+    status: "pending",
+    createdAt,
+    acceptedAt: null,
+    countdownAt: null,
+    startedAt: null,
+    finishedAt: null,
+    winnerDiscordUserId: null,
+    finishReason: null,
+    rematchOf: null,
+    rematchMatchId: null,
+    preview: null,
+    players: [
+      { ...fighter(first), readyAt: null },
+      { ...fighter(second), readyAt: null },
+    ],
   };
 }
 

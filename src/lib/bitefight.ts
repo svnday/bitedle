@@ -60,7 +60,7 @@ export async function hasActiveBitefight(discordUserId: string): Promise<boolean
 function advanceLifecycle(match: BitefightRecord, now: number): boolean {
   if (
     match.status === "pending" &&
-    now - match.createdAt > BITEFIGHT_CHALLENGE_TTL_MS
+    now - match.createdAt >= BITEFIGHT_CHALLENGE_TTL_MS
   ) {
     match.status = "expired";
     match.finishedAt = now;
