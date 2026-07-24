@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest, after } from "next/server";
 import {
   bitefightStateFor,
+  cancelBitefight,
   forfeitBitefight,
   punchBitefight,
   readyBitefight,
@@ -72,6 +73,8 @@ export async function POST(request: NextRequest) {
     let accepted: boolean | undefined;
     if (body.action === "ready") {
       await readyBitefight(matchId, identity.discordUserId);
+    } else if (body.action === "cancel") {
+      await cancelBitefight(matchId, identity.discordUserId);
     } else if (body.action === "punch") {
       if (!Number.isSafeInteger(body.sequence)) {
         return NextResponse.json({ error: "Invalid punch" }, { status: 400 });

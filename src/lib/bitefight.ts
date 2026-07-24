@@ -302,7 +302,7 @@ export async function forfeitBitefight(
   return (
     await mutate(matchId, (match) => {
       const lifecycleChanged = advanceLifecycle(match, now);
-      if (!["accepted", "countdown", "fighting"].includes(match.status)) {
+      if (!["countdown", "fighting"].includes(match.status)) {
         if (lifecycleChanged) return { changed: true, result: null };
         throw new Error("Fight cannot be forfeited");
       }
@@ -311,15 +311,33 @@ export async function forfeitBitefight(
       );
       if (loserIndex < 0) throw new Error("You are not in this fight");
       match.finishedAt = now;
-      if (match.status === "fighting") {
-        match.status = "finished";
-        match.winnerDiscordUserId = match.players[loserIndex === 0 ? 1 : 0].discordUserId;
-        match.finishReason = "forfeit";
-      } else {
-        match.status = "cancelled";
-        match.winnerDiscordUserId = null;
-        match.finishReason = null;
+      match.status = "finished";
+      match.winnerDiscordUserId = match.players[loserIndex === 0 ? 1 : 0].discordUserId;
+      match.finishReason = "forfeit";
+      return { changed: true, result: null };
+    })
+  ).match;
+}
+
+export async function cancelBitefight(
+  matchId: string,
+  discordUserId: string,
+  now = Date.now(),
+): Promise<BitefightRecord> {
+  return (
+    await mutate(matchId, (match) => {
+      const lifecycleChanged = advanceLifecycle(match, now);
+      if (match.status !== "accepted") {
+        if (lifecycleChanged) return { changed: true, result: null };
+        throw new Error("Fight cannot be cancelled");
       }
+      if (!match.players.some((player) => player.discordUserId === discordUserId)) {
+        throw new Error("You are not in this fight");
+      }
+      match.status = "cancelled";
+      match.finishedAt = now;
+      match.winnerDiscordUserId = null;
+      match.finishReason = null;
       return { changed: true, result: null };
     })
   ).match;

@@ -23,6 +23,7 @@ export default function BitefightGame() {
   const [leaderboard, setLeaderboard] = useState<BitefightLeaderboardEntry[] | null>(null);
   const sequence = useRef(0);
   const [observedAt, setObservedAt] = useState(0);
+  const [confirmAction, setConfirmAction] = useState<"cancel" | "forfeit" | null>(null);
   const hitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const applyMatch = useCallback((next: BitefightState) => {
@@ -74,8 +75,9 @@ export default function BitefightGame() {
     };
   }, [refresh]);
 
+  const matchStatus = match?.status;
   const sendPunch = useCallback(() => {
-    if (!matchId || match?.status !== "fighting" || showLeaderboard) return;
+    if (!matchId || matchStatus !== "fighting" || showLeaderboard) return;
     sequence.current += 1;
     void api
       .bitefightAction(matchId, "punch", { sequence: sequence.current })
@@ -83,7 +85,7 @@ export default function BitefightGame() {
       .catch((cause) =>
         setError(cause instanceof Error ? cause.message : "Punch missed the server"),
       );
-  }, [applyMatch, match?.status, matchId, showLeaderboard]);
+  }, [applyMatch, matchId, matchStatus, showLeaderboard]);
 
   useEffect(() => {
     if (!showLeaderboard) return;
@@ -103,6 +105,22 @@ export default function BitefightGame() {
       setError(cause instanceof Error ? cause.message : "Couldn't load the leaderboard");
       setShowLeaderboard(false);
     }
+  };
+
+  const endFight = (action: "cancel" | "forfeit") => {
+    setConfirmAction(null);
+    void api
+      .bitefightAction(match!.id, action)
+      .then(applyMatch)
+      .catch((cause) => {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : action === "cancel"
+              ? "Couldn't cancel the fight"
+              : "Couldn't forfeit",
+        );
+      });
   };
 
   if (!matchId) {
@@ -246,24 +264,53 @@ export default function BitefightGame() {
           >
             Leaderboard
           </button>
-          {["accepted", "countdown", "fighting"].includes(match.status) && (
+          {match.status === "accepted" && (
             <button
               type="button"
-              onClick={() => {
-                if (!window.confirm("Forfeit this Bitefight?")) return;
-                void api
-                  .bitefightAction(match.id, "forfeit")
-                  .then(applyMatch)
-                  .catch((cause) => {
-                    setError(cause instanceof Error ? cause.message : "Couldn't forfeit");
-                  });
-              }}
+              onClick={() => setConfirmAction("cancel")}
+              className="text-muted hover:text-danger cursor-pointer text-xs underline"
+            >
+              Cancel fight
+            </button>
+          )}
+          {["countdown", "fighting"].includes(match.status) && (
+            <button
+              type="button"
+              onClick={() => setConfirmAction("forfeit")}
               className="text-muted hover:text-danger cursor-pointer text-xs underline"
             >
               Forfeit
             </button>
           )}
         </div>
+        {confirmAction && (
+          <div
+            role="alert"
+            className="border-tileborder bg-raised mx-auto flex w-full max-w-sm items-center justify-between gap-3 rounded-lg border p-3"
+          >
+            <p className="text-sm font-bold">
+              {confirmAction === "cancel"
+                ? "Cancel this fight while you wait?"
+                : "Forfeit and give your opponent the win?"}
+            </p>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmAction(null)}
+                className="border-tileborder cursor-pointer rounded border px-3 py-1.5 text-xs font-bold"
+              >
+                Keep waiting
+              </button>
+              <button
+                type="button"
+                onClick={() => endFight(confirmAction)}
+                className="bg-danger cursor-pointer rounded px-3 py-1.5 text-xs font-black text-white"
+              >
+                {confirmAction === "cancel" ? "Cancel" : "Forfeit"}
+              </button>
+            </div>
+          </div>
+        )}
         {error && <p className="text-danger text-center text-sm">{error}</p>}
       </div>
 

@@ -179,7 +179,7 @@ export const api = {
     request<BitefightState>(`/api/bitefight/match?matchId=${encodeURIComponent(matchId)}`),
   bitefightAction: (
     matchId: string,
-    action: "ready" | "punch" | "forfeit" | "rematch",
+    action: "ready" | "cancel" | "punch" | "forfeit" | "rematch",
     payload: { sequence?: number } = {},
   ) =>
     request<BitefightState & { accepted?: boolean }>("/api/bitefight/match", {

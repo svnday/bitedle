@@ -376,6 +376,12 @@ try {
   assert.equal(sameRematch.id, rematch.id, "both fighters must converge on one rematch");
   assert.ok(rematch.players.every((player) => player.health === 100));
   assert.ok(rematch.players.every((player) => player.readyAt === null));
+  const cancelled = await fightRequest(players.knockout, rematch.id, {
+    action: "cancel",
+  });
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(cancelled.winnerDiscordUserId, null);
+  assert.equal(cancelled.finishReason, null);
 
   const forfeit = await fightRequest(players.alpha, fightId, { action: "forfeit" });
   assert.equal(forfeit.status, "finished");
@@ -432,6 +438,8 @@ try {
   );
   assert.match(fightSource, /bitefightAction\(matchId, "punch", \{ sequence:/);
   assert.match(fightSource, />\s*PUNCH\s*</);
+  assert.match(fightSource, />\s*Cancel fight\s*</);
+  assert.doesNotMatch(fightSource, /window\.confirm/);
   assert.doesNotMatch(fightSource, /punches landed/);
   assert.doesNotMatch(fightSource, /expectedKey|key !== "f"|event\.repeat/);
   const sharedArenaSource = fs.readFileSync(
