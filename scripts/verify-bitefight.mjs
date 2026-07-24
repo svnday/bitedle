@@ -391,6 +391,9 @@ try {
     "utf8",
   );
   assert.match(commandSource, /name:\s*"bitefight"[\s\S]*name:\s*"opponent"/);
+  assert.match(commandSource, /response\.status !== 429/);
+  assert.match(commandSource, /payload\?\.retry_after/);
+  assert.match(commandSource, /await wait\(retryMs\)/);
   const interactionSource = fs.readFileSync(
     path.join(repoRoot, "src", "app", "api", "discord", "interactions", "route.ts"),
     "utf8",

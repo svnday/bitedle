@@ -18,6 +18,44 @@ const headers = {
   "Content-Type": "application/json",
 };
 
+const MAX_RATE_LIMIT_RETRIES = 5;
+const RATE_LIMIT_BUFFER_MS = 250;
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function discordFetch(url, options, action) {
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetch(url, options);
+    if (response.status !== 429 || attempt >= MAX_RATE_LIMIT_RETRIES) {
+      return response;
+    }
+
+    const payload = await response
+      .clone()
+      .json()
+      .catch(() => null);
+    const bodyRetrySeconds = Number(payload?.retry_after);
+    const headerRetrySeconds = Number(response.headers.get("retry-after"));
+    const retrySeconds = Number.isFinite(bodyRetrySeconds)
+      ? bodyRetrySeconds
+      : Number.isFinite(headerRetrySeconds)
+        ? headerRetrySeconds
+        : 1;
+    const retryMs = Math.max(
+      1_000,
+      Math.ceil(retrySeconds * 1_000) + RATE_LIMIT_BUFFER_MS,
+    );
+
+    console.warn(
+      `Rate limited while ${action}; retrying in ${(retryMs / 1_000).toFixed(2)}s ` +
+        `(${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})...`,
+    );
+    await wait(retryMs);
+  }
+}
+
 // "play" is deliberately not in this list — that name belongs to the
 // PRIMARY_ENTRY_POINT command (see set-entry-point-command.mjs), which
 // launches the Activity inline instead of just replying with a link.
@@ -130,7 +168,7 @@ async function main() {
   console.log("Registering slash commands...");
   console.log(`Guild install URL (share with a server admin): ${installUrl()}`);
 
-  const listRes = await fetch(commandsUrl(), { headers });
+  const listRes = await discordFetch(commandsUrl(), { headers }, "listing commands");
   if (!listRes.ok) {
     console.error(`Failed to list commands (${listRes.status}): ${await listRes.text()}`);
     process.exit(1);
@@ -143,7 +181,11 @@ async function main() {
   // set-entry-point-command.mjs), and Discord won't allow both at once.
   const stalePlay = existing.find((c) => c.type === 1 && c.name === "play");
   if (stalePlay) {
-    const deleteRes = await fetch(commandUrl(stalePlay.id), { method: "DELETE", headers });
+    const deleteRes = await discordFetch(
+      commandUrl(stalePlay.id),
+      { method: "DELETE", headers },
+      "removing stale /play",
+    );
     if (!deleteRes.ok) {
       console.error(
         `Failed to remove the stale /play command (${deleteRes.status}): ${await deleteRes.text()}`,
@@ -157,11 +199,15 @@ async function main() {
     const match = existing.find((c) => c.name === command.name);
 
     if (match) {
-      const patchRes = await fetch(commandUrl(match.id), {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify(command),
-      });
+      const patchRes = await discordFetch(
+        commandUrl(match.id),
+        {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify(command),
+        },
+        `updating /${command.name}`,
+      );
 
       if (!patchRes.ok) {
         console.error(`Failed to update /${command.name} (${patchRes.status}): ${await patchRes.text()}`);
@@ -170,11 +216,15 @@ async function main() {
 
       console.log(`Updated /${command.name}` + (guildId ? ` in guild ${guildId}` : " globally"));
     } else {
-      const createRes = await fetch(commandsUrl(), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(command),
-      });
+      const createRes = await discordFetch(
+        commandsUrl(),
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(command),
+        },
+        `creating /${command.name}`,
+      );
 
       if (!createRes.ok) {
         console.error(`Failed to create /${command.name} (${createRes.status}): ${await createRes.text()}`);
