@@ -3,6 +3,7 @@ import path from "node:path";
 import type {
   BiteracerGameRecord,
   BiteracerRaceRecord,
+  BitefightRecord,
   GameMode,
   GameRecord,
   MegaGameRecord,
@@ -45,6 +46,8 @@ interface FileDb {
   biteracerGames: Record<string, Record<string, BiteracerGameRecord>>;
   biteracerRaces: Record<string, BiteracerRaceRecord>;
   biteracerRaceLaunches: Record<string, { raceId: string; createdAt: number }>;
+  bitefights: Record<string, BitefightRecord>;
+  bitefightLaunches: Record<string, { matchId: string; createdAt: number }>;
   /** bitesweeperLaunches[channelId] = markedAt — pending /bitesweeper launches. */
   bitesweeperLaunches: Record<
     string,
@@ -122,6 +125,8 @@ export class FileStore implements Store {
           biteracerGames: raw.biteracerGames ?? {},
           biteracerRaces: raw.biteracerRaces ?? {},
           biteracerRaceLaunches: raw.biteracerRaceLaunches ?? {},
+          bitefights: raw.bitefights ?? {},
+          bitefightLaunches: raw.bitefightLaunches ?? {},
           bitesweeperLaunches: raw.bitesweeperLaunches ?? {},
           activityModes: raw.activityModes ?? {},
           launchIntents: raw.launchIntents ?? {},
@@ -151,6 +156,8 @@ export class FileStore implements Store {
       biteracerGames: {},
       biteracerRaces: {},
       biteracerRaceLaunches: {},
+      bitefights: {},
+      bitefightLaunches: {},
       bitesweeperLaunches: {},
       activityModes: {},
       launchIntents: {},
@@ -569,6 +576,57 @@ export class FileStore implements Store {
     const launch = this.db.biteracerRaceLaunches[discordUserId];
     if (!launch || launch.createdAt < createdSince) return null;
     return launch.raceId;
+  }
+
+  async createBitefight(match: BitefightRecord): Promise<void> {
+    if (!this.db.bitefights[match.id]) {
+      this.db.bitefights[match.id] = structuredClone(match);
+      this.persist();
+    }
+  }
+
+  async getBitefight(matchId: string): Promise<BitefightRecord | null> {
+    const match = this.db.bitefights[matchId];
+    return match ? structuredClone(match) : null;
+  }
+
+  async allBitefights(): Promise<BitefightRecord[]> {
+    return Object.values(this.db.bitefights).map((match) => structuredClone(match));
+  }
+
+  async compareAndSwapBitefight(
+    match: BitefightRecord,
+    expectedRevision: number,
+  ): Promise<boolean> {
+    const current = this.db.bitefights[match.id];
+    if (!current || current.revision !== expectedRevision) return false;
+    this.db.bitefights[match.id] = structuredClone(match);
+    this.persist();
+    return true;
+  }
+
+  async setBitefightLaunch(
+    discordUserId: string,
+    matchId: string,
+    at: number,
+  ): Promise<void> {
+    this.db.bitefightLaunches[discordUserId] = { matchId, createdAt: at };
+    this.persist();
+  }
+
+  async claimBitefightLaunch(
+    discordUserId: string,
+    createdSince: number,
+  ): Promise<string | null> {
+    const launch = this.db.bitefightLaunches[discordUserId];
+    if (!launch || launch.createdAt < createdSince) return null;
+    return launch.matchId;
+  }
+
+  async clearBitefightLaunch(discordUserId: string): Promise<void> {
+    if (!this.db.bitefightLaunches[discordUserId]) return;
+    delete this.db.bitefightLaunches[discordUserId];
+    this.persist();
   }
 
   async recordBitesweeperPresence(

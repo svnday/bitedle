@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "verify:bitesweeper": "node scripts/verify-bitesweeper.mjs",
-    "verify:biteracer-race": "node scripts/verify-biteracer-race.mjs"
+    "verify:biteracer-race": "node scripts/verify-biteracer-race.mjs",
+    "verify:bitefight": "node scripts/verify-bitefight.mjs"
   },
   "dependencies": {
     "@discord/embedded-app-sdk": "^2.5.0",
@@ -16,13 +17,15 @@
     "discord-interactions": "^4.4.0",
     "next": "16.2.10",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.185.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",

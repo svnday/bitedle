@@ -1,0 +1,6 @@
+export const BITEFIGHT_MAX_HEALTH = 100;
+export const BITEFIGHT_PUNCH_DAMAGE = 1;
+export const BITEFIGHT_COUNTDOWN_MS = 3_000;
+export const BITEFIGHT_TIMEOUT_MS = 5 * 60_000;
+export const BITEFIGHT_CHALLENGE_TTL_MS = 2 * 60_000;
+export const BITEFIGHT_LOBBY_TIMEOUT_MS = 10 * 60_000;

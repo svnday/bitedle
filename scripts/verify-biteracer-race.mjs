@@ -8,6 +8,9 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const verifyDistDir = ".next-verify-biteracer";
+const verifyTsconfigName = `.tsconfig-biteracer-verify-${process.pid}.json`;
+const verifyTsconfigPath = path.join(repoRoot, verifyTsconfigName);
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "bitedle-race-"));
 const dbPath = path.join(tempDir, "db.json");
 const port = await availablePort();
@@ -23,6 +26,10 @@ const discordB = "222222222222222222";
 const passage = { id: "verify", book: "Verifier", author: "Bitedle", text: "fast fox" };
 const startedAt = Date.now() - 10_000;
 
+fs.writeFileSync(
+  verifyTsconfigPath,
+  JSON.stringify({ extends: "./tsconfig.json" }, null, 2),
+);
 fs.writeFileSync(
   dbPath,
   JSON.stringify({
@@ -110,6 +117,8 @@ const server = spawn(
     env: {
       ...process.env,
       PORT: String(port),
+      BITEDLE_NEXT_DIST_DIR: verifyDistDir,
+      BITEDLE_TSCONFIG_PATH: verifyTsconfigName,
       BITEDLE_FORCE_FILE_STORE: "1",
       BITEDLE_FILE_DB_PATH: dbPath,
       BITEDLE_DISCORD_API_BASE_URL: webhook.baseUrl,
@@ -244,7 +253,9 @@ try {
   console.log(`Biteracer 1v1 verification passed. Preview: ${path.join(tempDir, "biteracer-preview.png")}`);
 } finally {
   server.kill();
+  await waitForServerExit(server);
   webhook.server.close();
+  await removeVerifyArtifacts();
 }
 
 function player(discordUserId, userId, name) {
@@ -332,6 +343,33 @@ async function waitForServer() {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`Next server did not start.\n${output}`);
+}
+
+async function waitForServerExit(child) {
+  if (child.exitCode !== null) return;
+  await new Promise((resolve) => {
+    const force = setTimeout(() => {
+      if (child.exitCode === null) child.kill("SIGKILL");
+    }, 3_000);
+    child.once("exit", () => {
+      clearTimeout(force);
+      resolve();
+    });
+  });
+}
+
+async function removeVerifyArtifacts() {
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  try {
+    fs.rmSync(path.join(repoRoot, verifyDistDir), {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 250,
+    });
+  } finally {
+    fs.rmSync(verifyTsconfigPath, { force: true });
+  }
 }
 
 async function waitFor(predicate) {

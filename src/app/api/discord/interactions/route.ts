@@ -16,6 +16,16 @@ import {
 import type { BiteracerRaceRecord } from "@/lib/types";
 import { updateBiteracerPreview } from "@/lib/biteracer-discord-preview";
 import {
+  BITEFIGHT_CHALLENGE_TTL_MS,
+  acceptBitefight,
+  bitefightPlayer,
+  declineBitefight,
+  expireBitefight,
+  hasActiveBitefight,
+} from "@/lib/bitefight";
+import type { BitefightRecord } from "@/lib/types";
+import { updateBitefightPreview } from "@/lib/bitefight-discord-preview";
+import {
   beginBitesweeperPreview,
   updateBitesweeperPreview,
   BITESWEEPER_LAUNCH_BUTTON_ID,
@@ -70,6 +80,8 @@ interface Interaction {
 
 const BITERACER_JOIN_PREFIX = "biteracer-join:";
 const BITERACER_DECLINE_PREFIX = "biteracer-decline:";
+const BITEFIGHT_JOIN_PREFIX = "bitefight-join:";
+const BITEFIGHT_DECLINE_PREFIX = "bitefight-decline:";
 
 function interactionName(user: InteractionUser | undefined): string {
   return user?.global_name ?? user?.username ?? "Player";
@@ -197,7 +209,138 @@ async function handleBiteracerButton(body: Interaction): Promise<NextResponse> {
   if (!["accepted", "countdown", "racing"].includes(race.status)) {
     return reply("That race is already over.", true);
   }
+  await store.clearBitefightLaunch(callerId);
   await store.setBiteracerRaceLaunch(callerId, race.id, Date.now());
+  return NextResponse.json({ type: 12 });
+}
+
+async function handleBitefightChallenge(body: Interaction): Promise<NextResponse> {
+  const challenger = body.member?.user ?? body.user;
+  const opponentId = body.data?.options?.find((option) => option.name === "opponent")?.value;
+  const opponent = opponentId ? body.data?.resolved?.users?.[opponentId] : undefined;
+  if (!challenger?.id || !opponentId || !opponent) {
+    return reply("Couldn't identify both fighters. Try the command again.", true);
+  }
+  if (challenger.id === opponentId) return reply("You can't fight yourself.", true);
+  if (opponent.bot) return reply("Bots aren't allowed in the Bitefight ring.", true);
+  if (await hasActiveBitefight(challenger.id)) {
+    return reply("Finish your current Bitefight before starting another.", true);
+  }
+  if (await hasActiveBitefight(opponentId)) {
+    return reply("That player is already in an active Bitefight.", true);
+  }
+
+  const now = Date.now();
+  const match: BitefightRecord = {
+    id: crypto.randomUUID(),
+    revision: 0,
+    guildId: body.guild_id ?? null,
+    channelId: body.channel_id ?? null,
+    status: "pending",
+    createdAt: now,
+    acceptedAt: null,
+    countdownAt: null,
+    startedAt: null,
+    finishedAt: null,
+    winnerDiscordUserId: null,
+    finishReason: null,
+    rematchOf: null,
+    rematchMatchId: null,
+    preview:
+      body.application_id && body.token
+        ? {
+            applicationId: body.application_id,
+            webhookToken: body.token,
+            tokenCreatedAt: now,
+          }
+        : null,
+    players: [
+      bitefightPlayer({
+        discordUserId: challenger.id,
+        name: interactionName(challenger),
+        avatar: challenger.avatar ?? null,
+      }),
+      bitefightPlayer({
+        discordUserId: opponentId,
+        name: interactionName(opponent),
+        avatar: opponent.avatar ?? null,
+      }),
+    ],
+  };
+  await getStore().createBitefight(match);
+  after(() => updateBitefightPreview(match.id, true));
+  return NextResponse.json({
+    type: 4,
+    data: {
+      content: `🥊 <@${opponentId}> — **${match.players[0].name}** challenged you to a Bitefight!`,
+      // The initial challenge is the only Bitefight message allowed to notify.
+      // Every live-preview edit and later reply explicitly suppresses mentions.
+      allowed_mentions: { users: [opponentId] },
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 3,
+              label: "Accept / Enter ring",
+              custom_id: `${BITEFIGHT_JOIN_PREFIX}${match.id}`,
+            },
+            {
+              type: 2,
+              style: 4,
+              label: "Decline",
+              custom_id: `${BITEFIGHT_DECLINE_PREFIX}${match.id}`,
+            },
+          ],
+        },
+      ],
+    },
+  });
+}
+
+async function handleBitefightButton(body: Interaction): Promise<NextResponse> {
+  const customId = body.data?.custom_id ?? "";
+  const decline = customId.startsWith(BITEFIGHT_DECLINE_PREFIX);
+  const matchId = customId.slice(
+    decline ? BITEFIGHT_DECLINE_PREFIX.length : BITEFIGHT_JOIN_PREFIX.length,
+  );
+  const callerId = body.member?.user?.id ?? body.user?.id;
+  const store = getStore();
+  const match = await store.getBitefight(matchId);
+  if (!callerId || !match) return reply("That fight no longer exists.", true);
+  const playerIndex = match.players.findIndex((player) => player.discordUserId === callerId);
+  if (playerIndex < 0) return reply("Only the two fighters can use these buttons.", true);
+  if (match.status === "pending" && Date.now() - match.createdAt > BITEFIGHT_CHALLENGE_TTL_MS) {
+    await expireBitefight(match.id);
+    after(() => updateBitefightPreview(match.id, true));
+    return reply("That challenge expired. Start a new one with /bitefight.", true);
+  }
+
+  if (decline) {
+    try {
+      await declineBitefight(match.id, callerId);
+      after(() => updateBitefightPreview(match.id, true));
+      return reply("Bitefight declined.", true);
+    } catch {
+      return reply("This fight can no longer be declined.", true);
+    }
+  }
+
+  if (match.status === "pending") {
+    if (playerIndex !== 1) return reply("Waiting for your opponent to accept.", true);
+    try {
+      await acceptBitefight(match.id, callerId);
+      after(() => updateBitefightPreview(match.id, true));
+    } catch {
+      return reply("This challenge can no longer be accepted.", true);
+    }
+  }
+  const current = await store.getBitefight(match.id);
+  if (!current || !["accepted", "countdown", "fighting"].includes(current.status)) {
+    return reply("That fight is already over.", true);
+  }
+  await store.setBitefightLaunch(callerId, current.id, Date.now());
   return NextResponse.json({ type: 12 });
 }
 
@@ -293,7 +436,11 @@ async function recordIntent(
   const callerId = body.member?.user?.id ?? body.user?.id;
   if (!callerId) return;
   try {
-    await getStore().recordLaunchIntent(callerId, mode, Date.now(), viaEntryPoint);
+    const store = getStore();
+    await store.recordLaunchIntent(callerId, mode, Date.now(), viaEntryPoint);
+    // A newer Classic/Bitesweeper command supersedes this user's old
+    // Bitefight marker without changing or cancelling the fight itself.
+    await store.clearBitefightLaunch(callerId);
   } catch (e) {
     console.warn("interactions: failed to record launch intent", e);
   }
@@ -450,6 +597,18 @@ export async function POST(request: NextRequest) {
       body?.data?.custom_id?.startsWith(BITERACER_DECLINE_PREFIX))
   ) {
     return handleBiteracerButton(body);
+  }
+
+  if (body?.type === 2 && body?.data?.name === "bitefight") {
+    return handleBitefightChallenge(body);
+  }
+
+  if (
+    body?.type === 3 &&
+    (body?.data?.custom_id?.startsWith(BITEFIGHT_JOIN_PREFIX) ||
+      body?.data?.custom_id?.startsWith(BITEFIGHT_DECLINE_PREFIX))
+  ) {
+    return handleBitefightButton(body);
   }
 
   if (body?.type === 2 && body?.data?.name === "bitesweeper") {

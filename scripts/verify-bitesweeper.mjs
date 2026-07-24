@@ -9,6 +9,9 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const verifyDistDir = ".next-verify-bitesweeper";
+const verifyTsconfigName = `.tsconfig-bitesweeper-verify-${process.pid}.json`;
+const verifyTsconfigPath = path.join(repoRoot, verifyTsconfigName);
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "bitedle-bitesweeper-"));
 const dbPath = path.join(tempDir, "db.json");
 const port = await availablePort();
@@ -24,6 +27,10 @@ const publicKeyHex = publicKey
   .subarray(-32)
   .toString("hex");
 
+fs.writeFileSync(
+  verifyTsconfigPath,
+  JSON.stringify({ extends: "./tsconfig.json" }, null, 2),
+);
 let output = "";
 const server = spawn(
   process.execPath,
@@ -33,6 +40,8 @@ const server = spawn(
     env: {
       ...process.env,
       PORT: String(port),
+      BITEDLE_NEXT_DIST_DIR: verifyDistDir,
+      BITEDLE_TSCONFIG_PATH: verifyTsconfigName,
       BITEDLE_FORCE_FILE_STORE: "1",
       BITEDLE_FILE_DB_PATH: dbPath,
       BITEDLE_SECRET: testBoardSecret,
@@ -552,6 +561,17 @@ try {
 } finally {
   await stopServer();
   await new Promise((resolve) => webhookServer.close(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  try {
+    fs.rmSync(path.join(repoRoot, verifyDistDir), {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 250,
+    });
+  } finally {
+    fs.rmSync(verifyTsconfigPath, { force: true });
+  }
   fs.rmSync(tempDir, { recursive: true, force: true });
 }
 

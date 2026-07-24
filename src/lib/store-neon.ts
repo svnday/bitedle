@@ -2,6 +2,7 @@ import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import type {
   BiteracerGameRecord,
   BiteracerRaceRecord,
+  BitefightRecord,
   GameMode,
   GameRecord,
   MegaGameRecord,
@@ -130,6 +131,19 @@ export class NeonStore implements Store {
         CREATE TABLE IF NOT EXISTS biteracer_race_launches (
           discord_user_id text PRIMARY KEY,
           race_id text NOT NULL,
+          created_at bigint NOT NULL
+        )`;
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS bitefights (
+          id text PRIMARY KEY,
+          state jsonb NOT NULL,
+          revision int NOT NULL,
+          updated_at bigint NOT NULL
+        )`;
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS bitefight_launches (
+          discord_user_id text PRIMARY KEY,
+          match_id text NOT NULL,
           created_at bigint NOT NULL
         )`;
       await this.sql`
@@ -734,6 +748,77 @@ export class NeonStore implements Store {
       SELECT race_id FROM biteracer_race_launches
       WHERE discord_user_id = ${discordUserId} AND created_at >= ${createdSince}`;
     return rows.length === 0 ? null : (rows[0].race_id as string);
+  }
+
+  async createBitefight(match: BitefightRecord): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO bitefights (id, state, revision, updated_at)
+      VALUES (${match.id}, ${JSON.stringify(match)}::jsonb, ${match.revision}, ${Date.now()})
+      ON CONFLICT (id) DO NOTHING`;
+  }
+
+  async getBitefight(matchId: string): Promise<BitefightRecord | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`SELECT state FROM bitefights WHERE id = ${matchId}`;
+    if (rows.length === 0) return null;
+    const state = rows[0].state;
+    return (typeof state === "string" ? JSON.parse(state) : state) as BitefightRecord;
+  }
+
+  async allBitefights(): Promise<BitefightRecord[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`SELECT state FROM bitefights ORDER BY updated_at`;
+    return rows.map((row) => {
+      const state = row.state;
+      return (typeof state === "string" ? JSON.parse(state) : state) as BitefightRecord;
+    });
+  }
+
+  async compareAndSwapBitefight(
+    match: BitefightRecord,
+    expectedRevision: number,
+  ): Promise<boolean> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      UPDATE bitefights
+      SET state = ${JSON.stringify(match)}::jsonb,
+          revision = ${match.revision},
+          updated_at = ${Date.now()}
+      WHERE id = ${match.id} AND revision = ${expectedRevision}
+      RETURNING id`;
+    return rows.length === 1;
+  }
+
+  async setBitefightLaunch(
+    discordUserId: string,
+    matchId: string,
+    at: number,
+  ): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO bitefight_launches (discord_user_id, match_id, created_at)
+      VALUES (${discordUserId}, ${matchId}, ${at})
+      ON CONFLICT (discord_user_id) DO UPDATE
+      SET match_id = EXCLUDED.match_id, created_at = EXCLUDED.created_at`;
+  }
+
+  async claimBitefightLaunch(
+    discordUserId: string,
+    createdSince: number,
+  ): Promise<string | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT match_id FROM bitefight_launches
+      WHERE discord_user_id = ${discordUserId} AND created_at >= ${createdSince}`;
+    return rows.length === 0 ? null : (rows[0].match_id as string);
+  }
+
+  async clearBitefightLaunch(discordUserId: string): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      DELETE FROM bitefight_launches
+      WHERE discord_user_id = ${discordUserId}`;
   }
 
   async recordBitesweeperPresence(

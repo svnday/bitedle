@@ -13,6 +13,8 @@ import type {
   BiteracerRaceLeaderboardEntry,
   BiteracerUserStats,
   BitesweeperPlayer,
+  BitefightLeaderboardEntry,
+  BitefightState,
   CellResult,
   GameMode,
   GameState,
@@ -134,7 +136,7 @@ export const api = {
     }),
   bitesweeperPlayers: () => request<{ players: BitesweeperPlayer[] }>("/api/mega/players"),
   activityMode: (payload: { instanceId: string; channelId: string | null }) =>
-    request<{ mode: GameMode; raceId?: string }>("/api/activity/mode", {
+    request<{ mode: GameMode; raceId?: string; matchId?: string }>("/api/activity/mode", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
@@ -173,4 +175,17 @@ export const api = {
     request<{ entries: BiteracerRaceLeaderboardEntry[] }>(
       "/api/biteracer/race/leaderboard",
     ),
+  bitefightState: (matchId: string) =>
+    request<BitefightState>(`/api/bitefight/match?matchId=${encodeURIComponent(matchId)}`),
+  bitefightAction: (
+    matchId: string,
+    action: "ready" | "punch" | "forfeit" | "rematch",
+    payload: { sequence?: number } = {},
+  ) =>
+    request<BitefightState & { accepted?: boolean }>("/api/bitefight/match", {
+      method: "POST",
+      body: JSON.stringify({ matchId, action, ...payload }),
+    }),
+  bitefightLeaderboard: () =>
+    request<{ entries: BitefightLeaderboardEntry[] }>("/api/bitefight/leaderboard"),
 };

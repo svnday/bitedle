@@ -40,6 +40,17 @@ In Discord, `/bitesweeper` launches an Activity locked to Bitesweeper. `/play`
 and `/bitedle` remain locked to Classic, and embedded Activities never show the
 website's mode tabs.
 
+## Discord 1v1 games
+
+`/biteracer opponent:@user` starts a typing race with a fresh passage.
+`/bitefight opponent:@user` starts a robot fight in a shared 3D toy-boxing
+arena where both players ready up, wait through one shared three-second
+countdown, then click or tap to throw an animated mechanical punch.
+Bitefight includes rematches, a wins/losses/draws leaderboard, and a live
+no-repeat-ping fight preview. The website’s Bitefight tab is a local sparring
+demo; it does not create multiplayer matches or leaderboard results.
+The demo can also be opened directly at `/?mode=bitefight`.
+
 ## Running it
 
 ```bash
@@ -63,6 +74,8 @@ uses a temporary FileStore:
 
 ```bash
 npm run verify:bitesweeper
+npm run verify:biteracer-race
+npm run verify:bitefight
 ```
 
 or for production:
@@ -131,12 +144,13 @@ played inside one server only ever shows up on that server's leaderboard,
 never on the public website's, and never on another server's
 ([src/lib/discord.ts](src/lib/discord.ts)).
 
-### Slash commands: `/play`, `/bitedle`, `/bitesweeper`, `/share`, and `/results`
+### Slash commands
 
 `/play` and `/bitedle` launch Classic. `/bitesweeper` launches the game-only
 10×10 mode with its own live preview, but no recap, statistics, or leaderboards. `/share`
 posts one Classic result; `/results` posts the whole server's Classic results
-image. A few different mechanisms are involved:
+image. `/biteracer` and `/bitefight` create participant-specific Discord 1v1s.
+A few different mechanisms are involved:
 
 - **`/play`** is Discord's **entry point command** — enabling Activities
   auto-creates a default one named "Launch" (type `PRIMARY_ENTRY_POINT`).
@@ -158,9 +172,16 @@ image. A few different mechanisms are involved:
   the Activity, and likewise refreshes the live preview.
 - **`/bitesweeper`** is another ordinary `CHAT_INPUT` command. It launches the
   same Activity root in Bitesweeper mode with an independent live preview, but
-  intentionally skips every Classic recap, stats, and results path. The booting Activity instance is
-  permanently mode-bound so all participants and late joiners see the same
-  game.
+  intentionally skips every Classic recap, stats, and results path. Launch
+  intent is resolved per player, so channel-mates can independently use
+  Classic, Bitesweeper, or either 1v1 mode.
+- **`/biteracer opponent:@user`** creates a fresh two-player typing race. Only
+  the invited racers can join, both must ready up, and its live preview tracks
+  progress without repeatedly notifying either player.
+- **`/bitefight opponent:@user`** creates a two-player click/tap robot fight.
+  It pings the opponent only on the initial challenge, gives each fighter an
+  isolated Activity launch, and edits the original challenge with current
+  avatars, health, and result.
 - **`/share`** posts that player's already-finished result for today's
   puzzle (same non-spoiling text as the site's own Share button), publicly
   in the channel. Also an ordinary `CHAT_INPUT` command handled by the same

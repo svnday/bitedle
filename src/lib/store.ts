@@ -1,6 +1,7 @@
 import type {
   BiteracerGameRecord,
   BiteracerRaceRecord,
+  BitefightRecord,
   ClickRecord,
   GameMode,
   GameRecord,
@@ -230,6 +231,17 @@ export interface Store {
     discordUserId: string,
     createdSince: number,
   ): Promise<string | null>;
+  createBitefight(match: BitefightRecord): Promise<void>;
+  getBitefight(matchId: string): Promise<BitefightRecord | null>;
+  allBitefights(): Promise<BitefightRecord[]>;
+  /** Atomic optimistic update. Succeeds only at the expected revision. */
+  compareAndSwapBitefight(
+    match: BitefightRecord,
+    expectedRevision: number,
+  ): Promise<boolean>;
+  setBitefightLaunch(discordUserId: string, matchId: string, at: number): Promise<void>;
+  claimBitefightLaunch(discordUserId: string, createdSince: number): Promise<string | null>;
+  clearBitefightLaunch(discordUserId: string): Promise<void>;
   /** Refreshes a player's membership in one running Bitesweeper Activity. */
   recordBitesweeperPresence(
     instanceId: string,

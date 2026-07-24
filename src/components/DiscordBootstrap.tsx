@@ -6,6 +6,7 @@ import { api } from "@/lib/client-api";
 import {
   isDiscordEmbed,
   setActivityInstanceId,
+  setBitefightMatchId,
   setBiteracerRaceId,
   setDiscordUserId,
   setGuildId,
@@ -70,13 +71,18 @@ export default function DiscordBootstrap() {
         }
 
         try {
-          const { mode, raceId } = await api.activityMode({
+          const { mode, raceId, matchId } = await api.activityMode({
             instanceId: discordSdk.instanceId,
             channelId: discordSdk.channelId ?? null,
           });
           if (cancelled) return;
           setBiteracerRaceId(raceId ?? null);
-          setLaunchMode(mode === "mega" || mode === "biteracer" ? mode : "classic");
+          setBitefightMatchId(matchId ?? null);
+          setLaunchMode(
+            mode === "mega" || mode === "biteracer" || mode === "bitefight"
+              ? mode
+              : "classic",
+          );
         } catch (e) {
           console.warn("Bitedle: activity mode lookup failed", e);
           setLaunchMode("unavailable");

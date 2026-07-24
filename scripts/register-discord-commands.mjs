@@ -80,6 +80,22 @@ const commands = [
       },
     ],
   },
+  {
+    name: "bitefight",
+    description: "Challenge someone to a 1v1 robot fight",
+    type: 1,
+    default_member_permissions: null,
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+    options: [
+      {
+        type: 6,
+        name: "opponent",
+        description: "The person you want to fight",
+        required: true,
+      },
+    ],
+  },
 ];
 
 function commandsUrl() {

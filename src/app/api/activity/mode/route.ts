@@ -32,6 +32,11 @@ export async function POST(request: NextRequest) {
 
   const discordUserId = request.headers.get(DISCORD_USER_HEADER_NAME);
   if (discordUserId && SNOWFLAKE_RE.test(discordUserId)) {
+    const matchId = await getStore().claimBitefightLaunch(
+      discordUserId,
+      Date.now() - MARKER_TTL_MS,
+    );
+    if (matchId) return NextResponse.json({ mode: "bitefight", matchId });
     const raceId = await getStore().claimBiteracerRaceLaunch(
       discordUserId,
       Date.now() - MARKER_TTL_MS,

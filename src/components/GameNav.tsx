@@ -11,6 +11,7 @@ const TABS: readonly [GameMode, string][] = [
   ["classic", "Classic"],
   ["mega", "Bitesweeper"],
   ["biteracer", "Biteracer"],
+  ["bitefight", "Bitefight"],
 ];
 
 /** The website's game-mode tab bar. Never rendered inside a Discord embed —
@@ -18,7 +19,7 @@ const TABS: readonly [GameMode, string][] = [
 export default function GameNav({ mode, onModeChange }: GameNavProps) {
   return (
     <nav className="border-tileborder bg-raised/40 flex w-full justify-center border-b px-4">
-      <div className="flex w-full max-w-lg" aria-label="Game mode">
+      <div className="flex w-full max-w-2xl" aria-label="Game mode">
         {TABS.map(([value, label]) => (
           <button
             key={value}

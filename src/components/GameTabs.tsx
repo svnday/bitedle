@@ -12,6 +12,8 @@ import Game from "./Game";
 import BiteracerGame from "./BiteracerGame";
 import BitesweeperGame from "./BitesweeperGame";
 import BiteracerRaceGame from "./BiteracerRaceGame";
+import BitefightGame from "./BitefightGame";
+import BitefightDemo from "./BitefightDemo";
 
 export default function GameTabs() {
   // Embedded: the mode is resolved per player from whichever command THEY ran
@@ -29,7 +31,15 @@ export default function GameTabs() {
     let cancelled = false;
     if (!embedded) {
       Promise.resolve().then(() => {
-        if (!cancelled) setRuntime({ embedded: false, mode: "classic" });
+        if (cancelled) return;
+        const requestedMode = new URLSearchParams(window.location.search).get("mode");
+        const mode: GameMode =
+          requestedMode === "mega" ||
+          requestedMode === "biteracer" ||
+          requestedMode === "bitefight"
+            ? requestedMode
+            : "classic";
+        setRuntime({ embedded: false, mode });
       });
     } else {
       launchModeSettled().then(() => {
@@ -45,12 +55,22 @@ export default function GameTabs() {
   if (runtime.mode === "unavailable") return <ActivityLoadError />;
   if (runtime.embedded && runtime.mode === "mega") return <BitesweeperGame />;
   if (runtime.embedded && runtime.mode === "biteracer") return <BiteracerRaceGame />;
-  const setWebMode = (mode: GameMode) => setRuntime({ embedded: false, mode });
+  if (runtime.embedded && runtime.mode === "bitefight") return <BitefightGame />;
+  const setWebMode = (mode: GameMode) => {
+    const url = new URL(window.location.href);
+    if (mode === "classic") url.searchParams.delete("mode");
+    else url.searchParams.set("mode", mode);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    setRuntime({ embedded: false, mode });
+  };
   // Website-only: an embedded session's mode comes from the activity-mode
   // resolution, which only ever yields "classic" or "mega" — Biteracer can't
   // reach embeds.
   if (!runtime.embedded && runtime.mode === "biteracer") {
     return <BiteracerGame onModeChange={setWebMode} />;
+  }
+  if (!runtime.embedded && runtime.mode === "bitefight") {
+    return <BitefightDemo onModeChange={setWebMode} />;
   }
   return (
     <Game
