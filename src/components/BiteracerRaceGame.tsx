@@ -81,15 +81,25 @@ export default function BiteracerRaceGame() {
   const lastSentAt = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const applyRace = useCallback((next: BiteracerRaceState) => {
+    setRace((current) => {
+      if (!current) return next;
+      if (current.id !== next.id) return current;
+      if (next.revision > current.revision) return next;
+      if (next.revision === current.revision && next.serverNow >= current.serverNow) return next;
+      return current;
+    });
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!raceId) return;
     try {
-      setRace(await api.biteracerRaceState(raceId));
+      applyRace(await api.biteracerRaceState(raceId));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load the race");
     }
-  }, [raceId]);
+  }, [applyRace, raceId]);
 
   useEffect(() => {
     const initial = setTimeout(() => void refresh(), 0);
@@ -118,10 +128,18 @@ export default function BiteracerRaceGame() {
       : null;
   const running = race.status === "racing";
   const finished = race.status === "finished";
-  const elapsedMs = running && race.startedAt ? Math.max(0, now - race.startedAt) : 0;
+  const winner = race.players.find(
+    (player) => player.discordUserId === race.winnerDiscordUserId,
+  );
+  const elapsedMs =
+    me.result?.elapsedMs ??
+    (running && race.startedAt ? Math.max(0, now - race.startedAt) : 0);
   const correctTyped = typed.split("").filter((char, index) => char === race.passage.text[index]).length;
   const liveWpm =
-    elapsedMs >= 500 ? Math.round((correctTyped / 5 / (elapsedMs / 60_000)) * 10) / 10 : 0;
+    me.result?.netWpm ??
+    (elapsedMs >= 500
+      ? Math.round((correctTyped / 5 / (elapsedMs / 60_000)) * 10) / 10
+      : 0);
 
   const sendProgress = (value: string) => {
     const sentAt = Date.now();
@@ -130,19 +148,20 @@ export default function BiteracerRaceGame() {
     sequence.current++;
     void api
       .biteracerRaceAction(race.id, "progress", { typed: value, sequence: sequence.current })
-      .then(setRace)
+      .then(applyRace)
       .catch(() => {});
   };
 
   const changeTyped = (value: string) => {
     if (!running || me.finishedAt !== null || value.length > race.passage.text.length) return;
     setTyped(value);
-    sendProgress(value);
     if (value === race.passage.text) {
       void api
         .biteracerRaceAction(race.id, "finish", { typed: value })
-        .then(setRace)
+        .then(applyRace)
         .catch((e) => setError(e instanceof Error ? e.message : "Couldn't finish"));
+    } else {
+      sendProgress(value);
     }
   };
 
@@ -186,7 +205,7 @@ export default function BiteracerRaceGame() {
         {!me.readyAt && race.status === "accepted" && (
           <button
             type="button"
-            onClick={() => void api.biteracerRaceAction(race.id, "ready").then(setRace)}
+            onClick={() => void api.biteracerRaceAction(race.id, "ready").then(applyRace)}
             className="bg-correct cursor-pointer rounded-lg py-3 text-lg font-extrabold text-white hover:brightness-110"
           >
             Ready up
@@ -266,10 +285,14 @@ export default function BiteracerRaceGame() {
         {finished && (
           <section className="border-tileborder bg-raised rounded-xl border p-5 text-center">
             <div className="text-3xl font-extrabold">
-              {race.winnerDiscordUserId
-                ? race.winnerDiscordUserId === race.meDiscordUserId
-                  ? "You win! 🏁"
-                  : `${race.players.find((player) => player.discordUserId === race.winnerDiscordUserId)?.name} wins!`
+              {winner
+                ? winner.discordUserId === race.meDiscordUserId
+                  ? winner.result
+                    ? "You win! 🏁"
+                    : "You win by inactivity! 🏁"
+                  : winner.result
+                    ? `${winner.name} wins!`
+                    : `${winner.name} wins by inactivity!`
                 : "Race over"}
             </div>
             <div className="text-muted mt-3 flex justify-center gap-5 text-sm">

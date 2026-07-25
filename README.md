@@ -42,7 +42,8 @@ website's mode tabs.
 
 ## Discord 1v1 games
 
-`/biteracer opponent:@user` starts a typing race with a fresh passage.
+`/biteracer opponent:@user` starts a typing race with a fresh passage. An
+unfinished racer forfeits after one minute without an accepted typing update.
 `/bitefight opponent:@user` starts a robot fight in a shared 3D toy-boxing
 arena where both players ready up, wait through one shared three-second
 countdown, then click or tap to throw an animated mechanical punch. The

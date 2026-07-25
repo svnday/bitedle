@@ -225,8 +225,11 @@ export interface Store {
   createBiteracerRace(race: BiteracerRaceRecord): Promise<void>;
   getBiteracerRace(raceId: string): Promise<BiteracerRaceRecord | null>;
   allBiteracerRaces(): Promise<BiteracerRaceRecord[]>;
-  /** Replaces a race only when its current serialized version still matches. */
-  putBiteracerRace(race: BiteracerRaceRecord): Promise<void>;
+  /** Atomic optimistic update. Succeeds only at the expected revision. */
+  compareAndSwapBiteracerRace(
+    race: BiteracerRaceRecord,
+    expectedRevision: number,
+  ): Promise<boolean>;
   setBiteracerRaceLaunch(discordUserId: string, raceId: string, at: number): Promise<void>;
   claimBiteracerRaceLaunch(
     discordUserId: string,

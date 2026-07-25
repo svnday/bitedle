@@ -555,16 +555,24 @@ export class FileStore implements Store {
 
   async getBiteracerRace(raceId: string): Promise<BiteracerRaceRecord | null> {
     const race = this.db.biteracerRaces[raceId];
-    return race ? structuredClone(race) : null;
+    return race ? structuredClone({ ...race, revision: race.revision ?? 0 }) : null;
   }
 
   async allBiteracerRaces(): Promise<BiteracerRaceRecord[]> {
-    return Object.values(this.db.biteracerRaces).map((race) => structuredClone(race));
+    return Object.values(this.db.biteracerRaces).map((race) =>
+      structuredClone({ ...race, revision: race.revision ?? 0 }),
+    );
   }
 
-  async putBiteracerRace(race: BiteracerRaceRecord): Promise<void> {
+  async compareAndSwapBiteracerRace(
+    race: BiteracerRaceRecord,
+    expectedRevision: number,
+  ): Promise<boolean> {
+    const current = this.db.biteracerRaces[race.id];
+    if (!current || (current.revision ?? 0) !== expectedRevision) return false;
     this.db.biteracerRaces[race.id] = structuredClone(race);
     this.persist();
+    return true;
   }
 
   async setBiteracerRaceLaunch(

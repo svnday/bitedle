@@ -19,12 +19,18 @@ const webhookRequests = [];
 const webhook = await startWebhookServer(webhookRequests);
 const raceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const readyRaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const idleRaceId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const bothIdleRaceId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const finishedWaitingRaceId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const userA = "11111111-1111-4111-8111-111111111111";
 const userB = "22222222-2222-4222-8222-222222222222";
 const discordA = "111111111111111111";
 const discordB = "222222222222222222";
 const passage = { id: "verify", book: "Verifier", author: "Bitedle", text: "fast fox" };
-const startedAt = Date.now() - 10_000;
+const fixtureNow = Date.now();
+const startedAt = fixtureNow - 10_000;
+const idleStartedAt = fixtureNow - 60_001;
+const waitingStartedAt = fixtureNow - 70_000;
 
 fs.writeFileSync(
   verifyTsconfigPath,
@@ -56,6 +62,7 @@ fs.writeFileSync(
     biteracerRaces: {
       [raceId]: {
         id: raceId,
+        revision: 0,
         guildId: "333333333333333333",
         channelId: "444444444444444444",
         passage,
@@ -76,6 +83,7 @@ fs.writeFileSync(
       },
       [readyRaceId]: {
         id: readyRaceId,
+        revision: 0,
         guildId: "333333333333333333",
         channelId: "444444444444444444",
         passage,
@@ -93,6 +101,56 @@ fs.writeFileSync(
           { ...player(discordB, userB, "Beta"), readyAt: null },
         ],
       },
+      [idleRaceId]: racingFixture(
+        idleRaceId,
+        idleStartedAt,
+        [
+          {
+            ...player(discordA, userA, "Alpha"),
+            readyAt: idleStartedAt - 4_000,
+            lastUpdateAt: fixtureNow - 500,
+          },
+          {
+            ...player(discordB, userB, "Beta"),
+            readyAt: idleStartedAt - 4_000,
+          },
+        ],
+      ),
+      [bothIdleRaceId]: racingFixture(
+        bothIdleRaceId,
+        idleStartedAt,
+        [
+          { ...player(discordA, userA, "Alpha"), readyAt: idleStartedAt - 4_000 },
+          { ...player(discordB, userB, "Beta"), readyAt: idleStartedAt - 4_000 },
+        ],
+      ),
+      [finishedWaitingRaceId]: racingFixture(
+        finishedWaitingRaceId,
+        waitingStartedAt,
+        [
+          {
+            ...player(discordA, userA, "Alpha"),
+            readyAt: waitingStartedAt - 4_000,
+            progress: 1,
+            correctChars: passage.text.length,
+            lastUpdateAt: fixtureNow - 50_000,
+            finishedAt: fixtureNow - 50_000,
+            result: {
+              netWpm: 4.8,
+              rawWpm: 4.8,
+              accuracy: 100,
+              elapsedMs: 20_000,
+              correctChars: passage.text.length,
+              errorCount: 0,
+            },
+          },
+          {
+            ...player(discordB, userB, "Beta"),
+            readyAt: waitingStartedAt - 4_000,
+          },
+        ],
+        discordA,
+      ),
     },
     biteracerRaceLaunches: {
       [discordA]: { raceId, createdAt: Date.now() },
@@ -132,6 +190,40 @@ server.stderr.on("data", (chunk) => (output += chunk.toString()));
 
 try {
   await waitForServer();
+  const idleState = await raceStateRequest(userA, discordA, idleRaceId);
+  assert.equal(idleState.status, "finished");
+  assert.equal(
+    idleState.winnerDiscordUserId,
+    discordA,
+    "the racer who remains active wins when only their opponent is inactive",
+  );
+  assert.ok(
+    idleState.players.every((entry) => entry.result === null),
+    "an inactivity win does not pretend either racer completed the passage",
+  );
+
+  const bothIdleState = await raceStateRequest(userA, discordA, bothIdleRaceId);
+  assert.equal(bothIdleState.status, "finished");
+  assert.equal(
+    bothIdleState.winnerDiscordUserId,
+    null,
+    "the race closes without a winner when both racers abandon it",
+  );
+
+  const finishedWaitingState = await raceStateRequest(
+    userA,
+    discordA,
+    finishedWaitingRaceId,
+  );
+  assert.equal(finishedWaitingState.status, "finished");
+  assert.equal(finishedWaitingState.winnerDiscordUserId, discordA);
+  assert.equal(finishedWaitingState.players[0].result.netWpm, 4.8);
+  assert.equal(
+    finishedWaitingState.players[0].result.elapsedMs,
+    20_000,
+    "settling an inactive opponent must preserve the finisher's locked result",
+  );
+
   let state = await raceRequest(userA, discordA);
   assert.equal(state.status, "racing");
   assert.equal(state.players.length, 2);
@@ -165,14 +257,7 @@ try {
   const previewRequest = webhookRequests.find((request) =>
     request.body.includes(Buffer.from("biteracer-preview.png")),
   );
-  const pngStart = previewRequest.body.indexOf(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-  const pngEndMarker = Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
-  const pngEnd = previewRequest.body.indexOf(pngEndMarker, pngStart);
-  assert.ok(pngStart >= 0 && pngEnd > pngStart, "preview attachment must contain a valid PNG");
-  fs.writeFileSync(
-    path.join(tempDir, "biteracer-preview.png"),
-    previewRequest.body.subarray(pngStart, pngEnd + pngEndMarker.length),
-  );
+  savePreviewPng(previewRequest, "biteracer-preview.png");
 
   state = await raceRequest(userA, discordA, {
     raceId,
@@ -183,13 +268,50 @@ try {
   const alpha = state.players.find((entry) => entry.discordUserId === discordA);
   assert.equal(alpha.progress, 5 / passage.text.length, "wrong characters must not move the racer");
 
-  state = await raceRequest(userA, discordA, {
-    raceId,
-    action: "finish",
-    typed: passage.text,
-  });
+  await Promise.all([
+    raceRequest(userA, discordA, {
+      raceId,
+      action: "finish",
+      typed: passage.text,
+    }),
+    raceRequest(userB, discordB, {
+      raceId,
+      action: "progress",
+      typed: "fa",
+      sequence: 1,
+    }),
+  ]);
+  state = await raceRequest(userA, discordA);
   assert.equal(state.winnerDiscordUserId, discordA);
   assert.equal(state.players[0].progress, 1);
+  const alphaFinishedAt = state.players[0].finishedAt;
+  const alphaResult = structuredClone(state.players[0].result);
+  assert.ok(alphaFinishedAt !== null);
+  assert.ok(alphaResult?.elapsedMs > 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  const frozenPreviewCount = webhookRequests.length;
+  state = await raceRequest(userB, discordB, {
+    raceId,
+    action: "progress",
+    typed: "fast ",
+    sequence: 2,
+  });
+  assert.equal(
+    state.players[0].finishedAt,
+    alphaFinishedAt,
+    "the opponent's continued race must not move the first finisher's timestamp",
+  );
+  assert.deepEqual(
+    state.players[0].result,
+    alphaResult,
+    "elapsed time and WPM must remain frozen after a player finishes",
+  );
+  await waitFor(() => webhookRequests.length > frozenPreviewCount);
+  const frozenPreviewRequest = [...webhookRequests]
+    .reverse()
+    .find((request) => request.body.includes(Buffer.from("biteracer-preview.png")));
+  savePreviewPng(frozenPreviewRequest, "biteracer-frozen-preview.png");
 
   state = await raceRequest(userB, discordB, {
     raceId,
@@ -202,8 +324,8 @@ try {
   assert.deepEqual(
     leaderboard.entries.map(({ name, wins, losses }) => ({ name, wins, losses })),
     [
-      { name: "Alpha", wins: 1, losses: 0 },
-      { name: "Beta", wins: 0, losses: 1 },
+      { name: "Alpha", wins: 3, losses: 0 },
+      { name: "Beta", wins: 0, losses: 3 },
     ],
   );
   assert.equal(leaderboard.entries[0].me, true);
@@ -250,7 +372,32 @@ try {
   );
   assert.match(previewSource, /renderBiteracerPreviewImage/);
   assert.match(previewSource, /messageId:\s*"@original"/);
-  console.log(`Biteracer 1v1 verification passed. Preview: ${path.join(tempDir, "biteracer-preview.png")}`);
+  assert.match(
+    previewSource,
+    /const effectiveNow = player\.finishedAt \?\? now/,
+    "preview WPM must use the player's finish timestamp once available",
+  );
+  assert.match(previewSource, /wins by inactivity/);
+  const raceGameSource = fs.readFileSync(
+    path.join(repoRoot, "src", "components", "BiteracerRaceGame.tsx"),
+    "utf8",
+  );
+  assert.match(raceGameSource, /me\.result\?\.elapsedMs \?\?/);
+  assert.match(raceGameSource, /me\.result\?\.netWpm \?\?/);
+  assert.match(raceGameSource, /You win by inactivity!/);
+  assert.match(
+    raceGameSource,
+    /next\.revision > current\.revision/,
+    "late polling responses must not replace a newer frozen result in the Activity",
+  );
+  assert.match(
+    raceGameSource,
+    /if \(value === race\.passage\.text\) \{[\s\S]*?\"finish\"[\s\S]*?\} else \{\s*sendProgress\(value\)/,
+    "exact completion must send one finish write instead of racing progress and finish writes",
+  );
+  console.log(
+    `Biteracer 1v1 verification passed. Preview: ${path.join(tempDir, "biteracer-preview.png")}. Frozen preview: ${path.join(tempDir, "biteracer-frozen-preview.png")}`,
+  );
 } finally {
   server.kill();
   await waitForServerExit(server);
@@ -273,6 +420,54 @@ function player(discordUserId, userId, name) {
     finishedAt: null,
     result: null,
   };
+}
+
+function racingFixture(id, raceStartedAt, players, winnerDiscordUserId = null) {
+  return {
+    id,
+    revision: 0,
+    guildId: "333333333333333333",
+    channelId: "444444444444444444",
+    passage,
+    status: "racing",
+    createdAt: raceStartedAt - 5_000,
+    acceptedAt: raceStartedAt - 4_000,
+    countdownAt: raceStartedAt - 3_000,
+    startedAt: raceStartedAt,
+    finishedAt: null,
+    winnerDiscordUserId,
+    rematchOf: null,
+    preview: null,
+    players,
+  };
+}
+
+function savePreviewPng(request, filename) {
+  assert.ok(request, `${filename} webhook request must exist`);
+  const pngStart = request.body.indexOf(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const pngEndMarker = Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
+  const pngEnd = request.body.indexOf(pngEndMarker, pngStart);
+  assert.ok(pngStart >= 0 && pngEnd > pngStart, "preview attachment must contain a valid PNG");
+  fs.writeFileSync(
+    path.join(tempDir, filename),
+    request.body.subarray(pngStart, pngEnd + pngEndMarker.length),
+  );
+}
+
+async function raceStateRequest(userId, discordUserId, targetRaceId) {
+  const response = await fetch(
+    `${baseUrl}/api/biteracer/race?raceId=${encodeURIComponent(targetRaceId)}`,
+    {
+      headers: {
+        Cookie: `bitedle_id=${userId}`,
+        "X-Bitedle-Discord-User-Id": discordUserId,
+        "X-Bitedle-Guild-Id": "333333333333333333",
+      },
+    },
+  );
+  const data = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(data));
+  return data;
 }
 
 async function raceRequest(userId, discordUserId, body) {

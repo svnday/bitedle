@@ -11,6 +11,7 @@ import type {
 
 export const BITERACER_CHALLENGE_TTL_MS = 2 * 60_000;
 export const BITERACER_COUNTDOWN_MS = 3_000;
+export const BITERACER_INACTIVITY_TIMEOUT_MS = 60_000;
 export const BITERACER_RACE_TIMEOUT_MS = 5 * 60_000;
 
 export function randomRacePassage(usedPassageIds: string[] = []) {
@@ -86,13 +87,43 @@ export function racePlayer(input: {
   };
 }
 
-function advanceLifecycle(race: BiteracerRaceRecord, now: number): void {
+function advanceLifecycle(race: BiteracerRaceRecord, now: number): boolean {
   if (race.status === "pending" && now - race.createdAt > BITERACER_CHALLENGE_TTL_MS) {
     race.status = "expired";
     race.finishedAt = now;
+    return true;
   }
+  let changed = false;
   if (race.status === "countdown" && race.startedAt !== null && now >= race.startedAt) {
     race.status = "racing";
+    changed = true;
+  }
+  if (race.status === "racing" && race.startedAt !== null) {
+    const inactivePlayers = race.players.filter(
+      (player) =>
+        player.finishedAt === null &&
+        now - (player.lastUpdateAt ?? race.startedAt!) >=
+          BITERACER_INACTIVITY_TIMEOUT_MS,
+    );
+    if (inactivePlayers.length > 0) {
+      race.status = "finished";
+      race.finishedAt = now;
+      if (!race.winnerDiscordUserId) {
+        const firstFinisher = race.players
+          .filter((player) => player.finishedAt !== null)
+          .sort((a, b) => a.finishedAt! - b.finishedAt!)[0];
+        if (firstFinisher) {
+          race.winnerDiscordUserId = firstFinisher.discordUserId;
+        } else if (inactivePlayers.length === 1) {
+          race.winnerDiscordUserId =
+            race.players.find(
+              (player) =>
+                player.discordUserId !== inactivePlayers[0].discordUserId,
+            )?.discordUserId ?? null;
+        }
+      }
+      return true;
+    }
   }
   if (
     race.status === "racing" &&
@@ -103,7 +134,28 @@ function advanceLifecycle(race: BiteracerRaceRecord, now: number): void {
     race.finishedAt = now;
     const finishers = race.players.filter((player) => player.finishedAt !== null);
     race.winnerDiscordUserId = finishers[0]?.discordUserId ?? null;
+    return true;
   }
+  return changed;
+}
+
+async function mutate<T>(
+  raceId: string,
+  update: (race: BiteracerRaceRecord) => { changed: boolean; result: T },
+): Promise<{ race: BiteracerRaceRecord; result: T }> {
+  const store = getStore();
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const current = await store.getBiteracerRace(raceId);
+    if (!current) throw new Error("Race not found");
+    const expectedRevision = current.revision;
+    const { changed, result } = update(current);
+    if (!changed) return { race: current, result };
+    current.revision = expectedRevision + 1;
+    if (await store.compareAndSwapBiteracerRace(current, expectedRevision)) {
+      return { race: current, result };
+    }
+  }
+  throw new Error("Race is busy - try again");
 }
 
 export async function raceStateFor(
@@ -113,24 +165,86 @@ export async function raceStateFor(
   now = Date.now(),
 ): Promise<BiteracerRaceState | null> {
   const store = getStore();
-  const race = await store.getBiteracerRace(raceId);
-  if (!race || !race.players.some((player) => player.discordUserId === discordUserId)) return null;
-  const before = race.status;
-  let changed = false;
-  advanceLifecycle(race, now);
-  if (race.status !== before) changed = true;
-  const me = race.players.find((player) => player.discordUserId === discordUserId)!;
-  if (me.userId !== userId) {
-    me.userId = userId;
-    changed = true;
-    const user = await store.getUser(userId);
-    if (user) {
+  const existing = await store.getBiteracerRace(raceId);
+  if (!existing?.players.some((player) => player.discordUserId === discordUserId)) return null;
+  const user = await store.getUser(userId);
+  const { race } = await mutate(raceId, (current) => {
+    let changed = advanceLifecycle(current, now);
+    const me = current.players.find((player) => player.discordUserId === discordUserId)!;
+    if (me.userId !== userId) {
+      me.userId = userId;
+      changed = true;
+    }
+    if (
+      user &&
+      (me.name !== user.name ||
+        me.discordAvatarUrl !== discordAvatarUrl(user.discordUserId, user.discordAvatar))
+    ) {
       me.name = user.name;
       me.discordAvatarUrl = discordAvatarUrl(user.discordUserId, user.discordAvatar);
+      changed = true;
     }
-  }
-  if (changed) await store.putBiteracerRace(race);
+    return { changed, result: null };
+  });
   return { ...race, meDiscordUserId: discordUserId, serverNow: now };
+}
+
+export async function acceptRace(
+  raceId: string,
+  discordUserId: string,
+  now = Date.now(),
+): Promise<BiteracerRaceRecord> {
+  const { race } = await mutate(raceId, (current) => {
+    const lifecycleChanged = advanceLifecycle(current, now);
+    if (
+      current.players[1].discordUserId !== discordUserId ||
+      current.status !== "pending"
+    ) {
+      if (lifecycleChanged) return { changed: true, result: null };
+      throw new Error("This challenge cannot be accepted");
+    }
+    current.status = "accepted";
+    current.acceptedAt = now;
+    return { changed: true, result: null };
+  });
+  if (race.status !== "accepted") throw new Error("This challenge cannot be accepted");
+  return race;
+}
+
+export async function declineRace(
+  raceId: string,
+  discordUserId: string,
+  now = Date.now(),
+): Promise<BiteracerRaceRecord> {
+  const { race } = await mutate(raceId, (current) => {
+    const lifecycleChanged = advanceLifecycle(current, now);
+    if (
+      current.players[1].discordUserId !== discordUserId ||
+      current.status !== "pending"
+    ) {
+      if (lifecycleChanged) return { changed: true, result: null };
+      throw new Error("This challenge cannot be declined");
+    }
+    current.status = "declined";
+    current.finishedAt = now;
+    return { changed: true, result: null };
+  });
+  if (race.status !== "declined") throw new Error("This challenge cannot be declined");
+  return race;
+}
+
+export async function expireRace(
+  raceId: string,
+  now = Date.now(),
+): Promise<BiteracerRaceRecord> {
+  return (
+    await mutate(raceId, (race) => {
+      if (race.status !== "pending") return { changed: false, result: null };
+      race.status = "expired";
+      race.finishedAt = now;
+      return { changed: true, result: null };
+    })
+  ).race;
 }
 
 export async function readyRace(
@@ -138,18 +252,27 @@ export async function readyRace(
   discordUserId: string,
   now = Date.now(),
 ): Promise<void> {
-  const store = getStore();
-  const race = await store.getBiteracerRace(raceId);
-  if (!race || !["accepted", "countdown"].includes(race.status)) throw new Error("Race is not ready");
-  const player = race.players.find((entry) => entry.discordUserId === discordUserId);
-  if (!player) throw new Error("You are not in this race");
-  player.readyAt ??= now;
-  if (race.players.every((entry) => entry.readyAt !== null) && race.status === "accepted") {
-    race.status = "countdown";
-    race.countdownAt = now;
-    race.startedAt = now + BITERACER_COUNTDOWN_MS;
-  }
-  await store.putBiteracerRace(race);
+  await mutate(raceId, (race) => {
+    const lifecycleChanged = advanceLifecycle(race, now);
+    if (!["accepted", "countdown"].includes(race.status)) {
+      if (lifecycleChanged) return { changed: true, result: null };
+      throw new Error("Race is not ready");
+    }
+    const player = race.players.find((entry) => entry.discordUserId === discordUserId);
+    if (!player) throw new Error("You are not in this race");
+    let changed = false;
+    if (player.readyAt === null) {
+      player.readyAt = now;
+      changed = true;
+    }
+    if (race.players.every((entry) => entry.readyAt !== null) && race.status === "accepted") {
+      race.status = "countdown";
+      race.countdownAt = now;
+      race.startedAt = now + BITERACER_COUNTDOWN_MS;
+      changed = true;
+    }
+    return { changed: lifecycleChanged || changed, result: null };
+  });
 }
 
 function typingMetrics(typed: string, expected: string): {
@@ -174,26 +297,34 @@ export async function updateRaceProgress(input: {
   now?: number;
 }): Promise<void> {
   const now = input.now ?? Date.now();
-  const store = getStore();
-  const race = await store.getBiteracerRace(input.raceId);
-  if (!race) throw new Error("Race not found");
-  advanceLifecycle(race, now);
-  if (race.status !== "racing" || race.startedAt === null || now < race.startedAt) {
-    throw new Error("The race has not started");
-  }
-  const player = race.players.find((entry) => entry.discordUserId === input.discordUserId);
-  if (!player || player.finishedAt !== null) throw new Error("Player cannot update this race");
-  if (!Number.isSafeInteger(input.sequence) || input.sequence <= player.sequence) return;
-  const typed = input.typed.slice(0, race.passage.text.length);
-  const metrics = typingMetrics(typed, race.passage.text);
-  player.sequence = input.sequence;
-  player.correctChars = metrics.correctChars;
-  // Keep the peak observed error count even after corrections so accuracy
-  // and net WPM still reflect mistakes instead of every exact finish being 100%.
-  player.errorCount = Math.max(player.errorCount, metrics.errors);
-  player.progress = metrics.correctPrefix / race.passage.text.length;
-  player.lastUpdateAt = now;
-  await store.putBiteracerRace(race);
+  await mutate(input.raceId, (race) => {
+    const lifecycleChanged = advanceLifecycle(race, now);
+    if (race.status !== "racing" || race.startedAt === null || now < race.startedAt) {
+      if (lifecycleChanged) return { changed: true, result: null };
+      throw new Error("The race has not started");
+    }
+    const player = race.players.find((entry) => entry.discordUserId === input.discordUserId);
+    if (!player) throw new Error("You are not in this race");
+    // A delayed progress request must never overwrite or reopen a completed
+    // player's immutable result.
+    if (player.finishedAt !== null) {
+      return { changed: lifecycleChanged, result: null };
+    }
+    if (!Number.isSafeInteger(input.sequence) || input.sequence <= player.sequence) {
+      return { changed: lifecycleChanged, result: null };
+    }
+    const typed = input.typed.slice(0, race.passage.text.length);
+    const metrics = typingMetrics(typed, race.passage.text);
+    player.sequence = input.sequence;
+    player.correctChars = metrics.correctChars;
+    // Keep the peak observed error count even after corrections so accuracy
+    // and net WPM still reflect mistakes instead of every exact finish being 100%.
+    player.errorCount = Math.max(player.errorCount, metrics.errors);
+    player.progress = metrics.correctPrefix / race.passage.text.length;
+    player.lastUpdateAt = now;
+    if (typed === race.passage.text) finishPlayer(race, player, now);
+    return { changed: true, result: null };
+  });
 }
 
 function resultFor(
@@ -215,32 +346,45 @@ function resultFor(
   };
 }
 
+function finishPlayer(
+  race: BiteracerRaceRecord,
+  player: BiteracerRacePlayer,
+  now: number,
+): void {
+  if (race.startedAt === null || player.finishedAt !== null) return;
+  player.progress = 1;
+  player.correctChars = race.passage.text.length;
+  player.finishedAt = now;
+  player.lastUpdateAt = now;
+  player.result = resultFor(race.passage.text, race.startedAt, now, player.errorCount);
+  race.winnerDiscordUserId ??= player.discordUserId;
+  if (race.players.every((entry) => entry.finishedAt !== null)) {
+    race.status = "finished";
+    race.finishedAt = now;
+  }
+}
+
 export async function finishRace(
   raceId: string,
   discordUserId: string,
   typed: string,
   now = Date.now(),
 ): Promise<void> {
-  const store = getStore();
-  const race = await store.getBiteracerRace(raceId);
-  if (!race) throw new Error("Race not found");
-  advanceLifecycle(race, now);
-  if (race.status !== "racing" || race.startedAt === null) throw new Error("Race is not running");
-  if (typed !== race.passage.text) throw new Error("Correct the passage before finishing");
-  const player = race.players.find((entry) => entry.discordUserId === discordUserId);
-  if (!player) throw new Error("You are not in this race");
-  if (player.finishedAt !== null) return;
-  player.progress = 1;
-  player.correctChars = race.passage.text.length;
-  player.finishedAt = now;
-  player.lastUpdateAt = now;
-  player.result = resultFor(race.passage.text, race.startedAt, now, player.errorCount);
-  race.winnerDiscordUserId ??= discordUserId;
-  if (race.players.every((entry) => entry.finishedAt !== null)) {
-    race.status = "finished";
-    race.finishedAt = now;
-  }
-  await store.putBiteracerRace(race);
+  await mutate(raceId, (race) => {
+    const lifecycleChanged = advanceLifecycle(race, now);
+    if (race.status !== "racing" || race.startedAt === null) {
+      if (lifecycleChanged) return { changed: true, result: null };
+      throw new Error("Race is not running");
+    }
+    if (typed !== race.passage.text) throw new Error("Correct the passage before finishing");
+    const player = race.players.find((entry) => entry.discordUserId === discordUserId);
+    if (!player) throw new Error("You are not in this race");
+    if (player.finishedAt !== null) {
+      return { changed: lifecycleChanged, result: null };
+    }
+    finishPlayer(race, player, now);
+    return { changed: true, result: null };
+  });
 }
 
 export async function rematchRace(
@@ -261,6 +405,7 @@ export async function rematchRace(
   ]);
   const race: BiteracerRaceRecord = {
     id: crypto.randomUUID(),
+    revision: 0,
     guildId: previous.guildId,
     channelId: previous.channelId,
     passage,

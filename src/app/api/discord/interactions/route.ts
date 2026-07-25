@@ -10,6 +10,9 @@ import { isBlockedDiscordId } from "@/lib/discord";
 import { getStore } from "@/lib/store";
 import {
   BITERACER_CHALLENGE_TTL_MS,
+  acceptRace,
+  declineRace,
+  expireRace,
   racePlayer,
   randomRacePassage,
 } from "@/lib/biteracer-race";
@@ -115,6 +118,7 @@ async function handleBiteracerChallenge(body: Interaction): Promise<NextResponse
   );
   const race: BiteracerRaceRecord = {
     id: crypto.randomUUID(),
+    revision: 0,
     guildId: body.guild_id ?? null,
     channelId: body.channel_id ?? null,
     passage: randomRacePassage(raceHistory.map((previous) => previous.passage.id)),
@@ -192,39 +196,39 @@ async function handleBiteracerButton(body: Interaction): Promise<NextResponse> {
   const playerIndex = race.players.findIndex((player) => player.discordUserId === callerId);
   if (playerIndex < 0) return reply("Only the two challenged racers can use these buttons.", true);
   if (race.status === "pending" && Date.now() - race.createdAt > BITERACER_CHALLENGE_TTL_MS) {
-    race.status = "expired";
-    race.finishedAt = Date.now();
-    await store.putBiteracerRace(race);
+    await expireRace(race.id);
     after(() => updateBiteracerPreview(race.id, true));
     return reply("That challenge expired. Start a new one with /biteracer.", true);
   }
 
   if (decline) {
-    if (playerIndex !== 1 || race.status !== "pending") {
+    try {
+      await declineRace(race.id, callerId);
+    } catch {
       return reply("This race can no longer be declined.", true);
     }
-    race.status = "declined";
-    race.finishedAt = Date.now();
-    await store.putBiteracerRace(race);
     after(() => updateBiteracerPreview(race.id, true));
     return reply("Race declined.", true);
   }
 
   if (race.status === "pending") {
     if (playerIndex !== 1) return reply("Waiting for your opponent to accept.", true);
-    race.status = "accepted";
-    race.acceptedAt = Date.now();
-    await store.putBiteracerRace(race);
+    try {
+      await acceptRace(race.id, callerId);
+    } catch {
+      return reply("This challenge can no longer be accepted.", true);
+    }
     after(() => updateBiteracerPreview(race.id, true));
   }
-  if (!["accepted", "countdown", "racing"].includes(race.status)) {
+  const current = await store.getBiteracerRace(race.id);
+  if (!current || !["accepted", "countdown", "racing"].includes(current.status)) {
     return reply("That race is already over.", true);
   }
   await Promise.all([
     store.clearBitefightLaunch(callerId),
     store.clearBiteshooterLaunch(callerId),
   ]);
-  await store.setBiteracerRaceLaunch(callerId, race.id, Date.now());
+  await store.setBiteracerRaceLaunch(callerId, current.id, Date.now());
   return NextResponse.json({ type: 12 });
 }
 

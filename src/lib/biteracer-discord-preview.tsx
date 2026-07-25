@@ -20,7 +20,10 @@ function raceStatus(race: BiteracerRaceRecord): string {
     const winner = race.players.find(
       (player) => player.discordUserId === race.winnerDiscordUserId,
     );
-    return winner ? `${winner.name} wins!` : "Race finished";
+    if (!winner) return "Race finished";
+    return winner.result
+      ? `${winner.name} wins!`
+      : `${winner.name} wins by inactivity!`;
   }
   return `Race ${race.status}`;
 }
@@ -83,8 +86,13 @@ export async function updateBiteracerPreview(raceId: string, force = false): Pro
 
 function playerWpm(player: BiteracerRacePlayer, race: BiteracerRaceRecord, now: number): number {
   if (player.result) return player.result.netWpm;
-  if (!race.startedAt || now <= race.startedAt) return 0;
-  return Math.round((player.correctChars / 5 / ((now - race.startedAt) / 60_000)) * 10) / 10;
+  const effectiveNow = player.finishedAt ?? now;
+  if (!race.startedAt || effectiveNow <= race.startedAt) return 0;
+  return (
+    Math.round(
+      (player.correctChars / 5 / ((effectiveNow - race.startedAt) / 60_000)) * 10,
+    ) / 10
+  );
 }
 
 export function renderBiteracerPreviewImage(race: BiteracerRaceRecord, now = Date.now()) {
@@ -147,7 +155,7 @@ export function renderBiteracerPreviewImage(race: BiteracerRaceRecord, now = Dat
                   </div>
                   <div style={{ display: "flex", color: "#a8abb3", fontSize: 15 }}>
                     {player.finishedAt
-                      ? `${player.result?.netWpm ?? 0} WPM`
+                      ? `${playerWpm(player, race, now)} WPM`
                       : `${playerWpm(player, race, now)} WPM · ${Math.round(pct * 100)}%`}
                   </div>
                 </div>

@@ -126,8 +126,12 @@ export class NeonStore implements Store {
         CREATE TABLE IF NOT EXISTS biteracer_races (
           id text PRIMARY KEY,
           state jsonb NOT NULL,
+          revision int NOT NULL DEFAULT 0,
           updated_at bigint NOT NULL
         )`;
+      await this.sql`
+        ALTER TABLE biteracer_races
+        ADD COLUMN IF NOT EXISTS revision int NOT NULL DEFAULT 0`;
       await this.sql`
         CREATE TABLE IF NOT EXISTS biteracer_race_launches (
           discord_user_id text PRIMARY KEY,
@@ -710,8 +714,8 @@ export class NeonStore implements Store {
   async createBiteracerRace(race: BiteracerRaceRecord): Promise<void> {
     await this.ensureSchema();
     await this.sql`
-      INSERT INTO biteracer_races (id, state, updated_at)
-      VALUES (${race.id}, ${JSON.stringify(race)}::jsonb, ${Date.now()})
+      INSERT INTO biteracer_races (id, state, revision, updated_at)
+      VALUES (${race.id}, ${JSON.stringify(race)}::jsonb, ${race.revision}, ${Date.now()})
       ON CONFLICT (id) DO NOTHING`;
   }
 
@@ -720,7 +724,8 @@ export class NeonStore implements Store {
     const rows = await this.sql`SELECT state FROM biteracer_races WHERE id = ${raceId}`;
     if (rows.length === 0) return null;
     const state = rows[0].state;
-    return (typeof state === "string" ? JSON.parse(state) : state) as BiteracerRaceRecord;
+    const race = (typeof state === "string" ? JSON.parse(state) : state) as BiteracerRaceRecord;
+    return { ...race, revision: race.revision ?? 0 };
   }
 
   async allBiteracerRaces(): Promise<BiteracerRaceRecord[]> {
@@ -728,16 +733,24 @@ export class NeonStore implements Store {
     const rows = await this.sql`SELECT state FROM biteracer_races ORDER BY updated_at`;
     return rows.map((row) => {
       const state = row.state;
-      return (typeof state === "string" ? JSON.parse(state) : state) as BiteracerRaceRecord;
+      const race = (typeof state === "string" ? JSON.parse(state) : state) as BiteracerRaceRecord;
+      return { ...race, revision: race.revision ?? 0 };
     });
   }
 
-  async putBiteracerRace(race: BiteracerRaceRecord): Promise<void> {
+  async compareAndSwapBiteracerRace(
+    race: BiteracerRaceRecord,
+    expectedRevision: number,
+  ): Promise<boolean> {
     await this.ensureSchema();
-    await this.sql`
+    const rows = await this.sql`
       UPDATE biteracer_races
-      SET state = ${JSON.stringify(race)}::jsonb, updated_at = ${Date.now()}
-      WHERE id = ${race.id}`;
+      SET state = ${JSON.stringify(race)}::jsonb,
+          revision = ${race.revision},
+          updated_at = ${Date.now()}
+      WHERE id = ${race.id} AND revision = ${expectedRevision}
+      RETURNING id`;
+    return rows.length === 1;
   }
 
   async setBiteracerRaceLaunch(

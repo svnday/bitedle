@@ -248,6 +248,7 @@ export interface BiteracerRacePlayer {
 /** Persisted shared 1v1 race. Daily Biteracer rows remain completely separate. */
 export interface BiteracerRaceRecord {
   id: string;
+  revision: number;
   guildId: string | null;
   channelId: string | null;
   passage: BiteracerPassage;
