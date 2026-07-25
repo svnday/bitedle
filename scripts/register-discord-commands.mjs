@@ -64,7 +64,7 @@ async function discordFetch(url, options, action) {
 // [0, 1, 2] = server, app DM, group DM. This lets /bitedle and /share work
 // both where a server has added the app and where an individual has
 // user-installed it. Requires User Install to be enabled for the app in the
-// Developer Portal -> Installation tab first (see README). All four ordinary
+// Developer Portal -> Installation tab first (see README). All ordinary
 // commands below support server, app-DM, and group-DM contexts.
 const commands = [
   {
@@ -130,6 +130,22 @@ const commands = [
         type: 6,
         name: "opponent",
         description: "The person you want to fight",
+        required: true,
+      },
+    ],
+  },
+  {
+    name: "biteshooter",
+    description: "Challenge someone to a 1v1 aim duel",
+    type: 1,
+    default_member_permissions: null,
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+    options: [
+      {
+        type: 6,
+        name: "opponent",
+        description: "The person you want to challenge",
         required: true,
       },
     ],

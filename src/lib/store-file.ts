@@ -4,6 +4,7 @@ import type {
   BiteracerGameRecord,
   BiteracerRaceRecord,
   BitefightRecord,
+  BiteshooterRecord,
   GameMode,
   GameRecord,
   MegaGameRecord,
@@ -48,6 +49,8 @@ interface FileDb {
   biteracerRaceLaunches: Record<string, { raceId: string; createdAt: number }>;
   bitefights: Record<string, BitefightRecord>;
   bitefightLaunches: Record<string, { matchId: string; createdAt: number }>;
+  biteshooters: Record<string, BiteshooterRecord>;
+  biteshooterLaunches: Record<string, { matchId: string; createdAt: number }>;
   /** bitesweeperLaunches[channelId] = markedAt — pending /bitesweeper launches. */
   bitesweeperLaunches: Record<
     string,
@@ -127,6 +130,8 @@ export class FileStore implements Store {
           biteracerRaceLaunches: raw.biteracerRaceLaunches ?? {},
           bitefights: raw.bitefights ?? {},
           bitefightLaunches: raw.bitefightLaunches ?? {},
+          biteshooters: raw.biteshooters ?? {},
+          biteshooterLaunches: raw.biteshooterLaunches ?? {},
           bitesweeperLaunches: raw.bitesweeperLaunches ?? {},
           activityModes: raw.activityModes ?? {},
           launchIntents: raw.launchIntents ?? {},
@@ -158,6 +163,8 @@ export class FileStore implements Store {
       biteracerRaceLaunches: {},
       bitefights: {},
       bitefightLaunches: {},
+      biteshooters: {},
+      biteshooterLaunches: {},
       bitesweeperLaunches: {},
       activityModes: {},
       launchIntents: {},
@@ -578,6 +585,12 @@ export class FileStore implements Store {
     return launch.raceId;
   }
 
+  async clearBiteracerRaceLaunch(discordUserId: string): Promise<void> {
+    if (!this.db.biteracerRaceLaunches[discordUserId]) return;
+    delete this.db.biteracerRaceLaunches[discordUserId];
+    this.persist();
+  }
+
   async createBitefight(match: BitefightRecord): Promise<void> {
     if (!this.db.bitefights[match.id]) {
       this.db.bitefights[match.id] = structuredClone(match);
@@ -627,6 +640,120 @@ export class FileStore implements Store {
     if (!this.db.bitefightLaunches[discordUserId]) return;
     delete this.db.bitefightLaunches[discordUserId];
     this.persist();
+  }
+
+  async createBiteshooter(match: BiteshooterRecord): Promise<void> {
+    if (!this.db.biteshooters[match.id]) {
+      this.db.biteshooters[match.id] = structuredClone(match);
+      this.persist();
+    }
+  }
+
+  async createBiteshooterIfPlayersAvailable(match: BiteshooterRecord): Promise<boolean> {
+    const participants = new Set(match.players.map((player) => player.discordUserId));
+    const active = new Set(["pending", "accepted", "countdown", "fighting"]);
+    if (
+      Object.values(this.db.biteshooters).some(
+        (existing) =>
+          active.has(existing.status) &&
+          existing.players.some((player) => participants.has(player.discordUserId)),
+      )
+    ) {
+      return false;
+    }
+    if (this.db.biteshooters[match.id]) return false;
+    this.db.biteshooters[match.id] = structuredClone(match);
+    this.persist();
+    return true;
+  }
+
+  async getBiteshooter(matchId: string): Promise<BiteshooterRecord | null> {
+    const match = this.db.biteshooters[matchId];
+    return match ? structuredClone(match) : null;
+  }
+
+  async allBiteshooters(): Promise<BiteshooterRecord[]> {
+    return Object.values(this.db.biteshooters).map((match) => structuredClone(match));
+  }
+
+  async compareAndSwapBiteshooter(
+    match: BiteshooterRecord,
+    expectedRevision: number,
+  ): Promise<boolean> {
+    const current = this.db.biteshooters[match.id];
+    if (!current || current.revision !== expectedRevision) return false;
+    this.db.biteshooters[match.id] = structuredClone(match);
+    this.persist();
+    return true;
+  }
+
+  async setBiteshooterLaunch(
+    discordUserId: string,
+    matchId: string,
+    at: number,
+  ): Promise<void> {
+    this.db.biteshooterLaunches[discordUserId] = { matchId, createdAt: at };
+    this.persist();
+  }
+
+  async claimBiteshooterLaunch(
+    discordUserId: string,
+    createdSince: number,
+  ): Promise<string | null> {
+    const launch = this.db.biteshooterLaunches[discordUserId];
+    if (!launch || launch.createdAt < createdSince) return null;
+    return launch.matchId;
+  }
+
+  async clearBiteshooterLaunch(
+    discordUserId: string,
+    matchId?: string,
+  ): Promise<void> {
+    const launch = this.db.biteshooterLaunches[discordUserId];
+    if (!launch || (matchId && launch.matchId !== matchId)) return;
+    delete this.db.biteshooterLaunches[discordUserId];
+    this.persist();
+  }
+
+  async latestDuelLaunch(
+    discordUserId: string,
+    createdSince: number,
+  ): Promise<{ mode: "bitefight" | "biteracer" | "biteshooter"; matchId: string } | null> {
+    type DuelLaunch = {
+      mode: "bitefight" | "biteracer" | "biteshooter";
+      matchId: string;
+      createdAt: number;
+    };
+    const candidates = [
+      this.db.bitefightLaunches[discordUserId]
+        ? {
+            mode: "bitefight" as const,
+            matchId: this.db.bitefightLaunches[discordUserId].matchId,
+            createdAt: this.db.bitefightLaunches[discordUserId].createdAt,
+          }
+        : null,
+      this.db.biteracerRaceLaunches[discordUserId]
+        ? {
+            mode: "biteracer" as const,
+            matchId: this.db.biteracerRaceLaunches[discordUserId].raceId,
+            createdAt: this.db.biteracerRaceLaunches[discordUserId].createdAt,
+          }
+        : null,
+      this.db.biteshooterLaunches[discordUserId]
+        ? {
+            mode: "biteshooter" as const,
+            matchId: this.db.biteshooterLaunches[discordUserId].matchId,
+            createdAt: this.db.biteshooterLaunches[discordUserId].createdAt,
+          }
+        : null,
+    ]
+      .filter(
+        (candidate): candidate is DuelLaunch =>
+          candidate !== null && candidate.createdAt >= createdSince,
+      )
+      .sort((a, b) => b.createdAt - a.createdAt);
+    const newest = candidates[0];
+    return newest ? { mode: newest.mode, matchId: newest.matchId } : null;
   }
 
   async recordBitesweeperPresence(

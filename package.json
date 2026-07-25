@@ -9,7 +9,8 @@
     "lint": "eslint",
     "verify:bitesweeper": "node scripts/verify-bitesweeper.mjs",
     "verify:biteracer-race": "node scripts/verify-biteracer-race.mjs",
-    "verify:bitefight": "node scripts/verify-bitefight.mjs"
+    "verify:bitefight": "node scripts/verify-bitefight.mjs",
+    "verify:biteshooter": "node scripts/verify-biteshooter.mjs"
   },
   "dependencies": {
     "@discord/embedded-app-sdk": "^2.5.0",

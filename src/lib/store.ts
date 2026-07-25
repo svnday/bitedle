@@ -2,6 +2,7 @@ import type {
   BiteracerGameRecord,
   BiteracerRaceRecord,
   BitefightRecord,
+  BiteshooterRecord,
   ClickRecord,
   GameMode,
   GameRecord,
@@ -231,6 +232,7 @@ export interface Store {
     discordUserId: string,
     createdSince: number,
   ): Promise<string | null>;
+  clearBiteracerRaceLaunch(discordUserId: string): Promise<void>;
   createBitefight(match: BitefightRecord): Promise<void>;
   getBitefight(matchId: string): Promise<BitefightRecord | null>;
   allBitefights(): Promise<BitefightRecord[]>;
@@ -242,6 +244,26 @@ export interface Store {
   setBitefightLaunch(discordUserId: string, matchId: string, at: number): Promise<void>;
   claimBitefightLaunch(discordUserId: string, createdSince: number): Promise<string | null>;
   clearBitefightLaunch(discordUserId: string): Promise<void>;
+  createBiteshooter(match: BiteshooterRecord): Promise<void>;
+  /** Atomically creates a match only when neither participant is already in
+   *  another active Biteshooter. */
+  createBiteshooterIfPlayersAvailable(match: BiteshooterRecord): Promise<boolean>;
+  getBiteshooter(matchId: string): Promise<BiteshooterRecord | null>;
+  allBiteshooters(): Promise<BiteshooterRecord[]>;
+  /** Atomic optimistic update. Succeeds only at the expected revision. */
+  compareAndSwapBiteshooter(
+    match: BiteshooterRecord,
+    expectedRevision: number,
+  ): Promise<boolean>;
+  setBiteshooterLaunch(discordUserId: string, matchId: string, at: number): Promise<void>;
+  claimBiteshooterLaunch(discordUserId: string, createdSince: number): Promise<string | null>;
+  clearBiteshooterLaunch(discordUserId: string, matchId?: string): Promise<void>;
+  /** Newest participant-specific duel launch wins without cancelling any
+   *  underlying match in another game. */
+  latestDuelLaunch(
+    discordUserId: string,
+    createdSince: number,
+  ): Promise<{ mode: "bitefight" | "biteracer" | "biteshooter"; matchId: string } | null>;
   /** Refreshes a player's membership in one running Bitesweeper Activity. */
   recordBitesweeperPresence(
     instanceId: string,

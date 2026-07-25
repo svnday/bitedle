@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { DISCORD_USER_HEADER_NAME, SNOWFLAKE_RE } from "@/lib/discord";
 import { resolveUser } from "@/lib/identity";
+import { settleBiteshooter } from "@/lib/biteshooter";
 import { getStore } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -32,16 +33,30 @@ export async function POST(request: NextRequest) {
 
   const discordUserId = request.headers.get(DISCORD_USER_HEADER_NAME);
   if (discordUserId && SNOWFLAKE_RE.test(discordUserId)) {
-    const matchId = await getStore().claimBitefightLaunch(
+    const duel = await getStore().latestDuelLaunch(
       discordUserId,
       Date.now() - MARKER_TTL_MS,
     );
-    if (matchId) return NextResponse.json({ mode: "bitefight", matchId });
-    const raceId = await getStore().claimBiteracerRaceLaunch(
-      discordUserId,
-      Date.now() - MARKER_TTL_MS,
-    );
-    if (raceId) return NextResponse.json({ mode: "biteracer", raceId });
+    if (duel) {
+      if (duel.mode === "biteshooter") {
+        try {
+          const match = await settleBiteshooter(duel.matchId);
+          if (["declined", "cancelled", "expired"].includes(match.status)) {
+            await getStore().clearBiteshooterLaunch(discordUserId, duel.matchId);
+          } else {
+            return NextResponse.json({ mode: duel.mode, matchId: duel.matchId });
+          }
+        } catch {
+          await getStore().clearBiteshooterLaunch(discordUserId, duel.matchId);
+        }
+      } else {
+        return NextResponse.json(
+          duel.mode === "biteracer"
+            ? { mode: duel.mode, raceId: duel.matchId }
+            : { mode: duel.mode, matchId: duel.matchId },
+        );
+      }
+    }
   }
 
   // Read-only identity: never provision a user from a boot ping, and never

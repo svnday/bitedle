@@ -26,6 +26,15 @@ import {
 import type { BitefightRecord } from "@/lib/types";
 import { updateBitefightPreview } from "@/lib/bitefight-discord-preview";
 import {
+  acceptBiteshooter,
+  biteshooterPlayer,
+  declineBiteshooter,
+  hasActiveBiteshooter,
+  settleBiteshooter,
+} from "@/lib/biteshooter";
+import type { BiteshooterRecord } from "@/lib/types";
+import { updateBiteshooterPreview } from "@/lib/biteshooter-discord-preview";
+import {
   beginBitesweeperPreview,
   updateBitesweeperPreview,
   BITESWEEPER_LAUNCH_BUTTON_ID,
@@ -82,6 +91,8 @@ const BITERACER_JOIN_PREFIX = "biteracer-join:";
 const BITERACER_DECLINE_PREFIX = "biteracer-decline:";
 const BITEFIGHT_JOIN_PREFIX = "bitefight-join:";
 const BITEFIGHT_DECLINE_PREFIX = "bitefight-decline:";
+const BITESHOOTER_JOIN_PREFIX = "biteshooter-join:";
+const BITESHOOTER_DECLINE_PREFIX = "biteshooter-decline:";
 
 function interactionName(user: InteractionUser | undefined): string {
   return user?.global_name ?? user?.username ?? "Player";
@@ -209,7 +220,10 @@ async function handleBiteracerButton(body: Interaction): Promise<NextResponse> {
   if (!["accepted", "countdown", "racing"].includes(race.status)) {
     return reply("That race is already over.", true);
   }
-  await store.clearBitefightLaunch(callerId);
+  await Promise.all([
+    store.clearBitefightLaunch(callerId),
+    store.clearBiteshooterLaunch(callerId),
+  ]);
   await store.setBiteracerRaceLaunch(callerId, race.id, Date.now());
   return NextResponse.json({ type: 12 });
 }
@@ -340,7 +354,177 @@ async function handleBitefightButton(body: Interaction): Promise<NextResponse> {
   if (!current || !["accepted", "countdown", "fighting"].includes(current.status)) {
     return reply("That fight is already over.", true);
   }
+  await Promise.all([
+    store.clearBiteracerRaceLaunch(callerId),
+    store.clearBiteshooterLaunch(callerId),
+  ]);
   await store.setBitefightLaunch(callerId, current.id, Date.now());
+  return NextResponse.json({ type: 12 });
+}
+
+async function handleBiteshooterChallenge(body: Interaction): Promise<NextResponse> {
+  const challenger = body.member?.user ?? body.user;
+  const opponentId = body.data?.options?.find((option) => option.name === "opponent")?.value;
+  const opponent = opponentId ? body.data?.resolved?.users?.[opponentId] : undefined;
+  if (!challenger?.id || !opponentId || !opponent) {
+    return reply("Couldn't identify both shooters. Try the command again.", true);
+  }
+  if (challenger.id === opponentId) return reply("You can't challenge yourself.", true);
+  if (opponent.bot) return reply("Bots aren't allowed in a Biteshooter duel.", true);
+
+  // Biteshooter has its own active-match lock. Playing Classic, Bitesweeper,
+  // Biteracer, or Bitefight never blocks this challenge.
+  if (await hasActiveBiteshooter(challenger.id)) {
+    return reply("Finish your current Biteshooter before starting another.", true);
+  }
+  if (await hasActiveBiteshooter(opponentId)) {
+    return reply("That player is already in an active Biteshooter.", true);
+  }
+
+  const now = Date.now();
+  const match: BiteshooterRecord = {
+    id: crypto.randomUUID(),
+    revision: 0,
+    guildId: body.guild_id ?? null,
+    channelId: body.channel_id ?? null,
+    status: "pending",
+    seed: crypto.randomUUID(),
+    createdAt: now,
+    acceptedAt: null,
+    countdownAt: null,
+    startedAt: null,
+    finishedAt: null,
+    winnerDiscordUserId: null,
+    finishReason: null,
+    rematchOf: null,
+    rematchMatchId: null,
+    preview:
+      body.application_id && body.token
+        ? {
+            applicationId: body.application_id,
+            webhookToken: body.token,
+            tokenCreatedAt: now,
+          }
+        : null,
+    players: [
+      biteshooterPlayer({
+        discordUserId: challenger.id,
+        name: interactionName(challenger),
+        avatar: challenger.avatar ?? null,
+      }),
+      biteshooterPlayer({
+        discordUserId: opponentId,
+        name: interactionName(opponent),
+        avatar: opponent.avatar ?? null,
+      }),
+    ],
+  };
+
+  // The preliminary checks above settle expired matches and provide specific
+  // feedback. This atomic insert closes the race between simultaneous slash
+  // commands so the same player cannot enter two active Biteshooters.
+  if (!(await getStore().createBiteshooterIfPlayersAvailable(match))) {
+    return reply("One of you is already in an active Biteshooter.", true);
+  }
+
+  after(() => updateBiteshooterPreview(match.id, true));
+  return NextResponse.json({
+    type: 4,
+    data: {
+      content: `🎯 <@${opponentId}> — **${match.players[0].name}** challenged you to a Biteshooter 1v1! You have one minute to accept.`,
+      // This initial challenge is the only Biteshooter message allowed to
+      // notify. Preview edits and every later interaction suppress mentions.
+      allowed_mentions: { users: [opponentId] },
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 3,
+              label: "Accept / Join duel",
+              custom_id: `${BITESHOOTER_JOIN_PREFIX}${match.id}`,
+            },
+            {
+              type: 2,
+              style: 4,
+              label: "Decline",
+              custom_id: `${BITESHOOTER_DECLINE_PREFIX}${match.id}`,
+            },
+          ],
+        },
+      ],
+    },
+  });
+}
+
+async function handleBiteshooterButton(body: Interaction): Promise<NextResponse> {
+  const customId = body.data?.custom_id ?? "";
+  const decline = customId.startsWith(BITESHOOTER_DECLINE_PREFIX);
+  const matchId = customId.slice(
+    decline ? BITESHOOTER_DECLINE_PREFIX.length : BITESHOOTER_JOIN_PREFIX.length,
+  );
+  const callerId = body.member?.user?.id ?? body.user?.id;
+  const store = getStore();
+  const existing = await store.getBiteshooter(matchId);
+  if (!callerId || !existing) return reply("That Biteshooter duel no longer exists.", true);
+  const playerIndex = existing.players.findIndex(
+    (player) => player.discordUserId === callerId,
+  );
+  if (playerIndex < 0) {
+    return reply("Only the two challenged shooters can use these buttons.", true);
+  }
+
+  // Settlement is request-driven: it covers both the one-minute acceptance
+  // deadline and the one-minute accepted-but-unjoined deadline before a stale
+  // button is allowed to launch anything.
+  const match = await settleBiteshooter(existing.id);
+  if (match.status === "expired") {
+    after(() => updateBiteshooterPreview(match.id, true));
+    return reply("That challenge expired. Start a new one with /biteshooter.", true);
+  }
+  if (match.status === "cancelled") {
+    after(() => updateBiteshooterPreview(match.id, true));
+    return reply(
+      existing.status === "accepted"
+        ? "That duel was cancelled because one or both players did not join within one minute."
+        : "That Biteshooter duel was cancelled.",
+      true,
+    );
+  }
+
+  if (decline) {
+    try {
+      await declineBiteshooter(match.id, callerId);
+      after(() => updateBiteshooterPreview(match.id, true));
+      return reply("Biteshooter challenge declined.", true);
+    } catch {
+      return reply("This duel can no longer be declined.", true);
+    }
+  }
+
+  if (match.status === "pending") {
+    if (playerIndex !== 1) return reply("Waiting for your opponent to accept.", true);
+    try {
+      await acceptBiteshooter(match.id, callerId);
+      after(() => updateBiteshooterPreview(match.id, true));
+    } catch {
+      return reply("This challenge can no longer be accepted.", true);
+    }
+  }
+
+  const current = await settleBiteshooter(match.id);
+  if (!["accepted", "countdown", "fighting"].includes(current.status)) {
+    return reply("That Biteshooter duel is already over.", true);
+  }
+
+  // A fresh participant-specific marker wins over this caller's older duel
+  // markers without touching any underlying Bitefight/Biteracer match.
+  await Promise.all([
+    store.clearBitefightLaunch(callerId),
+    store.clearBiteracerRaceLaunch(callerId),
+  ]);
+  await store.setBiteshooterLaunch(callerId, current.id, Date.now());
   return NextResponse.json({ type: 12 });
 }
 
@@ -438,9 +622,17 @@ async function recordIntent(
   try {
     const store = getStore();
     await store.recordLaunchIntent(callerId, mode, Date.now(), viaEntryPoint);
-    // A newer Classic/Bitesweeper command supersedes this user's old
-    // Bitefight marker without changing or cancelling the fight itself.
-    await store.clearBitefightLaunch(callerId);
+    // Strong, explicit Classic/Bitesweeper launches supersede this caller's
+    // participant-specific duel marker without cancelling any underlying
+    // match. The App Launcher's generic /play signal is deliberately weak:
+    // reopening Discord must resume the caller's active duel.
+    if (!viaEntryPoint) {
+      await Promise.all([
+        store.clearBitefightLaunch(callerId),
+        store.clearBiteracerRaceLaunch(callerId),
+        store.clearBiteshooterLaunch(callerId),
+      ]);
+    }
   } catch (e) {
     console.warn("interactions: failed to record launch intent", e);
   }
@@ -554,7 +746,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Blocklist gate: reject every command/component interaction (launch,
-  // /bitedle, /bitesweeper, "Play now!" button, /share, /results) before
+  // /bitedle, /bitesweeper, every 1v1, "Play now!" button, /share, /results) before
   // recording the guild channel or launching, so a blocked user can't play
   // or interfere.
   if (body?.type === 2 || body?.type === 3) {
@@ -609,6 +801,18 @@ export async function POST(request: NextRequest) {
       body?.data?.custom_id?.startsWith(BITEFIGHT_DECLINE_PREFIX))
   ) {
     return handleBitefightButton(body);
+  }
+
+  if (body?.type === 2 && body?.data?.name === "biteshooter") {
+    return handleBiteshooterChallenge(body);
+  }
+
+  if (
+    body?.type === 3 &&
+    (body?.data?.custom_id?.startsWith(BITESHOOTER_JOIN_PREFIX) ||
+      body?.data?.custom_id?.startsWith(BITESHOOTER_DECLINE_PREFIX))
+  ) {
+    return handleBiteshooterButton(body);
   }
 
   if (body?.type === 2 && body?.data?.name === "bitesweeper") {

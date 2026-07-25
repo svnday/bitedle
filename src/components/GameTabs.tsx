@@ -14,6 +14,8 @@ import BitesweeperGame from "./BitesweeperGame";
 import BiteracerRaceGame from "./BiteracerRaceGame";
 import BitefightGame from "./BitefightGame";
 import BitefightDemo from "./BitefightDemo";
+import BiteshooterDemo from "./BiteshooterDemo";
+import BiteshooterGame from "./BiteshooterGame";
 
 export default function GameTabs() {
   // Embedded: the mode is resolved per player from whichever command THEY ran
@@ -36,7 +38,8 @@ export default function GameTabs() {
         const mode: GameMode =
           requestedMode === "mega" ||
           requestedMode === "biteracer" ||
-          requestedMode === "bitefight"
+          requestedMode === "bitefight" ||
+          requestedMode === "biteshooter"
             ? requestedMode
             : "classic";
         setRuntime({ embedded: false, mode });
@@ -56,6 +59,7 @@ export default function GameTabs() {
   if (runtime.embedded && runtime.mode === "mega") return <BitesweeperGame />;
   if (runtime.embedded && runtime.mode === "biteracer") return <BiteracerRaceGame />;
   if (runtime.embedded && runtime.mode === "bitefight") return <BitefightGame />;
+  if (runtime.embedded && runtime.mode === "biteshooter") return <BiteshooterGame />;
   const setWebMode = (mode: GameMode) => {
     const url = new URL(window.location.href);
     if (mode === "classic") url.searchParams.delete("mode");
@@ -71,6 +75,9 @@ export default function GameTabs() {
   }
   if (!runtime.embedded && runtime.mode === "bitefight") {
     return <BitefightDemo onModeChange={setWebMode} />;
+  }
+  if (!runtime.embedded && runtime.mode === "biteshooter") {
+    return <BiteshooterDemo onModeChange={setWebMode} />;
   }
   return (
     <Game

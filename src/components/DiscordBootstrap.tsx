@@ -7,6 +7,7 @@ import {
   isDiscordEmbed,
   setActivityInstanceId,
   setBitefightMatchId,
+  setBiteshooterMatchId,
   setBiteracerRaceId,
   setDiscordUserId,
   setGuildId,
@@ -76,10 +77,14 @@ export default function DiscordBootstrap() {
             channelId: discordSdk.channelId ?? null,
           });
           if (cancelled) return;
-          setBiteracerRaceId(raceId ?? null);
-          setBitefightMatchId(matchId ?? null);
+          setBiteracerRaceId(mode === "biteracer" ? raceId ?? null : null);
+          setBitefightMatchId(mode === "bitefight" ? matchId ?? null : null);
+          setBiteshooterMatchId(mode === "biteshooter" ? matchId ?? null : null);
           setLaunchMode(
-            mode === "mega" || mode === "biteracer" || mode === "bitefight"
+            mode === "mega" ||
+            mode === "biteracer" ||
+            mode === "bitefight" ||
+            mode === "biteshooter"
               ? mode
               : "classic",
           );

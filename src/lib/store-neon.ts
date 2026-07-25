@@ -3,6 +3,7 @@ import type {
   BiteracerGameRecord,
   BiteracerRaceRecord,
   BitefightRecord,
+  BiteshooterRecord,
   GameMode,
   GameRecord,
   MegaGameRecord,
@@ -142,6 +143,19 @@ export class NeonStore implements Store {
         )`;
       await this.sql`
         CREATE TABLE IF NOT EXISTS bitefight_launches (
+          discord_user_id text PRIMARY KEY,
+          match_id text NOT NULL,
+          created_at bigint NOT NULL
+        )`;
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS biteshooters (
+          id text PRIMARY KEY,
+          state jsonb NOT NULL,
+          revision int NOT NULL,
+          updated_at bigint NOT NULL
+        )`;
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS biteshooter_launches (
           discord_user_id text PRIMARY KEY,
           match_id text NOT NULL,
           created_at bigint NOT NULL
@@ -750,6 +764,13 @@ export class NeonStore implements Store {
     return rows.length === 0 ? null : (rows[0].race_id as string);
   }
 
+  async clearBiteracerRaceLaunch(discordUserId: string): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      DELETE FROM biteracer_race_launches
+      WHERE discord_user_id = ${discordUserId}`;
+  }
+
   async createBitefight(match: BitefightRecord): Promise<void> {
     await this.ensureSchema();
     await this.sql`
@@ -819,6 +840,147 @@ export class NeonStore implements Store {
     await this.sql`
       DELETE FROM bitefight_launches
       WHERE discord_user_id = ${discordUserId}`;
+  }
+
+  async createBiteshooter(match: BiteshooterRecord): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO biteshooters (id, state, revision, updated_at)
+      VALUES (${match.id}, ${JSON.stringify(match)}::jsonb, ${match.revision}, ${Date.now()})
+      ON CONFLICT (id) DO NOTHING`;
+  }
+
+  async createBiteshooterIfPlayersAvailable(match: BiteshooterRecord): Promise<boolean> {
+    await this.ensureSchema();
+    const [first, second] = match.players;
+    const [firstLock, secondLock] = [
+      first.discordUserId,
+      second.discordUserId,
+    ].sort();
+    // Acquire the participant locks in a separate statement within the same
+    // transaction. PostgreSQL takes a fresh READ COMMITTED snapshot for the
+    // INSERT after any lock wait, so a concurrent winner is visible to the
+    // overlap check.
+    const [, rows] = await this.sql.transaction([
+      this.sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(${firstLock}, 0)),
+               pg_advisory_xact_lock(hashtextextended(${secondLock}, 0))`,
+      this.sql`
+        INSERT INTO biteshooters (id, state, revision, updated_at)
+        SELECT ${match.id}, ${JSON.stringify(match)}::jsonb, ${match.revision}, ${Date.now()}
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM biteshooters existing,
+               jsonb_array_elements(existing.state->'players') player
+          WHERE existing.state->>'status' IN ('pending', 'accepted', 'countdown', 'fighting')
+            AND player->>'discordUserId' IN (${first.discordUserId}, ${second.discordUserId})
+        )
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id`,
+    ]);
+    return rows.length === 1;
+  }
+
+  async getBiteshooter(matchId: string): Promise<BiteshooterRecord | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`SELECT state FROM biteshooters WHERE id = ${matchId}`;
+    if (rows.length === 0) return null;
+    const state = rows[0].state;
+    return (typeof state === "string" ? JSON.parse(state) : state) as BiteshooterRecord;
+  }
+
+  async allBiteshooters(): Promise<BiteshooterRecord[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`SELECT state FROM biteshooters ORDER BY updated_at`;
+    return rows.map((row) => {
+      const state = row.state;
+      return (typeof state === "string" ? JSON.parse(state) : state) as BiteshooterRecord;
+    });
+  }
+
+  async compareAndSwapBiteshooter(
+    match: BiteshooterRecord,
+    expectedRevision: number,
+  ): Promise<boolean> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      UPDATE biteshooters
+      SET state = ${JSON.stringify(match)}::jsonb,
+          revision = ${match.revision},
+          updated_at = ${Date.now()}
+      WHERE id = ${match.id} AND revision = ${expectedRevision}
+      RETURNING id`;
+    return rows.length === 1;
+  }
+
+  async setBiteshooterLaunch(
+    discordUserId: string,
+    matchId: string,
+    at: number,
+  ): Promise<void> {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO biteshooter_launches (discord_user_id, match_id, created_at)
+      VALUES (${discordUserId}, ${matchId}, ${at})
+      ON CONFLICT (discord_user_id) DO UPDATE
+      SET match_id = EXCLUDED.match_id, created_at = EXCLUDED.created_at`;
+  }
+
+  async claimBiteshooterLaunch(
+    discordUserId: string,
+    createdSince: number,
+  ): Promise<string | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT match_id FROM biteshooter_launches
+      WHERE discord_user_id = ${discordUserId} AND created_at >= ${createdSince}`;
+    return rows.length === 0 ? null : (rows[0].match_id as string);
+  }
+
+  async clearBiteshooterLaunch(
+    discordUserId: string,
+    matchId?: string,
+  ): Promise<void> {
+    await this.ensureSchema();
+    if (matchId) {
+      await this.sql`
+        DELETE FROM biteshooter_launches
+        WHERE discord_user_id = ${discordUserId} AND match_id = ${matchId}`;
+      return;
+    }
+    await this.sql`
+      DELETE FROM biteshooter_launches
+      WHERE discord_user_id = ${discordUserId}`;
+  }
+
+  async latestDuelLaunch(
+    discordUserId: string,
+    createdSince: number,
+  ): Promise<{ mode: "bitefight" | "biteracer" | "biteshooter"; matchId: string } | null> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT mode, match_id
+      FROM (
+        SELECT 'bitefight' AS mode, match_id, created_at
+        FROM bitefight_launches
+        WHERE discord_user_id = ${discordUserId}
+        UNION ALL
+        SELECT 'biteracer' AS mode, race_id AS match_id, created_at
+        FROM biteracer_race_launches
+        WHERE discord_user_id = ${discordUserId}
+        UNION ALL
+        SELECT 'biteshooter' AS mode, match_id, created_at
+        FROM biteshooter_launches
+        WHERE discord_user_id = ${discordUserId}
+      ) launches
+      WHERE created_at >= ${createdSince}
+      ORDER BY created_at DESC
+      LIMIT 1`;
+    if (rows.length === 0) return null;
+    return {
+      mode: rows[0].mode as "bitefight" | "biteracer" | "biteshooter",
+      matchId: rows[0].match_id as string,
+    };
   }
 
   async recordBitesweeperPresence(

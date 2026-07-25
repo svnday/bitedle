@@ -15,6 +15,8 @@ import type {
   BitesweeperPlayer,
   BitefightLeaderboardEntry,
   BitefightState,
+  BiteshooterLeaderboardEntry,
+  BiteshooterState,
   CellResult,
   GameMode,
   GameState,
@@ -188,4 +190,28 @@ export const api = {
     }),
   bitefightLeaderboard: () =>
     request<{ entries: BitefightLeaderboardEntry[] }>("/api/bitefight/leaderboard"),
+  biteshooterState: (matchId: string) =>
+    request<BiteshooterState>(
+      `/api/biteshooter/match?matchId=${encodeURIComponent(matchId)}`,
+    ),
+  biteshooterAction: (
+    matchId: string,
+    action: "ready" | "aim" | "cancel" | "forfeit" | "rematch",
+    payload: {
+      sequence?: number;
+      targetIndex?: number;
+      point?: { x: number; y: number };
+    } = {},
+  ) =>
+    request<BiteshooterState & { accepted?: boolean; damage?: number }>(
+      "/api/biteshooter/match",
+      {
+        method: "POST",
+        body: JSON.stringify({ matchId, action, ...payload }),
+      },
+    ),
+  biteshooterLeaderboard: () =>
+    request<{ entries: BiteshooterLeaderboardEntry[] }>(
+      "/api/biteshooter/leaderboard",
+    ),
 };

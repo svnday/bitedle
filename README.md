@@ -52,6 +52,19 @@ no-repeat-ping fight preview. The website’s Bitefight tab is a local sparring
 demo; it does not create multiplayer matches or leaderboard results.
 The demo can also be opened directly at `/?mode=bitefight`.
 
+`/biteshooter opponent:@user` starts a 100 HP aim duel using the same
+three-zone target tested on the website: bullseyes deal 3 damage, the middle
+ring deals 2, and the outer ring deals 1. A pending challenge expires after
+one minute; after acceptance, the duel is cancelled unless both players join
+within one minute. Biteshooter only blocks overlapping Biteshooter
+matches, so its participants may still have Classic, Bitesweeper, Biteracer,
+or Bitefight games in progress. The initial challenge is its only opponent
+notification; later preview updates never ping.
+
+`/?mode=biteshooter` remains a local practice match against a training bot.
+Website practice does not create multiplayer records or affect the Discord
+leaderboard.
+
 ## Running it
 
 ```bash
@@ -77,6 +90,7 @@ uses a temporary FileStore:
 npm run verify:bitesweeper
 npm run verify:biteracer-race
 npm run verify:bitefight
+npm run verify:biteshooter
 ```
 
 or for production:
@@ -150,8 +164,8 @@ never on the public website's, and never on another server's
 `/play` and `/bitedle` launch Classic. `/bitesweeper` launches the game-only
 10×10 mode with its own live preview, but no recap, statistics, or leaderboards. `/share`
 posts one Classic result; `/results` posts the whole server's Classic results
-image. `/biteracer` and `/bitefight` create participant-specific Discord 1v1s.
-A few different mechanisms are involved:
+image. `/biteracer`, `/bitefight`, and `/biteshooter` create
+participant-specific Discord 1v1s. A few different mechanisms are involved:
 
 - **`/play`** is Discord's **entry point command** — enabling Activities
   auto-creates a default one named "Launch" (type `PRIMARY_ENTRY_POINT`).
@@ -175,7 +189,7 @@ A few different mechanisms are involved:
   same Activity root in Bitesweeper mode with an independent live preview, but
   intentionally skips every Classic recap, stats, and results path. Launch
   intent is resolved per player, so channel-mates can independently use
-  Classic, Bitesweeper, or either 1v1 mode.
+  Classic, Bitesweeper, or any 1v1 mode.
 - **`/biteracer opponent:@user`** creates a fresh two-player typing race. Only
   the invited racers can join, both must ready up, and its live preview tracks
   progress without repeatedly notifying either player.
@@ -183,6 +197,12 @@ A few different mechanisms are involved:
   It pings the opponent only on the initial challenge, gives each fighter an
   isolated Activity launch, and edits the original challenge with current
   avatars, health, and result.
+- **`/biteshooter opponent:@user`** creates a two-player aim duel. Both
+  players start at 100 HP and independently ready up before one shared
+  countdown. The server derives each target hit and applies 3, 2, 1, or 0
+  damage. Pending challenges and accepted-but-unjoined lobbies each have
+  separate one-minute deadlines; neither cancellation counts as a match
+  result.
 - **`/share`** posts that player's already-finished result for today's
   puzzle (same non-spoiling text as the site's own Share button), publicly
   in the channel. Also an ordinary `CHAT_INPUT` command handled by the same

@@ -85,7 +85,7 @@ export const DAILY_BOMB_COUNT = 3;
 export const FIXED_BOMB_COUNT_FROM = "2026-07-19";
 export const DISTRIBUTION_BUCKETS = ["1", "2", "3", "4", "5", "6+", "X"] as const;
 
-export type GameMode = "classic" | "mega" | "biteracer" | "bitefight";
+export type GameMode = "classic" | "mega" | "biteracer" | "bitefight" | "biteshooter";
 export type MegaCellResult = "bomb" | "check" | number;
 
 export interface MegaClickRecord {
@@ -345,5 +345,79 @@ export interface BitefightLeaderboardEntry {
   draws: number;
   matches: number;
   winPct: number;
+  me: boolean;
+}
+
+export type BiteshooterStatus =
+  | "pending"
+  | "accepted"
+  | "countdown"
+  | "fighting"
+  | "finished"
+  | "declined"
+  | "cancelled"
+  | "expired";
+
+export type BiteshooterFinishReason = "knockout" | "timeout" | "forfeit" | "draw";
+
+export interface BiteshooterPlayer {
+  discordUserId: string;
+  userId: string | null;
+  name: string;
+  discordAvatarUrl: string | null;
+  joinedAt: number | null;
+  readyAt: number | null;
+  health: number;
+  targetIndex: number;
+  attempts: number;
+  hits: number;
+  innerHits: number;
+  middleHits: number;
+  outerHits: number;
+  totalDamage: number;
+  lastSequence: number;
+  lastAttemptAt: number | null;
+}
+
+export interface BiteshooterRecord {
+  id: string;
+  revision: number;
+  guildId: string | null;
+  channelId: string | null;
+  status: BiteshooterStatus;
+  seed: string;
+  createdAt: number;
+  acceptedAt: number | null;
+  countdownAt: number | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  winnerDiscordUserId: string | null;
+  finishReason: BiteshooterFinishReason | null;
+  rematchOf: string | null;
+  rematchMatchId: string | null;
+  preview: {
+    applicationId: string;
+    webhookToken: string;
+    tokenCreatedAt: number;
+  } | null;
+  players: [BiteshooterPlayer, BiteshooterPlayer];
+}
+
+export type BiteshooterState = Omit<BiteshooterRecord, "preview"> & {
+  meDiscordUserId: string;
+  serverNow: number;
+};
+
+export interface BiteshooterLeaderboardEntry {
+  discordUserId: string;
+  name: string;
+  discordAvatarUrl: string | null;
+  wins: number;
+  losses: number;
+  draws: number;
+  matches: number;
+  accuracy: number;
+  bullseyes: number;
+  averageDamagePerHit: number;
   me: boolean;
 }
