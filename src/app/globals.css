@@ -676,17 +676,95 @@ body {
 }
 
 .bitebluff-card-dealing {
-  animation: bitebluff-deal-in 390ms cubic-bezier(0.17, 0.78, 0.24, 1.05) both;
+  --bitebluff-deal-origin-y: calc(-22.2rem + 100%);
+
+  z-index: 3;
+  animation: bitebluff-pull-card 500ms cubic-bezier(0.2, 0.74, 0.22, 1) both;
 }
 
-@keyframes bitebluff-deal-in {
-  from {
+.bitebluff-card-dealing .bitebluff-card-inner {
+  transition: none;
+  animation: bitebluff-pull-card-flip 500ms cubic-bezier(0.45, 0.08, 0.2, 1) both;
+}
+
+.bitebluff-card-slot-0 {
+  --bitebluff-deal-x: 220%;
+  --bitebluff-deal-mid-x: 58%;
+  --bitebluff-deal-tilt: -9deg;
+  --bitebluff-deal-mid-tilt: -3deg;
+}
+
+.bitebluff-card-slot-1 {
+  --bitebluff-deal-x: 110%;
+  --bitebluff-deal-mid-x: 29%;
+  --bitebluff-deal-tilt: -5deg;
+  --bitebluff-deal-mid-tilt: -2deg;
+}
+
+.bitebluff-card-slot-2 {
+  --bitebluff-deal-x: 0%;
+  --bitebluff-deal-mid-x: 0%;
+  --bitebluff-deal-tilt: 0deg;
+  --bitebluff-deal-mid-tilt: 0deg;
+}
+
+.bitebluff-card-slot-3 {
+  --bitebluff-deal-x: -110%;
+  --bitebluff-deal-mid-x: -29%;
+  --bitebluff-deal-tilt: 5deg;
+  --bitebluff-deal-mid-tilt: 2deg;
+}
+
+.bitebluff-card-slot-4 {
+  --bitebluff-deal-x: -220%;
+  --bitebluff-deal-mid-x: -58%;
+  --bitebluff-deal-tilt: 9deg;
+  --bitebluff-deal-mid-tilt: 3deg;
+}
+
+@keyframes bitebluff-pull-card {
+  0% {
     opacity: 0;
-    transform: translate(0, -9rem) rotate(-8deg) scale(0.82);
+    transform:
+      translate(var(--bitebluff-deal-x), var(--bitebluff-deal-origin-y))
+      rotate(var(--bitebluff-deal-tilt))
+      scale(0.72);
   }
-  to {
+
+  12% {
+    opacity: 1;
+    transform:
+      translate(
+        var(--bitebluff-deal-x),
+        calc(var(--bitebluff-deal-origin-y) + 0.8rem)
+      )
+      rotate(var(--bitebluff-deal-tilt))
+      scale(0.76);
+  }
+
+  62% {
+    opacity: 1;
+    transform:
+      translate(var(--bitebluff-deal-mid-x), -3.6rem)
+      rotate(var(--bitebluff-deal-mid-tilt))
+      scale(0.94);
+  }
+
+  100% {
     opacity: 1;
     transform: translate(0, 0) rotate(0) scale(1);
+  }
+}
+
+@keyframes bitebluff-pull-card-flip {
+  0%,
+  30% {
+    transform: rotateY(0deg);
+  }
+
+  88%,
+  100% {
+    transform: rotateY(180deg);
   }
 }
 
@@ -1155,6 +1233,10 @@ body {
     width: min(17vw, 4.25rem);
   }
 
+  .bitebluff-card-dealing {
+    --bitebluff-deal-origin-y: calc(-17.1rem + 100%);
+  }
+
   .bitebluff-sidebar {
     grid-template-columns: 1fr;
   }
@@ -1170,6 +1252,10 @@ body {
   }
 
   .bitebluff-card-dealing {
+    animation: none;
+  }
+
+  .bitebluff-card-dealing .bitebluff-card-inner {
     animation: none;
   }
 }

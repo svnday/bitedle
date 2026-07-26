@@ -395,7 +395,7 @@ export default function BitebluffDemo({
               )}
               {status === "dealing" && (
                 <p className="bitebluff-deal-status">
-                  Drawing card {Math.min(5, revealedCount + 1)} of 5…
+                  Drawing card {Math.max(1, revealedCount)} of 5…
                 </p>
               )}
               {status === "sealed" && (

@@ -28,6 +28,7 @@ export default function BitebluffTable({
             card={hand[index]}
             faceDown={index >= revealedCount}
             dealing={dealing && index === revealedCount - 1}
+            dealIndex={index}
           />
         ))}
       </div>
