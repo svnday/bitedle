@@ -122,7 +122,17 @@ assert.throws(() => cards.randomBurnPositions("bad", 4));
 assert.equal(economy.bitebluffTopUp(0), 100);
 assert.equal(economy.bitebluffTopUp(70), 30);
 assert.equal(economy.bitebluffTopUp(100), 0);
-assert.deepEqual(economy.bitebluffWagerBounds(500), { minimum: 25, maximum: 125 });
+assert.deepEqual(economy.bitebluffWagerBounds(100), { minimum: 10, maximum: 66 });
+assert.deepEqual(economy.bitebluffWagerBounds(500), { minimum: 25, maximum: 333 });
+assert.deepEqual(economy.bitebluffWagerBounds(1_000), { minimum: 50, maximum: 666 });
+for (const balance of [100, 500, 1_000, 10_000]) {
+  const maximum = economy.bitebluffWagerBounds(balance).maximum;
+  assert.ok(maximum + economy.bitebluffRedrawSurcharge(maximum) <= balance);
+  assert.ok(
+    maximum + 1 + economy.bitebluffRedrawSurcharge(maximum + 1) > balance,
+    "the next Bite must exceed the redraw-reserved cap",
+  );
+}
 assert.equal(economy.bitebluffRedrawSurcharge(25), 13);
 assert.equal(economy.isBitebluffActive(0, 6), true);
 assert.equal(economy.isBitebluffActive(0, 7), false);
@@ -172,6 +182,25 @@ for (const forbidden of ["royal-flush", "secret", '"hand"', '"category"', '"seed
 }
 assert.equal(preview.participants[0].wager, 38);
 
+const finalPreview = payout.bitebluffFinalPreview(
+  [
+    { id: "alice", name: "Alice", avatar: "A", wager: 10, hand: hands.straightFlush },
+    { id: "bob", name: "Bob", avatar: "B", wager: 50, hand: hands.quads },
+    { id: "charlie", name: "Charlie", avatar: "C", wager: 100, hand: hands.fullHouse },
+  ],
+  layered,
+);
+assert.equal(finalPreview.participants.length, 3);
+assert.equal(finalPreview.participants[0].winner, true);
+assert.deepEqual(finalPreview.participants[0].layerWins, ["Main pot"]);
+assert.equal(finalPreview.participants[0].payout, 30);
+assert.equal(finalPreview.participants[0].net, 20);
+assert.equal(finalPreview.participants[2].winner, false);
+assert.equal(finalPreview.participants[2].committed, 100);
+assert.equal(finalPreview.participants[2].amountLost, 50);
+assert.equal(finalPreview.participants[2].unmatchedReturn, 50);
+assert.equal(finalPreview.participants.every((participant) => participant.hand.length === 5), true);
+
 const demoSource = fs.readFileSync(
   path.join(repoRoot, "src", "components", "BitebluffDemo.tsx"),
   "utf8",
@@ -183,4 +212,5 @@ assert.equal(demoSource.includes("Randomly burn"), true);
 
 console.log(
   "Bitebluff verification passed: poker categories and kickers, exclusive seeded decks, random Burn & Draw, safety-net economy, active eligibility, layered pots, tied remainders, unmatched returns, and redacted public preview.",
+  " Bitebluff final preview includes every hand, layer winners, payouts, and loser wager/loss amounts.",
 );

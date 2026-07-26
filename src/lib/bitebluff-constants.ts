@@ -2,7 +2,6 @@ export const BITEBLUFF_HAND_SIZE = 5;
 export const BITEBLUFF_DAILY_FLOOR = 100;
 export const BITEBLUFF_ABSOLUTE_MIN_WAGER = 10;
 export const BITEBLUFF_MIN_WAGER_RATE = 0.05;
-export const BITEBLUFF_MAX_WAGER_RATE = 0.25;
 export const BITEBLUFF_ACTIVE_DAYS = 7;
 export const BITEBLUFF_SEASON_DAYS = 30;
 export const BITEBLUFF_REDRAW_MIN = 1;

@@ -19,6 +19,7 @@ import {
   isBitebluffActive,
 } from "@/lib/bitebluff-economy";
 import {
+  bitebluffFinalPreview,
   bitebluffPublicPreview,
   settleBitebluffLayers,
   type BitebluffSettlement,
@@ -160,6 +161,24 @@ export default function BitebluffDemo({
     [players],
   );
   const localEvaluation = you.hand.length === 5 ? evaluateBitebluffHand(you.hand) : null;
+  const redrawReserve = bitebluffRedrawSurcharge(you.wager);
+  const finalPreview = useMemo(
+    () =>
+      settlement
+        ? bitebluffFinalPreview(
+            players.map(({ id, name, avatar, wager, redrawSurcharge, hand }) => ({
+              id,
+              name,
+              avatar,
+              wager,
+              redrawSurcharge,
+              hand,
+            })),
+            settlement,
+          )
+        : null,
+    [players, settlement],
+  );
 
   useEffect(() => {
     if (status !== "dealing") return;
@@ -333,7 +352,17 @@ export default function BitebluffDemo({
           <section className="bitebluff-primary">
             <div className="bitebluff-stats">
               <Stat label="Available" value={`${you.balance} B`} />
-              <Stat label="Locked" value={`${you.wager + you.redrawSurcharge} B`} />
+              <Stat label="Initial wager" value={`${you.wager} B`} />
+              <Stat
+                label="Redraw reserve"
+                value={
+                  status === "settled"
+                    ? "Released"
+                    : redrawUsed
+                      ? "Spent"
+                      : `${redrawReserve} B`
+                }
+              />
               <Stat label="Pool" value={`${publicPreview.pot} B`} />
               <Stat
                 label="Active board"
@@ -355,6 +384,8 @@ export default function BitebluffDemo({
                     <strong>Your hand does not exist until you confirm.</strong>
                     <small>
                       Once locked, the wager cannot be reduced or withdrawn.
+                      Your {redrawReserve}-Bite reserve remains available unless
+                      Burn &amp; Draw is confirmed.
                     </small>
                   </div>
                   <button type="button" className="bitebluff-primary-button" onClick={commitRound}>
@@ -418,6 +449,8 @@ export default function BitebluffDemo({
                 onAdd={addDummy}
                 onRemove={(id) => setPlayers((current) => current.filter((player) => player.id !== id))}
               />
+            ) : status === "settled" && finalPreview ? (
+              <FinalGeneratedPreview preview={finalPreview} />
             ) : (
               <PublicPreview preview={publicPreview} />
             )}
@@ -516,7 +549,7 @@ function SetupPanel({
               <span className="bitebluff-avatar">{player.avatar}</span>
               <label>
                 <span>{player.name}</span>
-                <small>{player.balance} B · allowed {bounds.minimum}–{bounds.maximum}</small>
+              <small>{player.balance} B · allowed {bounds.minimum}–{bounds.maximum}</small>
               </label>
               <input
                 aria-label={`${player.name} wager`}
@@ -565,6 +598,101 @@ function PublicPreview({
       </div>
       <small>
         {preview.participantCount} entrants · Avatar and wager only · No hand data
+      </small>
+    </section>
+  );
+}
+
+function FinalGeneratedPreview({
+  preview,
+}: {
+  preview: ReturnType<typeof bitebluffFinalPreview>;
+}) {
+  return (
+    <section className="bitebluff-panel border-amber-300/30 bg-[#1b211d]">
+      <div className="bitebluff-preview-title">
+        <div>
+          <span>GENERATED IMAGE PREVIEW</span>
+          <h2>{preview.title} results</h2>
+        </div>
+        <strong>{preview.totalPool} B</strong>
+      </div>
+      <p className="mb-3 mt-2 text-[0.58rem] font-black tracking-[0.08em] text-[#b9a77d]">
+        {preview.statusLabel}
+      </p>
+      <div className="grid gap-2">
+        {preview.participants.map((participant) => (
+          <article
+            key={participant.id}
+            className={`overflow-hidden rounded-xl border p-2 ${
+              participant.winner
+                ? "border-amber-300/40 bg-[linear-gradient(135deg,rgba(104,76,23,0.2),transparent_65%)]"
+                : "border-white/10 bg-[#0e1411]/75"
+            }`}
+          >
+            <header className="flex items-center gap-2">
+              <span className="bitebluff-avatar">{participant.avatar}</span>
+              <div className="min-w-0 flex-1">
+                <strong className="block">{participant.name}</strong>
+                <small className="block text-[0.58rem] text-[#8b9991]">
+                  {participant.handLabel}
+                </small>
+              </div>
+              <b
+                className={`text-[0.62rem] tracking-[0.06em] ${
+                  participant.winner ? "text-[#edc96f]" : "text-[#b9978d]"
+                }`}
+              >
+                {participant.winner ? "WINNER" : `-${participant.amountLost} B`}
+              </b>
+            </header>
+            <div className="mt-2 flex gap-0.5">
+              {participant.hand.map((playingCard, index) => (
+                <BitebluffCardView
+                  key={`${playingCard.rank}:${playingCard.suit}:${index}`}
+                  card={playingCard}
+                  className="!w-auto min-w-0 flex-1"
+                />
+              ))}
+            </div>
+            {participant.winner ? (
+              <footer className="mt-2 grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5">
+                <strong className="text-[0.66rem] text-[#edd083]">
+                  Total payout {participant.payout} B
+                </strong>
+                <span className="text-right text-[0.58rem] text-[#a9b4ae]">
+                  Won {participant.contestedPayout} B · {participant.layerWins.join(" + ")}
+                </span>
+                <small className="col-span-2 text-[0.54rem] text-[#76847d]">
+                  Wagered {participant.committed} B
+                  {participant.unmatchedReturn > 0
+                    ? ` · ${participant.unmatchedReturn} B unmatched and returned`
+                    : ""}{" "}
+                  · Net{" "}
+                  {participant.net >= 0 ? "+" : ""}
+                  {participant.net} B
+                </small>
+              </footer>
+            ) : (
+              <footer className="mt-2 grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5">
+                <strong className="text-[0.66rem] text-[#edd083]">
+                  Wagered {participant.committed} B
+                </strong>
+                <span className="text-right text-[0.58rem] text-[#a9b4ae]">
+                  Lost {participant.amountLost} B
+                </span>
+                {participant.unmatchedReturn > 0 && (
+                  <small className="col-span-2 text-[0.54rem] text-[#76847d]">
+                    {participant.unmatchedReturn} B unmatched and returned
+                  </small>
+                )}
+              </footer>
+            )}
+          </article>
+        ))}
+      </div>
+      <small className="mt-3 block text-[0.54rem] leading-relaxed text-[#746c59]">
+        Automatic zero-ping result post · Every hand shown · Dummy website data
       </small>
     </section>
   );

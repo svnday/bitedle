@@ -20,11 +20,13 @@ export default function BitebluffCard({
   faceDown = false,
   dealing = false,
   delay = 0,
+  className = "",
 }: {
   card?: Card;
   faceDown?: boolean;
   dealing?: boolean;
   delay?: number;
+  className?: string;
 }) {
   const hidden = faceDown || !card;
   const red = card?.suit === "diamonds" || card?.suit === "hearts";
@@ -32,7 +34,7 @@ export default function BitebluffCard({
 
   return (
     <div
-      className={`bitebluff-card-shell ${dealing ? "bitebluff-card-dealing" : ""}`}
+      className={`bitebluff-card-shell ${dealing ? "bitebluff-card-dealing" : ""} ${className}`}
       style={{ animationDelay: `${delay}ms` }}
       aria-label={hidden ? "Face-down playing card" : label}
     >

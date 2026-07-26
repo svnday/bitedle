@@ -139,3 +139,68 @@ export function bitebluffPublicPreview(
     })),
   };
 }
+
+export interface BitebluffFinalPreviewParticipant {
+  id: string;
+  name: string;
+  avatar: string;
+  hand: readonly BitebluffCard[];
+  handLabel: string;
+  committed: number;
+  payout: number;
+  contestedPayout: number;
+  unmatchedReturn: number;
+  net: number;
+  amountLost: number;
+  layerWins: string[];
+  winner: boolean;
+}
+
+export interface BitebluffFinalPreview {
+  title: "Bitebluff";
+  statusLabel: "FINAL RESULTS · AUTO-POSTED AT 11:00 PM ET";
+  totalPool: number;
+  participants: BitebluffFinalPreviewParticipant[];
+}
+
+export function bitebluffFinalPreview(
+  entrants: ReadonlyArray<{
+    id: string;
+    name: string;
+    avatar: string;
+    wager: number;
+    redrawSurcharge?: number;
+    hand: readonly BitebluffCard[];
+  }>,
+  settlement: BitebluffSettlement,
+): BitebluffFinalPreview {
+  return {
+    title: "Bitebluff",
+    statusLabel: "FINAL RESULTS · AUTO-POSTED AT 11:00 PM ET",
+    totalPool: settlement.totalPool,
+    participants: entrants.map((entrant) => {
+      const committed = entrant.wager + (entrant.redrawSurcharge ?? 0);
+      const payout = settlement.payouts[entrant.id] ?? 0;
+      const contestedPayout = settlement.contestedPayouts[entrant.id] ?? 0;
+      const unmatchedReturn = settlement.unmatchedReturns[entrant.id] ?? 0;
+      const layerWins = settlement.layers
+        .filter((layer) => !layer.unmatched && layer.winnerIds.includes(entrant.id))
+        .map((layer) => (layer.index === 0 ? "Main pot" : `Layer ${layer.index + 1}`));
+      return {
+        id: entrant.id,
+        name: entrant.name,
+        avatar: entrant.avatar,
+        hand: entrant.hand,
+        handLabel: evaluateBitebluffHand(entrant.hand).label,
+        committed,
+        payout,
+        contestedPayout,
+        unmatchedReturn,
+        net: payout - committed,
+        amountLost: Math.max(0, committed - payout),
+        layerWins,
+        winner: contestedPayout > 0,
+      };
+    }),
+  };
+}

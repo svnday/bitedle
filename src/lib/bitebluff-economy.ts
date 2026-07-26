@@ -2,7 +2,6 @@ import {
   BITEBLUFF_ABSOLUTE_MIN_WAGER,
   BITEBLUFF_ACTIVE_DAYS,
   BITEBLUFF_DAILY_FLOOR,
-  BITEBLUFF_MAX_WAGER_RATE,
   BITEBLUFF_MIN_WAGER_RATE,
   BITEBLUFF_REDRAW_RATE,
 } from "./bitebluff-constants";
@@ -18,8 +17,26 @@ export function bitebluffWagerBounds(balance: number): { minimum: number; maximu
   }
   return {
     minimum: Math.max(BITEBLUFF_ABSOLUTE_MIN_WAGER, Math.ceil(balance * BITEBLUFF_MIN_WAGER_RATE)),
-    maximum: Math.ceil(balance * BITEBLUFF_MAX_WAGER_RATE),
+    maximum: bitebluffMaximumInitialWager(balance),
   };
+}
+
+export function bitebluffMaximumInitialWager(balance: number): number {
+  if (!Number.isInteger(balance) || balance < 0) {
+    throw new Error("Balance must be a non-negative integer.");
+  }
+  let low = 0;
+  let high = balance;
+  while (low < high) {
+    const candidate = Math.ceil((low + high) / 2);
+    const reserve = Math.max(
+      BITEBLUFF_ABSOLUTE_MIN_WAGER,
+      Math.ceil(candidate * BITEBLUFF_REDRAW_RATE),
+    );
+    if (candidate + reserve <= balance) low = candidate;
+    else high = candidate - 1;
+  }
+  return low;
 }
 
 export function bitebluffRedrawSurcharge(originalWager: number): number {
