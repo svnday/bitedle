@@ -209,8 +209,19 @@ assert.equal(demoSource.includes("/api/bitebluff"), false);
 assert.equal(demoSource.includes("bitebluffPublicPreview"), true);
 assert.equal(demoSource.includes("Lock wagers &amp; deal"), true);
 assert.equal(demoSource.includes("Randomly burn"), true);
+assert.equal(demoSource.includes('setStatus(placing ? "placed" : "sealed")'), true);
+assert.equal(demoSource.includes('setStatus("flipping")'), true);
+
+const tableSource = fs.readFileSync(
+  path.join(repoRoot, "src", "components", "BitebluffTable.tsx"),
+  "utf8",
+);
+assert.equal(tableSource.includes("index >= placedCount"), true);
+assert.equal(tableSource.includes("bitebluff-card-placeholder"), true);
+assert.equal(tableSource.includes("dealing={dealing && index === placedCount - 1}"), true);
+assert.equal(tableSource.includes("flipping={flipping && index === revealedCount - 1}"), true);
 
 console.log(
   "Bitebluff verification passed: poker categories and kickers, exclusive seeded decks, random Burn & Draw, safety-net economy, active eligibility, layered pots, tied remainders, unmatched returns, and redacted public preview.",
-  " Bitebluff final preview includes every hand, layer winners, payouts, and loser wager/loss amounts.",
+  " Bitebluff final preview includes every hand, layer winners, payouts, and loser wager/loss amounts. The private deal places five face-down cards before the separate sequential flip pass.",
 );

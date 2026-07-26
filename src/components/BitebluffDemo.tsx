@@ -9,6 +9,9 @@ import {
 } from "@/lib/bitebluff-cards";
 import {
   BITEBLUFF_DEAL_INTERVAL_MS,
+  BITEBLUFF_FLIP_INTERVAL_MS,
+  BITEBLUFF_HAND_SIZE,
+  BITEBLUFF_REVEAL_PAUSE_MS,
   type BitebluffCard,
   type BitebluffCategory,
 } from "@/lib/bitebluff-constants";
@@ -30,7 +33,7 @@ import BitebluffCardView from "./BitebluffCard";
 import BitebluffTable from "./BitebluffTable";
 import GameNav from "./GameNav";
 
-type LabStatus = "setup" | "dealing" | "sealed" | "settled";
+type LabStatus = "setup" | "dealing" | "placed" | "flipping" | "sealed" | "settled";
 type LabScenario = "random" | "layered" | "tie" | BitebluffCategory;
 
 interface LabPlayer {
@@ -138,6 +141,7 @@ export default function BitebluffDemo({
   const [players, setPlayers] = useState<LabPlayer[]>(INITIAL_PLAYERS);
   const [seed, setSeed] = useState("bitebluff-lab-001");
   const [scenario, setScenario] = useState<LabScenario>("layered");
+  const [placedCount, setPlacedCount] = useState(0);
   const [revealedCount, setRevealedCount] = useState(0);
   const [settlement, setSettlement] = useState<BitebluffSettlement | null>(null);
   const [redrawEnabled, setRedrawEnabled] = useState(false);
@@ -181,11 +185,25 @@ export default function BitebluffDemo({
   );
 
   useEffect(() => {
-    if (status !== "dealing") return;
-    const timers = Array.from({ length: 5 }, (_, index) =>
-      setTimeout(() => setRevealedCount(index + 1), index * BITEBLUFF_DEAL_INTERVAL_MS),
+    if (status === "placed") {
+      const reveal = setTimeout(() => setStatus("flipping"), BITEBLUFF_REVEAL_PAUSE_MS);
+      return () => clearTimeout(reveal);
+    }
+
+    if (status !== "dealing" && status !== "flipping") return;
+
+    const placing = status === "dealing";
+    const interval = placing ? BITEBLUFF_DEAL_INTERVAL_MS : BITEBLUFF_FLIP_INTERVAL_MS;
+    const timers = Array.from({ length: BITEBLUFF_HAND_SIZE }, (_, index) =>
+      setTimeout(
+        () => (placing ? setPlacedCount(index + 1) : setRevealedCount(index + 1)),
+        index * interval,
+      ),
     );
-    const finish = setTimeout(() => setStatus("sealed"), 5 * BITEBLUFF_DEAL_INTERVAL_MS);
+    const finish = setTimeout(
+      () => setStatus(placing ? "placed" : "sealed"),
+      BITEBLUFF_HAND_SIZE * interval,
+    );
     return () => {
       timers.forEach(clearTimeout);
       clearTimeout(finish);
@@ -240,6 +258,7 @@ export default function BitebluffDemo({
     setSettlement(null);
     setRedrawUsed(false);
     setBurnNotice(null);
+    setPlacedCount(0);
     setRevealedCount(0);
     setStatus("dealing");
   };
@@ -266,6 +285,7 @@ export default function BitebluffDemo({
     setBurnNotice(
       `${count} random ${count === 1 ? "card was" : "cards were"} burned. The surcharge added ${surcharge} Bites to the pool.`,
     );
+    setPlacedCount(0);
     setRevealedCount(0);
     setStatus("dealing");
   };
@@ -316,6 +336,7 @@ export default function BitebluffDemo({
     setSettlement(null);
     setRedrawUsed(false);
     setBurnNotice(null);
+    setPlacedCount(0);
     setRevealedCount(0);
     setStatus("setup");
   };
@@ -372,8 +393,11 @@ export default function BitebluffDemo({
 
             <BitebluffTable
               hand={you.hand}
+              placedCount={placedCount}
               revealedCount={revealedCount}
               dealing={status === "dealing"}
+              readyToFlip={status === "placed"}
+              flipping={status === "flipping"}
             />
 
             <section className="bitebluff-action-panel">
@@ -395,7 +419,17 @@ export default function BitebluffDemo({
               )}
               {status === "dealing" && (
                 <p className="bitebluff-deal-status">
-                  Drawing card {Math.max(1, revealedCount)} of 5…
+                  Placing card {Math.max(1, placedCount)} of 5…
+                </p>
+              )}
+              {status === "flipping" && (
+                <p className="bitebluff-deal-status">
+                  Flipping card {Math.max(1, revealedCount)} of 5…
+                </p>
+              )}
+              {status === "placed" && (
+                <p className="bitebluff-deal-status">
+                  All 5 cards placed face-down · Revealing next…
                 </p>
               )}
               {status === "sealed" && (

@@ -19,6 +19,7 @@ export default function BitebluffCard({
   card,
   faceDown = false,
   dealing = false,
+  flipping = false,
   delay = 0,
   dealIndex,
   className = "",
@@ -26,6 +27,7 @@ export default function BitebluffCard({
   card?: Card;
   faceDown?: boolean;
   dealing?: boolean;
+  flipping?: boolean;
   delay?: number;
   dealIndex?: number;
   className?: string;
@@ -38,7 +40,9 @@ export default function BitebluffCard({
     <div
       className={`bitebluff-card-shell ${
         dealIndex === undefined ? "" : `bitebluff-card-slot-${dealIndex}`
-      } ${dealing ? "bitebluff-card-dealing" : ""} ${className}`}
+      } ${dealing ? "bitebluff-card-dealing" : ""} ${
+        flipping ? "bitebluff-card-flipping" : ""
+      } ${className}`}
       style={{ animationDelay: `${delay}ms` }}
       aria-label={hidden ? "Face-down playing card" : label}
     >

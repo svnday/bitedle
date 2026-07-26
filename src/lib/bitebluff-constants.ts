@@ -8,6 +8,8 @@ export const BITEBLUFF_REDRAW_MIN = 1;
 export const BITEBLUFF_REDRAW_MAX = 3;
 export const BITEBLUFF_REDRAW_RATE = 0.5;
 export const BITEBLUFF_DEAL_INTERVAL_MS = 540;
+export const BITEBLUFF_REVEAL_PAUSE_MS = 600;
+export const BITEBLUFF_FLIP_INTERVAL_MS = 360;
 
 export const BITEBLUFF_SUITS = ["clubs", "diamonds", "hearts", "spades"] as const;
 export type BitebluffSuit = (typeof BITEBLUFF_SUITS)[number];
