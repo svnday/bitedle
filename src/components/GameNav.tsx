@@ -13,6 +13,7 @@ const TABS: readonly [GameMode, string][] = [
   ["biteracer", "Biteracer"],
   ["bitefight", "Bitefight"],
   ["biteshooter", "Biteshooter"],
+  ["bitebluff", "Bitebluff"],
 ];
 
 /** The website's game-mode tab bar. Never rendered inside a Discord embed —
@@ -27,7 +28,7 @@ export default function GameNav({ mode, onModeChange }: GameNavProps) {
             type="button"
             onClick={() => onModeChange(value)}
             aria-current={mode === value ? "page" : undefined}
-            className={`min-w-0 flex-1 cursor-pointer border-b-2 px-0.5 py-2.5 text-[10px] font-bold transition-colors sm:px-2 sm:text-sm ${
+            className={`min-w-0 flex-1 cursor-pointer border-b-2 px-0.5 py-2.5 text-[9px] font-bold transition-colors sm:px-2 sm:text-sm ${
               mode === value
                 ? "border-correct text-foreground"
                 : "text-muted hover:text-foreground border-transparent"

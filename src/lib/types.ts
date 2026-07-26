@@ -85,7 +85,13 @@ export const DAILY_BOMB_COUNT = 3;
 export const FIXED_BOMB_COUNT_FROM = "2026-07-19";
 export const DISTRIBUTION_BUCKETS = ["1", "2", "3", "4", "5", "6+", "X"] as const;
 
-export type GameMode = "classic" | "mega" | "biteracer" | "bitefight" | "biteshooter";
+export type GameMode =
+  | "classic"
+  | "mega"
+  | "biteracer"
+  | "bitefight"
+  | "biteshooter"
+  | "bitebluff";
 export type MegaCellResult = "bomb" | "check" | number;
 
 export interface MegaClickRecord {

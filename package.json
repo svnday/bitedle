@@ -10,7 +10,8 @@
     "verify:bitesweeper": "node scripts/verify-bitesweeper.mjs",
     "verify:biteracer-race": "node scripts/verify-biteracer-race.mjs",
     "verify:bitefight": "node scripts/verify-bitefight.mjs",
-    "verify:biteshooter": "node scripts/verify-biteshooter.mjs"
+    "verify:biteshooter": "node scripts/verify-biteshooter.mjs",
+    "verify:bitebluff": "node scripts/verify-bitebluff.mjs"
   },
   "dependencies": {
     "@discord/embedded-app-sdk": "^2.5.0",

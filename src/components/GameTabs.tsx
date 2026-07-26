@@ -16,6 +16,7 @@ import BitefightGame from "./BitefightGame";
 import BitefightDemo from "./BitefightDemo";
 import BiteshooterDemo from "./BiteshooterDemo";
 import BiteshooterGame from "./BiteshooterGame";
+import BitebluffDemo from "./BitebluffDemo";
 
 export default function GameTabs() {
   // Embedded: the mode is resolved per player from whichever command THEY ran
@@ -39,7 +40,8 @@ export default function GameTabs() {
           requestedMode === "mega" ||
           requestedMode === "biteracer" ||
           requestedMode === "bitefight" ||
-          requestedMode === "biteshooter"
+          requestedMode === "biteshooter" ||
+          requestedMode === "bitebluff"
             ? requestedMode
             : "classic";
         setRuntime({ embedded: false, mode });
@@ -78,6 +80,9 @@ export default function GameTabs() {
   }
   if (!runtime.embedded && runtime.mode === "biteshooter") {
     return <BiteshooterDemo onModeChange={setWebMode} />;
+  }
+  if (!runtime.embedded && runtime.mode === "bitebluff") {
+    return <BitebluffDemo onModeChange={setWebMode} />;
   }
   return (
     <Game
