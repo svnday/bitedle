@@ -401,7 +401,7 @@ export default function BitebluffGame() {
                   <h2>Choose your risk before seeing any cards</h2>
                   <p>
                     Bet between {state.wager.minimum.toLocaleString()} and{" "}
-                    {state.wager.maximum.toLocaleString()} Bites. The maximum keeps
+                    {state.wager.maximum.toLocaleString()}{" "}Bites. The maximum keeps
                     enough bankroll available for one Burn &amp; Draw.
                   </p>
                   {state.wager.topUp > 0 ? (
