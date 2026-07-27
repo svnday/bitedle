@@ -94,14 +94,25 @@ export function renderBitebluffPublicPreviewImage(
   totalCommitted = entries.reduce((total, entry) => total + entry.wager, 0),
 ) {
   const shown = entries.slice(0, PREVIEW_MAX_PARTICIPANTS);
-  const columns = Math.min(4, Math.max(1, shown.length));
+  const columns =
+    shown.length <= 4
+      ? Math.max(1, shown.length)
+      : shown.length <= 6
+        ? 3
+        : 4;
   const rows = Math.max(1, Math.ceil(shown.length / columns));
   const width = 900;
+  const outerPadding = 44;
+  const cardGap = 14;
+  const avatarSize = columns === 4 ? 54 : 60;
+  const cardPadding = columns === 4 ? 15 : 18;
   const shownWagers = entries.reduce((total, entry) => total + entry.wager, 0);
   const sealedRedrawBites = Math.max(0, totalCommitted - shownWagers);
   const height =
-    250 + rows * 150 + (entries.length > shown.length ? 50 : 0);
-  const cardWidth = Math.floor((width - 80 - (columns - 1) * 14) / columns);
+    264 + rows * 128 + (entries.length > shown.length ? 44 : 0);
+  const cardWidth = Math.floor(
+    (width - outerPadding * 2 - (columns - 1) * cardGap) / columns,
+  );
   const pot = totalCommitted;
   return new ImageResponse(
     (
@@ -111,7 +122,7 @@ export function renderBitebluffPublicPreviewImage(
           height: "100%",
           display: "flex",
           flexDirection: "column",
-          padding: 40,
+          padding: outerPadding,
           color: "#f7f3e5",
           background:
             "linear-gradient(145deg, #061f18 0%, #0b3024 55%, #071c16 100%)",
@@ -123,7 +134,7 @@ export function renderBitebluffPublicPreviewImage(
             alignItems: "flex-end",
             justifyContent: "space-between",
             borderBottom: "1px solid #947d3b",
-            paddingBottom: 22,
+            paddingBottom: 18,
           }}
         >
           <div style={{ display: "flex", flexDirection: "column" }}>
@@ -155,8 +166,9 @@ export function renderBitebluffPublicPreviewImage(
           style={{
             display: "flex",
             flexWrap: "wrap",
-            gap: 14,
-            paddingTop: 24,
+            justifyContent: "center",
+            gap: cardGap,
+            paddingTop: 20,
           }}
         >
           {shown.map((entry) => (
@@ -164,25 +176,36 @@ export function renderBitebluffPublicPreviewImage(
               key={entry.id}
               style={{
                 width: cardWidth,
-                height: 132,
-                padding: 18,
+                height: 114,
+                padding: cardPadding,
                 display: "flex",
                 alignItems: "center",
-                gap: 14,
+                gap: columns === 4 ? 12 : 16,
                 border: "1px solid #315846",
-                borderRadius: 20,
+                borderRadius: 18,
                 backgroundColor: "#0e2a21",
               }}
             >
-              {avatar(entry, 66)}
+              {avatar(entry, avatarSize)}
               <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>
+                <div
+                  style={{
+                    fontSize: columns === 4 ? 18 : 20,
+                    fontWeight: 700,
+                  }}
+                >
                   {abbreviatedName(entry.displayName)}
                 </div>
-                <div style={{ color: "#f7d56b", fontSize: 24, fontWeight: 800 }}>
+                <div
+                  style={{
+                    color: "#f7d56b",
+                    fontSize: columns === 4 ? 21 : 23,
+                    fontWeight: 800,
+                  }}
+                >
                   {`${entry.wager.toLocaleString()} Bites`}
                 </div>
-                <div style={{ color: "#8ea79b", fontSize: 13 }}>HAND SEALED</div>
+                <div style={{ color: "#8ea79b", fontSize: 12 }}>HAND SEALED</div>
               </div>
             </div>
           ))}
@@ -205,6 +228,7 @@ export function renderBitebluffPublicPreviewImage(
             display: "flex",
             justifyContent: "center",
             marginTop: "auto",
+            paddingTop: 18,
             color: "#78988a",
             fontSize: 14,
           }}

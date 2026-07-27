@@ -134,6 +134,28 @@ const players = [
     contestedPayout: 0,
     unmatchedReturn: 0,
   },
+  {
+    id: "quinn",
+    userId: "quinn",
+    discordUserId: "",
+    displayName: "Quinn",
+    avatarHash: null,
+    wager: 25,
+    redrawSurcharge: 0,
+    hand: [
+      { rank: 13, suit: "clubs" },
+      { rank: 11, suit: "diamonds" },
+      { rank: 8, suit: "hearts" },
+      { rank: 5, suit: "spades" },
+      { rank: 3, suit: "clubs" },
+    ],
+    handCategory: "high-card",
+    handLabel: "King High",
+    wonLayers: [],
+    payout: 0,
+    contestedPayout: 0,
+    unmatchedReturn: 0,
+  },
 ];
 
 const previewEntries = players.map((player, index) => ({
