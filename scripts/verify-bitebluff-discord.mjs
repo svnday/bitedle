@@ -167,19 +167,35 @@ process.env.BITEDLE_DISCORD_API_BASE_URL =
   `http://127.0.0.1:${livePreviewAddress.port}`;
 process.env.DISCORD_BOT_TOKEN = "configured-but-webhook-must-win";
 const {
+  BITEBLUFF_PREVIEW_WINDOW_MS,
   deliverBitebluffFinalResults,
   updateBitebluffPublicPreview,
 } = require(
   path.join(repoRoot, "src", "lib", "bitebluff-discord-preview.tsx"),
 );
+let firstPreviewCreatedAt;
+let refreshedPreviewCreatedAt;
 try {
+  await updateBitebluffPublicPreview(destination.id);
+  firstPreviewCreatedAt = (
+    await repository.getDestination(destination.id)
+  ).previewMessageCreatedAt;
+  await updateBitebluffPublicPreview(destination.id);
+  refreshedPreviewCreatedAt = (
+    await repository.getDestination(destination.id)
+  ).previewMessageCreatedAt;
+  await repository.completePreview(
+    destination.id,
+    "aged-preview-message",
+    Date.now() - BITEBLUFF_PREVIEW_WINDOW_MS - 1,
+  );
   await updateBitebluffPublicPreview(destination.id);
 } finally {
   await new Promise((resolve, reject) =>
     livePreviewServer.close((error) => (error ? reject(error) : resolve())),
   );
 }
-assert.equal(livePreviewRequests.length, 2);
+assert.equal(livePreviewRequests.length, 6);
 assert.equal(livePreviewRequests[0].method, "POST");
 assert.equal(
   livePreviewRequests[0].url,
@@ -194,6 +210,35 @@ assert.equal(livePreviewRequests[1].body.includes('"allowed_mentions"'), true);
 assert.equal(livePreviewRequests[1].body.includes('"parse":[]'), true);
 assert.equal(livePreviewRequests[1].body.includes('"label":"Play now!"'), true);
 assert.equal(livePreviewRequests[1].body.includes('"custom_id":"bitebluff-launch"'), true);
+assert.equal(typeof firstPreviewCreatedAt, "number");
+assert.equal(refreshedPreviewCreatedAt, firstPreviewCreatedAt);
+assert.equal(livePreviewRequests[2].method, "PATCH");
+assert.equal(
+  livePreviewRequests[2].url,
+  `/channels/${destination.channelId}/messages/live-preview-message`,
+);
+assert.equal(livePreviewRequests[3].method, "PATCH");
+assert.equal(
+  livePreviewRequests[3].url,
+  `/webhooks/${destination.applicationId}/${destination.webhookToken}/messages/live-preview-message`,
+);
+assert.equal(livePreviewRequests[4].method, "POST");
+assert.equal(
+  livePreviewRequests[4].url,
+  `/channels/${destination.channelId}/messages`,
+);
+assert.equal(livePreviewRequests[5].method, "POST");
+assert.equal(
+  livePreviewRequests[5].url,
+  `/webhooks/${destination.applicationId}/${destination.webhookToken}`,
+);
+const rolledPreviewDestination = await repository.getDestination(destination.id);
+assert.equal(rolledPreviewDestination.previewMessageId, "live-preview-message");
+assert.equal(
+  rolledPreviewDestination.previewMessageCreatedAt >
+    Date.now() - BITEBLUFF_PREVIEW_WINDOW_MS,
+  true,
+);
 assert.equal(await repository.totalCommittedForRound(quote.round.id), 120);
 const pendingLeaderboard = await service.bitebluffLeaderboard(alice.userId, redrawTime);
 assert.equal(pendingLeaderboard.entries.length, 2);
@@ -336,5 +381,5 @@ assert.equal(
 );
 
 console.log(
-  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time random Burn & Draw, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, zero-ping Play now components, bot-denied webhook preview fallback, layered-pot conservation, idempotent settlement, balance conservation, and bot settlement fallback after a webhook-authored live preview.",
+  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time random Burn & Draw, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, zero-ping Play now components, rolling 13-minute preview windows with in-window edits, bot-denied webhook preview fallback, layered-pot conservation, idempotent settlement, balance conservation, and bot settlement fallback after a webhook-authored live preview.",
 );

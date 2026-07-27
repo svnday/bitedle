@@ -15,6 +15,7 @@ import type { BitebluffCard } from "./bitebluff-constants";
 const PREVIEW_MAX_PARTICIPANTS = 24;
 const FINAL_PAGE_SIZE = 6;
 const BITEBLUFF_WEBHOOK_TOKEN_TTL_MS = 13 * 60 * 1000;
+export const BITEBLUFF_PREVIEW_WINDOW_MS = 13 * 60 * 1000;
 export const BITEBLUFF_LAUNCH_BUTTON_ID = "bitebluff-launch";
 
 const BITEBLUFF_LAUNCH_COMPONENTS = [
@@ -462,15 +463,23 @@ export async function updateBitebluffPublicPreview(
     const webhookIsFresh =
       Boolean(destination.applicationId && destination.webhookToken) &&
       Date.now() - destination.tokenCreatedAt < BITEBLUFF_WEBHOOK_TOKEN_TTL_MS;
+    const previewMessageIsFresh =
+      Boolean(destination.previewMessageId) &&
+      destination.previewMessageCreatedAt !== null &&
+      Date.now() - destination.previewMessageCreatedAt <
+        BITEBLUFF_PREVIEW_WINDOW_MS;
+    const editablePreviewMessageId = previewMessageIsFresh
+      ? destination.previewMessageId ?? undefined
+      : undefined;
     let result = await botImageRequest({
       channelId: destination.channelId,
-      messageId: destination.previewMessageId ?? undefined,
+      messageId: editablePreviewMessageId,
       pngBuffer,
       content,
       filename: "bitebluff-preview.png",
       components: BITEBLUFF_LAUNCH_COMPONENTS,
     });
-    if (!result.ok && result.status === 404 && destination.previewMessageId) {
+    if (!result.ok && result.status === 404 && editablePreviewMessageId) {
       result = await botImageRequest({
         channelId: destination.channelId,
         pngBuffer,
@@ -480,17 +489,17 @@ export async function updateBitebluffPublicPreview(
       });
     }
     if ((!result.ok || !result.messageId) && webhookIsFresh) {
-      if (destination.previewMessageId) {
+      if (editablePreviewMessageId) {
         const patched = await patchImageWebhookMessage({
           applicationId: destination.applicationId,
           webhookToken: destination.webhookToken,
-          messageId: destination.previewMessageId,
+          messageId: editablePreviewMessageId,
           pngBuffer,
           content,
           filename: "bitebluff-preview.png",
           components: BITEBLUFF_LAUNCH_COMPONENTS,
         });
-        result = { ...patched, messageId: destination.previewMessageId };
+        result = { ...patched, messageId: editablePreviewMessageId };
         if (!patched.ok && patched.status === 404) {
           result = await postImageWebhookFollowup({
             applicationId: destination.applicationId,

@@ -74,6 +74,7 @@ export interface BitebluffDestinationRecord {
   webhookToken: string;
   tokenCreatedAt: number;
   previewMessageId: string | null;
+  previewMessageCreatedAt: number | null;
   previewPosting: boolean;
   finalMessageIds: string[];
   finalPostedAt: number | null;

@@ -119,11 +119,21 @@ class BitebluffFileRepository implements BitebluffRepository {
           },
         ]),
       );
+      const destinations = Object.fromEntries(
+        Object.entries(parsed.destinations ?? {}).map(([key, destination]) => [
+          key,
+          {
+            ...destination,
+            previewMessageCreatedAt:
+              destination.previewMessageCreatedAt ?? null,
+          },
+        ]),
+      );
       return {
         accounts: parsed.accounts ?? {},
         rounds: parsed.rounds ?? {},
         entries,
-        destinations: parsed.destinations ?? {},
+        destinations,
         ledger: parsed.ledger ?? {},
       };
     } catch {
@@ -377,6 +387,7 @@ class BitebluffFileRepository implements BitebluffRepository {
           ? input.tokenCreatedAt
           : previous.tokenCreatedAt,
       previewMessageId: previous?.previewMessageId ?? null,
+      previewMessageCreatedAt: previous?.previewMessageCreatedAt ?? null,
       previewPosting: previous?.previewPosting ?? false,
       finalMessageIds: previous?.finalMessageIds ?? [],
       finalPostedAt: previous?.finalPostedAt ?? null,
@@ -424,6 +435,12 @@ class BitebluffFileRepository implements BitebluffRepository {
   async completePreview(destinationId: string, messageId: string, now: number): Promise<void> {
     const destination = Object.values(this.db.destinations).find((item) => item.id === destinationId);
     if (!destination) return;
+    if (
+      destination.previewMessageId !== messageId ||
+      destination.previewMessageCreatedAt === null
+    ) {
+      destination.previewMessageCreatedAt = now;
+    }
     destination.previewMessageId = messageId;
     destination.previewPosting = false;
     destination.updatedAt = now;
@@ -622,6 +639,11 @@ function destinationFromRow(row: Record<string, unknown>): BitebluffDestinationR
     webhookToken: row.webhook_token as string,
     tokenCreatedAt: Number(row.token_created_at),
     previewMessageId: (row.preview_message_id as string | null) ?? null,
+    previewMessageCreatedAt:
+      row.preview_message_created_at === null ||
+      row.preview_message_created_at === undefined
+        ? null
+        : Number(row.preview_message_created_at),
     previewPosting: Boolean(row.preview_posting),
     finalMessageIds: (row.final_message_ids as string[] | null) ?? [],
     finalPostedAt: row.final_posted_at === null ? null : Number(row.final_posted_at),
@@ -743,12 +765,16 @@ class BitebluffNeonRepository implements BitebluffRepository {
           webhook_token text NOT NULL,
           token_created_at bigint NOT NULL,
           preview_message_id text,
+          preview_message_created_at bigint,
           preview_posting boolean NOT NULL DEFAULT false,
           final_message_ids jsonb NOT NULL DEFAULT '[]',
           final_posted_at bigint,
           updated_at bigint NOT NULL,
           UNIQUE (round_id, guild_id, channel_id)
         )`;
+      await this.sql`
+        ALTER TABLE bitebluff_destinations
+        ADD COLUMN IF NOT EXISTS preview_message_created_at bigint`;
     })();
     return this.ready;
   }
@@ -1084,7 +1110,14 @@ class BitebluffNeonRepository implements BitebluffRepository {
     await this.ensureSchema();
     await this.sql`
       UPDATE bitebluff_destinations
-      SET preview_message_id = ${messageId}, preview_posting = false, updated_at = ${now}
+      SET preview_message_created_at = CASE
+            WHEN preview_message_id IS DISTINCT FROM ${messageId}
+              THEN ${now}
+            ELSE COALESCE(preview_message_created_at, ${now})
+          END,
+          preview_message_id = ${messageId},
+          preview_posting = false,
+          updated_at = ${now}
       WHERE id = ${destinationId}`;
   }
 
