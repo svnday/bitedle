@@ -14,6 +14,7 @@ import type {
   BitebluffPrivateState,
 } from "@/lib/bitebluff-types";
 import BitebluffLeaderboardModal from "./BitebluffLeaderboardModal";
+import BitebluffHandStrength from "./BitebluffHandStrength";
 import BitebluffPotRoster from "./BitebluffPotRoster";
 import BitebluffTable from "./BitebluffTable";
 
@@ -276,6 +277,10 @@ export default function BitebluffGame() {
                 <p className="bitebluff-deal-status">
                   {entry.redraw ? "Dealing your replacement hand…" : "Dealing your hand…"}
                 </p>
+              ) : null}
+
+              {phase === "done" ? (
+                <BitebluffHandStrength hand={entry.hand} />
               ) : null}
 
               {state?.round.status !== "settled" && phase === "done" ? (

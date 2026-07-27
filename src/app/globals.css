@@ -1007,6 +1007,95 @@ body {
   text-transform: uppercase;
 }
 
+.bitebluff-hand-strength {
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid rgb(225 188 99 / 0.3);
+  border-radius: 0.85rem;
+  padding: 0.9rem;
+  background:
+    radial-gradient(circle at 94% 8%, rgb(213 169 71 / 0.14), transparent 34%),
+    rgb(11 37 29 / 0.62);
+}
+
+.bitebluff-hand-strength-heading,
+.bitebluff-hand-strength-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.bitebluff-hand-strength-heading > div:first-child {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.bitebluff-hand-strength-heading span {
+  color: #e1b957;
+  font-size: 0.6rem;
+  font-weight: 950;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.bitebluff-hand-strength-heading h3 {
+  color: #f4efe1;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.18rem;
+}
+
+.bitebluff-hand-score {
+  display: flex;
+  align-items: baseline;
+  gap: 0.18rem;
+  color: #f0c96d;
+}
+
+.bitebluff-hand-score strong {
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.bitebluff-hand-score small {
+  color: #8fa198;
+  font-size: 0.62rem;
+}
+
+.bitebluff-hand-strength > p {
+  color: #c4d0c9;
+  font-size: 0.76rem;
+}
+
+.bitebluff-hand-meter {
+  overflow: hidden;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: #28352f;
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.4);
+}
+
+.bitebluff-hand-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8f6d25, #e4bd68 72%, #f1dc99);
+  box-shadow: 0 0 0.8rem rgb(228 189 104 / 0.38);
+}
+
+.bitebluff-hand-strength-footer strong {
+  color: #e5c778;
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.bitebluff-hand-strength-footer span {
+  max-width: 38rem;
+  color: #81968b;
+  font-size: 0.64rem;
+  text-align: right;
+}
+
 .bitebluff-redraw-box {
   border: 1px solid rgb(197 111 78 / 0.36);
   border-radius: 0.75rem;
@@ -1585,6 +1674,16 @@ body {
 
   .bitebluff-card-dealing {
     --bitebluff-deal-origin-y: calc(-17.1rem + 100%);
+  }
+
+  .bitebluff-hand-strength-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .bitebluff-hand-strength-footer span {
+    text-align: left;
   }
 
   .bitebluff-sidebar {

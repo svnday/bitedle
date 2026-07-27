@@ -87,6 +87,21 @@ assert.deepEqual(
   ],
 );
 assert.equal(poker.evaluateBitebluffHand(hands.wheel).comparison[0], 5);
+const royalInsight = poker.bitebluffHandInsight(hands.royal);
+const fullHouseInsight = poker.bitebluffHandInsight(hands.fullHouse);
+const pairInsight = poker.bitebluffHandInsight(hands.pair);
+const highCardInsight = poker.bitebluffHandInsight(hands.high);
+const wheelInsight = poker.bitebluffHandInsight(hands.wheel);
+assert.equal(royalInsight.label, "Royal Flush");
+assert.equal(royalInsight.score, 100);
+assert.match(royalInsight.summary, /best possible/);
+assert.equal(fullHouseInsight.label, "Full House");
+assert.match(fullHouseInsight.summary, /Tens full of Fours/);
+assert.equal(fullHouseInsight.score > pairInsight.score, true);
+assert.equal(pairInsight.score > highCardInsight.score, true);
+assert.equal(highCardInsight.label, "High Card");
+assert.match(highCardInsight.summary, /Ace-high.*Kickers: J, 8, 5, 2/);
+assert.match(wheelInsight.summary, /Five-high straight/);
 assert.equal(
   poker.compareBitebluffHands(
     poker.evaluateBitebluffHand(hands.royal),
@@ -299,6 +314,13 @@ assert.equal(bitebluffGameSource.includes("Review wager"), true);
 assert.equal(bitebluffGameSource.includes("Final confirmation"), true);
 assert.equal(bitebluffGameSource.includes("Current bankroll"), true);
 assert.equal(bitebluffGameSource.includes("BitebluffPotRoster"), true);
+assert.equal(bitebluffGameSource.includes("BitebluffHandStrength"), true);
+const handStrengthSource = fs.readFileSync(
+  path.join(repoRoot, "src", "components", "BitebluffHandStrength.tsx"),
+  "utf8",
+);
+assert.equal(handStrengthSource.includes("Hand strength"), true);
+assert.equal(handStrengthSource.includes("not your odds of winning"), true);
 const entryRouteSource = fs.readFileSync(
   path.join(repoRoot, "src", "app", "api", "bitebluff", "entry", "route.ts"),
   "utf8",
@@ -369,6 +391,6 @@ assert.deepEqual(
 );
 
 console.log(
-  "Bitebluff verification passed: poker categories and kickers, exclusive seeded decks, random Burn & Draw, safety-net economy, active eligibility, layered pots, tied remainders, unmatched returns, and redacted public preview.",
+  "Bitebluff verification passed: poker categories and kickers, private percentile hand insights, exclusive seeded decks, random Burn & Draw, safety-net economy, active eligibility, layered pots, tied remainders, unmatched returns, and redacted public preview.",
   " Bitebluff final preview includes every hand, layer winners, payouts, and loser wager/loss amounts. The private deal places five face-down cards before the separate sequential flip pass. Discord production checks cover committed encrypted hands, DST-safe 11 PM ET settlement, launch-only command routing, in-Activity blind-wager confirmation, zero-ping payloads, and both UTC scheduler slots.",
 );
