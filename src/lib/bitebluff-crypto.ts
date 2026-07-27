@@ -5,12 +5,12 @@ import {
   createHmac,
   randomBytes,
 } from "node:crypto";
-import { bitebluffCardKey, bitebluffDeck } from "./bitebluff-cards";
 import {
-  BITEBLUFF_HAND_SIZE,
-  BITEBLUFF_REDRAW_MAX,
-  BITEBLUFF_REDRAW_MIN,
-} from "./bitebluff-constants";
+  bitebluffCardKey,
+  bitebluffDeck,
+  normalizeBitebluffBurnPositions,
+} from "./bitebluff-cards";
+import { BITEBLUFF_HAND_SIZE } from "./bitebluff-constants";
 import type { BitebluffCard } from "./bitebluff-constants";
 
 const ENCRYPTION_VERSION = "v1";
@@ -133,19 +133,13 @@ export function redrawCommittedBitebluffHand(input: {
   secret: string;
   entrantId: string;
   hand: readonly BitebluffCard[];
-  count: number;
+  positions: readonly number[];
 }): {
   hand: BitebluffCard[];
   burned: BitebluffCard[];
   positions: number[];
 } {
-  if (
-    !Number.isInteger(input.count) ||
-    input.count < BITEBLUFF_REDRAW_MIN ||
-    input.count > BITEBLUFF_REDRAW_MAX
-  ) {
-    throw new Error("Burn & Draw count must be an integer from 1 through 3.");
-  }
+  const burnedPositions = normalizeBitebluffBurnPositions(input.positions);
   const deck = committedBitebluffDeck(input.secret, input.entrantId);
   const originalHand = deck.slice(0, BITEBLUFF_HAND_SIZE);
   if (
@@ -157,17 +151,9 @@ export function redrawCommittedBitebluffHand(input: {
     throw new Error("The committed Bitebluff hand does not match the round deck.");
   }
 
-  const positions = Array.from({ length: BITEBLUFF_HAND_SIZE }, (_, index) => index);
-  const counter = { value: 0 };
-  const context = `bitebluff-redraw:v1:${input.entrantId}:${input.count}:positions`;
-  for (let index = positions.length - 1; index > 0; index -= 1) {
-    const swapIndex = unbiasedIndex(input.secret, context, index + 1, counter);
-    [positions[index], positions[swapIndex]] = [positions[swapIndex], positions[index]];
-  }
-  const burnedPositions = positions.slice(0, input.count).sort((a, b) => a - b);
   const replacements = deck.slice(
     BITEBLUFF_HAND_SIZE,
-    BITEBLUFF_HAND_SIZE + input.count,
+    BITEBLUFF_HAND_SIZE + burnedPositions.length,
   );
   const hand = [...input.hand];
   const burned = burnedPositions.map((position) => hand[position]);

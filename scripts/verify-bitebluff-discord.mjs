@@ -84,7 +84,18 @@ assert.equal(duplicateAlice.entry.wager, 60);
 assert.equal(duplicateAlice.account.balance, 40);
 
 const redrawTime = new Date(entryTime.getTime() + 1_000);
-const redrawAlice = await service.redrawBitebluff(alice.userId, 2, redrawTime);
+await assert.rejects(
+  service.redrawBitebluff(alice.userId, [0, 0], redrawTime),
+  /different cards/,
+);
+assert.equal((await getBitebluffRepository().getAccount(alice.userId)).balance, 40);
+const submittedBurnPositions = [3, 0];
+const selectedBurnPositions = [0, 3];
+const redrawAlice = await service.redrawBitebluff(
+  alice.userId,
+  submittedBurnPositions,
+  redrawTime,
+);
 assert.equal(redrawAlice.applied, true);
 assert.equal(redrawAlice.account.balance, 10);
 assert.equal(redrawAlice.entry.redrawCount, 2);
@@ -94,20 +105,31 @@ const aliceAfterRedraw = await service.bitebluffPrivateState(alice.userId, redra
 assert.equal(aliceAfterRedraw.pot, 120);
 assert.equal(aliceAfterRedraw.entry.committed, 90);
 assert.equal(aliceAfterRedraw.entry.redraw.count, 2);
-assert.equal(aliceAfterRedraw.entry.redraw.positions.length, 2);
-assert.equal(
-  aliceAfterRedraw.entry.hand.filter(
-    (card, index) =>
-      JSON.stringify(card) !== JSON.stringify(aliceBeforeRedraw.entry.hand[index]),
-  ).length,
-  2,
+assert.deepEqual(
+  aliceAfterRedraw.entry.redraw.positions,
+  selectedBurnPositions,
+);
+assert.deepEqual(
+  aliceAfterRedraw.entry.hand
+    .map((card, index) =>
+      JSON.stringify(card) ===
+      JSON.stringify(aliceBeforeRedraw.entry.hand[index])
+        ? null
+        : index,
+    )
+    .filter((index) => index !== null),
+  selectedBurnPositions,
 );
 assert.equal(aliceAfterRedraw.burnAndDraw.available, false);
-const duplicateRedraw = await service.redrawBitebluff(alice.userId, 2, redrawTime);
+const duplicateRedraw = await service.redrawBitebluff(
+  alice.userId,
+  selectedBurnPositions,
+  redrawTime,
+);
 assert.equal(duplicateRedraw.applied, false);
 assert.equal(duplicateRedraw.account.balance, 10);
 await assert.rejects(
-  service.redrawBitebluff(alice.userId, 1, redrawTime),
+  service.redrawBitebluff(alice.userId, [1, 3], redrawTime),
   /already been used/,
 );
 
@@ -247,7 +269,7 @@ assert.equal(pendingLeaderboard.entries.every((entry) => entry.rank === null), t
 await assert.rejects(
   service.redrawBitebluff(
     bob.userId,
-    1,
+    [2],
     new Date("2026-07-27T02:55:00.000Z"),
   ),
   /closes five minutes/,
@@ -381,5 +403,5 @@ assert.equal(
 );
 
 console.log(
-  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time random Burn & Draw, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, zero-ping Play now components, rolling 13-minute preview windows with in-window edits, bot-denied webhook preview fallback, layered-pot conservation, idempotent settlement, balance conservation, and bot settlement fallback after a webhook-authored live preview.",
+  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time exact-card Burn & Draw with untouched-card preservation, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, zero-ping Play now components, rolling 13-minute preview windows with in-window edits, bot-denied webhook preview fallback, layered-pot conservation, idempotent settlement, balance conservation, and bot settlement fallback after a webhook-authored live preview.",
 );

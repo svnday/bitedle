@@ -120,26 +120,40 @@ const secondDeal = cards.dealBitebluffHand("repeatable", "alice");
 assert.deepEqual(firstDeal, secondDeal);
 assert.equal(new Set(firstDeal.hand.map(cards.bitebluffCardKey)).size, 5);
 assert.equal(firstDeal.remaining.length, 47);
-const redraw = cards.applyRandomBitebluffRedraw({
+const selectedPositions = [0, 2, 4];
+const redraw = cards.applySelectedBitebluffRedraw({
   hand: firstDeal.hand,
   remaining: firstDeal.remaining,
-  seed: "redraw-a",
-  count: 3,
+  positions: selectedPositions,
 });
-assert.equal(redraw.positions.length, 3);
-assert.equal(new Set(redraw.positions).size, 3);
+assert.deepEqual(redraw.positions, selectedPositions);
 assert.equal(new Set(redraw.hand.map(cards.bitebluffCardKey)).size, 5);
+assert.equal(redraw.remaining.length, 44);
+assert.deepEqual(redraw.hand[1], firstDeal.hand[1]);
+assert.deepEqual(redraw.hand[3], firstDeal.hand[3]);
+assert.deepEqual(
+  redraw.hand
+    .map((card, index) =>
+      JSON.stringify(card) === JSON.stringify(firstDeal.hand[index])
+        ? null
+        : index,
+    )
+    .filter((index) => index !== null),
+  selectedPositions,
+);
 assert.deepEqual(
   redraw,
-  cards.applyRandomBitebluffRedraw({
+  cards.applySelectedBitebluffRedraw({
     hand: firstDeal.hand,
     remaining: firstDeal.remaining,
-    seed: "redraw-a",
-    count: 3,
+    positions: [...selectedPositions].reverse(),
   }),
 );
-assert.throws(() => cards.randomBurnPositions("bad", 0));
-assert.throws(() => cards.randomBurnPositions("bad", 4));
+assert.deepEqual(cards.normalizeBitebluffBurnPositions([4, 0]), [0, 4]);
+assert.throws(() => cards.normalizeBitebluffBurnPositions([]));
+assert.throws(() => cards.normalizeBitebluffBurnPositions([0, 0]));
+assert.throws(() => cards.normalizeBitebluffBurnPositions([0, 1, 2, 3]));
+assert.throws(() => cards.normalizeBitebluffBurnPositions([5]));
 
 assert.equal(economy.bitebluffTopUp(0), 100);
 assert.equal(economy.bitebluffTopUp(70), 30);
@@ -237,6 +251,18 @@ assert.notDeepEqual(
 assert.equal(new Set(committedHand.map(cards.bitebluffCardKey)).size, 5);
 const encryptedHand = bitebluffCrypto.encryptBitebluffValue(committedHand);
 assert.deepEqual(bitebluffCrypto.decryptBitebluffValue(encryptedHand), committedHand);
+const committedRedraw = bitebluffCrypto.redrawCommittedBitebluffHand({
+  secret: roundSecret,
+  entrantId: "alice",
+  hand: committedHand,
+  positions: [1, 3],
+});
+assert.deepEqual(committedRedraw.positions, [1, 3]);
+assert.deepEqual(committedRedraw.hand[0], committedHand[0]);
+assert.deepEqual(committedRedraw.hand[2], committedHand[2]);
+assert.deepEqual(committedRedraw.hand[4], committedHand[4]);
+assert.notDeepEqual(committedRedraw.hand[1], committedHand[1]);
+assert.notDeepEqual(committedRedraw.hand[3], committedHand[3]);
 assert.equal(encryptedHand.includes(JSON.stringify(committedHand)), false);
 assert.equal(
   bitebluffCrypto.bitebluffSecretCommitment(roundSecret),
@@ -258,7 +284,8 @@ const demoSource = fs.readFileSync(
 assert.equal(demoSource.includes("/api/bitebluff"), false);
 assert.equal(demoSource.includes("bitebluffPublicPreview"), true);
 assert.equal(demoSource.includes("Lock wagers &amp; deal"), true);
-assert.equal(demoSource.includes("Randomly burn"), true);
+assert.equal(demoSource.includes("Lock selected cards &amp; redraw"), true);
+assert.equal(demoSource.includes("applySelectedBitebluffRedraw"), true);
 assert.equal(demoSource.includes('setStatus(placing ? "placed" : "sealed")'), true);
 assert.equal(demoSource.includes('setStatus("flipping")'), true);
 
@@ -270,6 +297,33 @@ assert.equal(tableSource.includes("index >= placedCount"), true);
 assert.equal(tableSource.includes("bitebluff-card-placeholder"), true);
 assert.equal(tableSource.includes("dealing={dealing && index === placedCount - 1}"), true);
 assert.equal(tableSource.includes("flipping={flipping && index === revealedCount - 1}"), true);
+assert.equal(tableSource.includes("bitebluff-card-burning"), true);
+assert.equal(tableSource.includes("bitebluff-card-choice"), true);
+assert.equal(tableSource.includes("replacementOrder < 0"), true);
+const redrawAnimationSource = fs.readFileSync(
+  path.join(
+    repoRoot,
+    "src",
+    "components",
+    "useBitebluffRedrawAnimation.ts",
+  ),
+  "utf8",
+);
+assert.equal(redrawAnimationSource.includes('phase: "burning"'), true);
+assert.equal(redrawAnimationSource.includes('phase: "drawing"'), true);
+assert.equal(redrawAnimationSource.includes('phase: "flipping"'), true);
+const globalCssSource = fs.readFileSync(
+  path.join(repoRoot, "src", "app", "globals.css"),
+  "utf8",
+);
+assert.equal(globalCssSource.includes("@keyframes bitebluff-burn-card"), true);
+assert.equal(globalCssSource.includes("@keyframes bitebluff-burn-flare"), true);
+assert.equal(
+  globalCssSource.includes(
+    "@media (prefers-reduced-motion: reduce)",
+  ),
+  true,
+);
 
 const interactionSource = fs.readFileSync(
   path.join(repoRoot, "src", "app", "api", "discord", "interactions", "route.ts"),
@@ -308,7 +362,13 @@ const bitebluffGameSource = fs.readFileSync(
   "utf8",
 );
 assert.equal(bitebluffGameSource.includes("api.bitebluffEnter(selectedWager)"), true);
-assert.equal(bitebluffGameSource.includes("api.bitebluffRedraw(redrawCount)"), true);
+assert.equal(
+  bitebluffGameSource.includes("api.bitebluffRedraw(lockedPositions)"),
+  true,
+);
+assert.equal(bitebluffGameSource.includes("selectedBurnPositions"), true);
+assert.equal(bitebluffGameSource.includes("startRedrawAnimation"), true);
+assert.equal(bitebluffGameSource.includes("randomly selected cards"), false);
 assert.equal(bitebluffGameSource.includes("api.bitebluffLeaderboard()"), true);
 assert.equal(bitebluffGameSource.includes("Review wager"), true);
 assert.equal(bitebluffGameSource.includes("Final confirmation"), true);
@@ -332,7 +392,14 @@ const redrawRouteSource = fs.readFileSync(
   "utf8",
 );
 assert.equal(redrawRouteSource.includes("redrawBitebluff("), true);
+assert.equal(redrawRouteSource.includes("body?.positions"), true);
+assert.equal(redrawRouteSource.includes("body?.count"), false);
 assert.equal(redrawRouteSource.includes("updateBitebluffPublicPreview"), true);
+const clientApiSource = fs.readFileSync(
+  path.join(repoRoot, "src", "lib", "client-api.ts"),
+  "utf8",
+);
+assert.equal(clientApiSource.includes("JSON.stringify({ positions })"), true);
 const leaderboardRouteSource = fs.readFileSync(
   path.join(repoRoot, "src", "app", "api", "bitebluff", "leaderboard", "route.ts"),
   "utf8",
@@ -391,6 +458,6 @@ assert.deepEqual(
 );
 
 console.log(
-  "Bitebluff verification passed: poker categories and kickers, private percentile hand insights, exclusive seeded decks, random Burn & Draw, safety-net economy, active eligibility, layered pots, tied remainders, unmatched returns, and redacted public preview.",
+  "Bitebluff verification passed: poker categories and kickers, private percentile hand insights, exclusive seeded decks, exact-card Burn & Draw with untouched-card preservation, safety-net economy, active eligibility, layered pots, tied remainders, unmatched returns, and redacted public preview.",
   " Bitebluff final preview includes every hand, layer winners, payouts, and loser wager/loss amounts. The private deal places five face-down cards before the separate sequential flip pass. Discord production checks cover committed encrypted hands, DST-safe 11 PM ET settlement, launch-only command routing, in-Activity blind-wager confirmation, zero-ping payloads, and both UTC scheduler slots.",
 );

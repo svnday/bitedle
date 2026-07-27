@@ -11,6 +11,8 @@ export const BITEBLUFF_REDRAW_CLOSE_MS = 5 * 60_000;
 export const BITEBLUFF_DEAL_INTERVAL_MS = 540;
 export const BITEBLUFF_REVEAL_PAUSE_MS = 600;
 export const BITEBLUFF_FLIP_INTERVAL_MS = 360;
+export const BITEBLUFF_BURN_DURATION_MS = 720;
+export const BITEBLUFF_BURN_STAGGER_MS = 140;
 
 export const BITEBLUFF_SUITS = ["clubs", "diamonds", "hearts", "spades"] as const;
 export type BitebluffSuit = (typeof BITEBLUFF_SUITS)[number];

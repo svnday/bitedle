@@ -17,6 +17,7 @@ import BitebluffLeaderboardModal from "./BitebluffLeaderboardModal";
 import BitebluffHandStrength from "./BitebluffHandStrength";
 import BitebluffPotRoster from "./BitebluffPotRoster";
 import BitebluffTable from "./BitebluffTable";
+import { useBitebluffRedrawAnimation } from "./useBitebluffRedrawAnimation";
 
 type DealPhase = "idle" | "dealing" | "pause" | "flipping" | "done";
 
@@ -36,9 +37,15 @@ export default function BitebluffGame() {
   const [wagerInput, setWagerInput] = useState("");
   const [reviewingWager, setReviewingWager] = useState(false);
   const [placingWager, setPlacingWager] = useState(false);
-  const [redrawCount, setRedrawCount] = useState(1);
+  const [selectedBurnPositions, setSelectedBurnPositions] = useState<number[]>(
+    [],
+  );
   const [reviewingRedraw, setReviewingRedraw] = useState(false);
   const [redrawing, setRedrawing] = useState(false);
+  const {
+    animation: redrawAnimation,
+    start: startRedrawAnimation,
+  } = useBitebluffRedrawAnimation();
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [leaderboard, setLeaderboard] = useState<BitebluffLeaderboard | null>(
     null,
@@ -65,7 +72,16 @@ export default function BitebluffGame() {
       if (!next.entry) {
         setWagerInput((current) => current || String(next.wager.minimum));
       }
-      if (next.entry && !animated.current) beginDeal();
+      if (next.entry && !animated.current) {
+        if (next.entry.redraw) {
+          animated.current = true;
+          setPlacedCount(5);
+          setRevealedCount(5);
+          setPhase("done");
+        } else {
+          beginDeal();
+        }
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Couldn’t load Bitebluff.");
     } finally {
@@ -140,6 +156,19 @@ export default function BitebluffGame() {
   const redrawDeadline = state
     ? easternTime(state.burnAndDraw.deadline)
     : "10:55 PM ET";
+  const redrawAnimationStatus = redrawAnimation
+    ? redrawAnimation.phase === "burning"
+      ? `Burning ${redrawAnimation.positions.length} selected ${
+          redrawAnimation.positions.length === 1 ? "card" : "cards"
+        }...`
+      : redrawAnimation.phase === "drawing"
+        ? `Pulling replacement ${redrawAnimation.step + 1} of ${
+            redrawAnimation.positions.length
+          } from the deck...`
+        : `Revealing replacement ${redrawAnimation.step + 1} of ${
+            redrawAnimation.positions.length
+          }...`
+    : null;
 
   async function confirmWager() {
     if (!state || !wagerIsValid || placingWager) return;
@@ -158,19 +187,48 @@ export default function BitebluffGame() {
   }
 
   async function confirmRedraw() {
-    if (!state?.entry || !state.burnAndDraw.available || redrawing) return;
+    if (
+      !state?.entry ||
+      !state.burnAndDraw.available ||
+      selectedBurnPositions.length < 1 ||
+      selectedBurnPositions.length > 3 ||
+      redrawing
+    ) {
+      return;
+    }
+    const lockedPositions = [...selectedBurnPositions].sort((a, b) => a - b);
+    const previousHand = [...state.entry.hand];
     setRedrawing(true);
     setError("");
     try {
-      const next = await api.bitebluffRedraw(redrawCount);
+      const next = await api.bitebluffRedraw(lockedPositions);
       setState(next);
       setReviewingRedraw(false);
-      beginDeal();
+      setPlacedCount(5);
+      setRevealedCount(5);
+      setPhase("done");
+      const confirmedPositions =
+        next.entry?.redraw?.positions ?? lockedPositions;
+      startRedrawAnimation(previousHand, confirmedPositions, () => {
+        setSelectedBurnPositions([]);
+        setRedrawing(false);
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Burn & Draw failed.");
-    } finally {
       setRedrawing(false);
     }
+  }
+
+  function toggleBurnPosition(position: number) {
+    if (reviewingRedraw || redrawing) return;
+    setError("");
+    setSelectedBurnPositions((current) => {
+      if (current.includes(position)) {
+        return current.filter((selected) => selected !== position);
+      }
+      if (current.length >= 3) return current;
+      return [...current, position].sort((a, b) => a - b);
+    });
   }
 
   async function openLeaderboard() {
@@ -251,6 +309,15 @@ export default function BitebluffGame() {
                 readyToFlip={phase === "pause"}
                 flipping={phase === "flipping"}
                 replacementPositions={entry.redraw?.positions ?? []}
+                selectedBurnPositions={selectedBurnPositions}
+                burnSelectionMode={
+                  phase === "done" &&
+                  !entry.redraw &&
+                  Boolean(state?.burnAndDraw.available)
+                }
+                burnSelectionLocked={reviewingRedraw || redrawing}
+                onToggleBurnPosition={toggleBurnPosition}
+                redrawAnimation={redrawAnimation}
               />
               <BitebluffPotRoster participants={state?.participants ?? []} />
             </div>
@@ -273,22 +340,28 @@ export default function BitebluffGame() {
                   : "Other players can see who entered and each original locked wager. Every hand stays encrypted until settlement."}
               </p>
 
-              {state?.round.status !== "settled" && phase !== "done" ? (
+              {state?.round.status !== "settled" &&
+              (phase !== "done" || redrawAnimationStatus) ? (
                 <p className="bitebluff-deal-status">
-                  {entry.redraw ? "Dealing your replacement hand…" : "Dealing your hand…"}
+                  {redrawAnimationStatus ??
+                    (entry.redraw
+                      ? "Dealing your replacement hand…"
+                      : "Dealing your hand…")}
                 </p>
               ) : null}
 
-              {phase === "done" ? (
+              {phase === "done" && !redrawAnimation ? (
                 <BitebluffHandStrength hand={entry.hand} />
               ) : null}
 
-              {state?.round.status !== "settled" && phase === "done" ? (
+              {state?.round.status !== "settled" &&
+              phase === "done" &&
+              !redrawAnimation ? (
                 entry.redraw ? (
                   <div className="bitebluff-redraw-complete">
                     <strong>Burn &amp; Draw used</strong>
                     <span>
-                      {entry.redraw.count} random{" "}
+                  {entry.redraw.count} selected{" "}
                       {entry.redraw.count === 1 ? "card was" : "cards were"} replaced.
                       The {entry.redraw.surcharge.toLocaleString()} Bite surcharge is
                       now part of your wager.
@@ -299,15 +372,16 @@ export default function BitebluffGame() {
                     <strong>Burn &amp; Draw</strong>
                     <p>
                       Pay {state.burnAndDraw.surcharge?.toLocaleString()} Bites to
-                      replace 1–3 randomly selected cards. You cannot choose or
-                      protect any card, and this can make your hand worse.
+                      burn and replace the 1–3 cards you select above. Untouched
+                      cards stay in place, but the replacements can make your hand worse.
                     </p>
                     {reviewingRedraw ? (
                       <div className="bitebluff-redraw-confirm">
                         <p>
-                          The server will randomly burn {redrawCount}{" "}
-                          {redrawCount === 1 ? "card" : "cards"}. This is irreversible
-                          and costs {state.burnAndDraw.surcharge?.toLocaleString()} Bites.
+                          Burn the {selectedBurnPositions.length} selected{" "}
+                          {selectedBurnPositions.length === 1 ? "card" : "cards"}?
+                          This is irreversible and costs{" "}
+                          {state.burnAndDraw.surcharge?.toLocaleString()} Bites.
                         </p>
                         <button
                           type="button"
@@ -315,7 +389,11 @@ export default function BitebluffGame() {
                           disabled={redrawing}
                           onClick={() => void confirmRedraw()}
                         >
-                          {redrawing ? "Burning…" : `Confirm random redraw of ${redrawCount}`}
+                          {redrawing
+                            ? "Locking selection…"
+                            : `Burn & Draw ${selectedBurnPositions.length} ${
+                                selectedBurnPositions.length === 1 ? "card" : "cards"
+                              }`}
                         </button>
                         <button
                           type="button"
@@ -323,26 +401,23 @@ export default function BitebluffGame() {
                           disabled={redrawing}
                           onClick={() => setReviewingRedraw(false)}
                         >
-                          Keep my hand
+                          Change selection
                         </button>
                       </div>
                     ) : (
                       <>
-                        <div role="group" aria-label="Number of random cards to redraw">
-                          {[1, 2, 3].map((count) => (
-                            <button
-                              key={count}
-                              type="button"
-                              className={redrawCount === count ? "is-selected" : ""}
-                              onClick={() => setRedrawCount(count)}
-                            >
-                              {count} {count === 1 ? "card" : "cards"}
-                            </button>
-                          ))}
+                        <div className="bitebluff-redraw-selection-status">
+                          <strong>
+                            {selectedBurnPositions.length} of 3 selected
+                          </strong>
+                          <span>
+                            Select between 1 and 3 cards directly from your hand.
+                          </span>
                         </div>
                         <button
                           type="button"
                           className="bitebluff-primary-button"
+                          disabled={selectedBurnPositions.length === 0}
                           onClick={() => setReviewingRedraw(true)}
                         >
                           Review Burn &amp; Draw

@@ -57,23 +57,31 @@ export function dealBitebluffHand(seed: string, entrantId: string): {
   };
 }
 
-export function randomBurnPositions(seed: string, count: number): number[] {
-  if (!Number.isInteger(count) || count < BITEBLUFF_REDRAW_MIN || count > BITEBLUFF_REDRAW_MAX) {
-    throw new Error("Burn & Draw count must be an integer from 1 through 3.");
+export function normalizeBitebluffBurnPositions(
+  positions: readonly number[],
+): number[] {
+  if (
+    positions.length < BITEBLUFF_REDRAW_MIN ||
+    positions.length > BITEBLUFF_REDRAW_MAX ||
+    positions.some(
+      (position) =>
+        !Number.isInteger(position) ||
+        position < 0 ||
+        position >= BITEBLUFF_HAND_SIZE,
+    ) ||
+    new Set(positions).size !== positions.length
+  ) {
+    throw new Error(
+      "Choose 1, 2, or 3 different cards from your hand to Burn & Draw.",
+    );
   }
-  const positions = [0, 1, 2, 3, 4];
-  for (let index = positions.length - 1; index > 0; index -= 1) {
-    const target = Math.floor(seededUnit(`${seed}:burn`, positions.length - index) * (index + 1));
-    [positions[index], positions[target]] = [positions[target], positions[index]];
-  }
-  return positions.slice(0, count).sort((a, b) => a - b);
+  return [...positions].sort((a, b) => a - b);
 }
 
-export function applyRandomBitebluffRedraw(input: {
+export function applySelectedBitebluffRedraw(input: {
   hand: readonly BitebluffCard[];
   remaining: readonly BitebluffCard[];
-  seed: string;
-  count: number;
+  positions: readonly number[];
 }): {
   hand: BitebluffCard[];
   remaining: BitebluffCard[];
@@ -83,21 +91,19 @@ export function applyRandomBitebluffRedraw(input: {
   if (input.hand.length !== BITEBLUFF_HAND_SIZE) {
     throw new Error("Burn & Draw requires a five-card hand.");
   }
-  const positions = randomBurnPositions(input.seed, input.count);
-  const replacements = seededBitebluffDeck(`${input.seed}:replacements`).filter((candidate) =>
-    input.remaining.some((card) => bitebluffCardKey(card) === bitebluffCardKey(candidate)),
-  );
+  const positions = normalizeBitebluffBurnPositions(input.positions);
+  if (input.remaining.length < positions.length) {
+    throw new Error("The Bitebluff deck does not have enough replacement cards.");
+  }
+  const replacements = input.remaining.slice(0, positions.length);
   const nextHand = [...input.hand];
   const burned = positions.map((position) => nextHand[position]);
   positions.forEach((position, replacementIndex) => {
     nextHand[position] = replacements[replacementIndex];
   });
-  const replacementKeys = new Set(
-    replacements.slice(0, positions.length).map((card) => bitebluffCardKey(card)),
-  );
   return {
     hand: nextHand,
-    remaining: input.remaining.filter((card) => !replacementKeys.has(bitebluffCardKey(card))),
+    remaining: input.remaining.slice(positions.length),
     burned,
     positions,
   };

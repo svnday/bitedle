@@ -745,6 +745,82 @@ body {
   box-shadow: inset 0 0 1.2rem rgb(0 0 0 / 0.16);
 }
 
+.bitebluff-card-choice {
+  position: relative;
+  width: clamp(3.25rem, 9.5vw, 6.4rem);
+  aspect-ratio: 0.7;
+  border: 0;
+  padding: 0;
+  color: #f3d28c;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    filter 180ms ease;
+}
+
+.bitebluff-card-choice .bitebluff-card-shell {
+  width: 100%;
+}
+
+.bitebluff-card-choice > span {
+  position: absolute;
+  top: -1.45rem;
+  left: 50%;
+  z-index: 5;
+  width: max-content;
+  max-width: 7rem;
+  border: 1px solid rgb(225 188 99 / 0.34);
+  border-radius: 999px;
+  padding: 0.18rem 0.42rem;
+  color: #b9c9c0;
+  background: rgb(9 31 24 / 0.94);
+  font-size: clamp(0.45rem, 1vw, 0.58rem);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transform: translateX(-50%);
+}
+
+.bitebluff-card-choice:not(:disabled):hover,
+.bitebluff-card-choice:not(:disabled):focus-visible {
+  z-index: 4;
+  outline: none;
+  transform: translateY(-0.35rem);
+}
+
+.bitebluff-card-choice:not(:disabled):focus-visible .bitebluff-card-shell {
+  filter: drop-shadow(0 0 0.5rem rgb(235 196 104 / 0.7));
+}
+
+.bitebluff-card-choice.is-selected {
+  z-index: 3;
+  transform: translateY(-0.55rem);
+}
+
+.bitebluff-card-choice.is-selected > span {
+  border-color: #dd8255;
+  color: #ffe0bd;
+  background: #6f2f21;
+}
+
+.bitebluff-card-choice.is-selected .bitebluff-card-shell {
+  filter:
+    drop-shadow(0 0 0.35rem rgb(225 107 67 / 0.8))
+    saturate(1.08);
+}
+
+.bitebluff-card-choice:disabled {
+  cursor: default;
+}
+
+.bitebluff-redraw-placeholder {
+  border-color: rgb(226 183 91 / 0.34);
+  background:
+    radial-gradient(circle, rgb(226 183 91 / 0.08), transparent 68%),
+    rgb(8 25 19 / 0.2);
+}
+
 .bitebluff-card-inner {
   position: relative;
   width: 100%;
@@ -859,6 +935,28 @@ body {
     0 0.8rem 1.8rem rgb(226 183 91 / 0.24);
 }
 
+.bitebluff-card-burning {
+  position: relative;
+  z-index: 5;
+  animation: bitebluff-burn-card 720ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.bitebluff-card-burning::after {
+  position: absolute;
+  z-index: 6;
+  inset: -12%;
+  content: "";
+  border-radius: 48% 52% 42% 58%;
+  background:
+    radial-gradient(circle at 50% 74%, rgb(255 232 128 / 0.95), transparent 24%),
+    radial-gradient(circle at 34% 54%, rgb(239 91 36 / 0.86), transparent 32%),
+    radial-gradient(circle at 68% 42%, rgb(255 170 55 / 0.76), transparent 36%);
+  filter: blur(0.18rem);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: bitebluff-burn-flare 720ms ease-out both;
+}
+
 .bitebluff-card-slot-0 {
   --bitebluff-deal-x: 220%;
   --bitebluff-deal-mid-x: 58%;
@@ -935,6 +1033,49 @@ body {
 
   100% {
     transform: rotateY(180deg);
+  }
+}
+
+@keyframes bitebluff-burn-card {
+  0% {
+    opacity: 1;
+    filter: brightness(1) sepia(0);
+    transform: translateY(0) rotate(0) scale(1);
+  }
+
+  36% {
+    opacity: 1;
+    filter: brightness(1.34) sepia(0.55);
+    transform: translateY(-0.65rem) rotate(-1.5deg) scale(1.02);
+  }
+
+  72% {
+    opacity: 0.62;
+    filter: brightness(0.72) sepia(1);
+    transform: translateY(-1.1rem) rotate(2deg) scale(0.88);
+  }
+
+  100% {
+    opacity: 0;
+    filter: brightness(0.25) sepia(1);
+    transform: translateY(-2.1rem) rotate(-4deg) scale(0.56);
+  }
+}
+
+@keyframes bitebluff-burn-flare {
+  0% {
+    opacity: 0;
+    transform: translateY(22%) scale(0.66);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(0) scale(1.06);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-32%) scale(0.78);
   }
 }
 
@@ -1137,6 +1278,22 @@ body {
 
 .bitebluff-redraw-confirm p {
   width: 100%;
+}
+
+.bitebluff-redraw-selection-status {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.12rem !important;
+}
+
+.bitebluff-redraw-selection-status strong {
+  color: #f0c96d;
+  font-size: 0.75rem;
+}
+
+.bitebluff-redraw-selection-status span {
+  color: #9bada4;
+  font-size: 0.68rem;
 }
 
 .bitebluff-redraw-complete {
@@ -1672,6 +1829,10 @@ body {
     width: min(17vw, 4.25rem);
   }
 
+  .bitebluff-card-choice {
+    width: min(17vw, 4.25rem);
+  }
+
   .bitebluff-card-dealing {
     --bitebluff-deal-origin-y: calc(-17.1rem + 100%);
   }
@@ -1701,6 +1862,20 @@ body {
   }
 
   .bitebluff-card-dealing {
+    animation: none;
+  }
+
+  .bitebluff-card-choice {
+    transition: none;
+  }
+
+  .bitebluff-card-burning {
+    opacity: 0;
+    animation: none;
+  }
+
+  .bitebluff-card-burning::after {
+    display: none;
     animation: none;
   }
 

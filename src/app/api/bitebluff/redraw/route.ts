@@ -9,6 +9,7 @@ import {
   bitebluffPrivateState,
   redrawBitebluff,
 } from "@/lib/bitebluff-service";
+import { normalizeBitebluffBurnPositions } from "@/lib/bitebluff-cards";
 import { getBitebluffRepository } from "@/lib/bitebluff-store";
 import { updateBitebluffPublicPreview } from "@/lib/bitebluff-discord-preview";
 
@@ -36,16 +37,19 @@ export async function POST(request: NextRequest) {
     );
   }
   const body = await request.json().catch(() => null);
-  const count = body?.count;
-  if (!Number.isInteger(count) || count < 1 || count > 3) {
+  let positions: number[];
+  try {
+    if (!Array.isArray(body?.positions)) throw new Error("Invalid positions");
+    positions = normalizeBitebluffBurnPositions(body.positions);
+  } catch {
     return NextResponse.json(
-      { error: "Choose 1, 2, or 3 random cards to Burn & Draw." },
+      { error: "Choose 1, 2, or 3 different cards from your hand to Burn & Draw." },
       { status: 400 },
     );
   }
 
   try {
-    const result = await redrawBitebluff(userId, count);
+    const result = await redrawBitebluff(userId, positions);
     if (result.applied) {
       const destinations =
         await getBitebluffRepository().destinationsForRound(result.entry.roundId);
