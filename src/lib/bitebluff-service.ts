@@ -1,5 +1,8 @@
 import type { BitebluffCard } from "./bitebluff-constants";
-import { normalizeBitebluffBurnPositions } from "./bitebluff-cards";
+import {
+  normalizeBitebluffBurnPositions,
+  normalizeBitebluffRedrawCount,
+} from "./bitebluff-cards";
 import {
   bitebluffSecretCommitment,
   createBitebluffRoundSecret,
@@ -7,6 +10,7 @@ import {
   decryptBitebluffValue,
   encryptBitebluffValue,
   redrawCommittedBitebluffHand,
+  redrawRandomCommittedBitebluffHand,
 } from "./bitebluff-crypto";
 import {
   bitebluffRedrawSurcharge,
@@ -27,6 +31,7 @@ import {
 } from "./bitebluff-store";
 import {
   bitebluffDate,
+  bitebluffRedrawMode,
   bitebluffRoundWindow,
 } from "./bitebluff-time";
 import type {
@@ -35,6 +40,7 @@ import type {
   BitebluffEntryQuote,
   BitebluffLeaderboard,
   BitebluffPrivateState,
+  BitebluffRedrawRequest,
   BitebluffRedrawResult,
   BitebluffRoundRecord,
   BitebluffSettlementResult,
@@ -267,6 +273,7 @@ export async function bitebluffPrivateState(
           }
         : null,
     burnAndDraw: {
+      mode: bitebluffRedrawMode(round.date),
       available: Boolean(entry) && redrawUnavailableReason === null,
       deadline: redrawDeadline,
       surcharge: redrawSurcharge,
@@ -289,13 +296,28 @@ export async function bitebluffPrivateState(
 
 export async function redrawBitebluff(
   userId: string,
-  positions: readonly number[],
+  request: BitebluffRedrawRequest,
   now: Date = new Date(),
 ): Promise<BitebluffRedrawResult> {
-  const burnedPositions = normalizeBitebluffBurnPositions(positions);
-  const count = burnedPositions.length;
   const repository = getBitebluffRepository();
   const round = await ensureBitebluffRound(now);
+  const redrawMode = bitebluffRedrawMode(round.date);
+  let requestedPositions: number[] | null = null;
+  let count: number;
+  if (redrawMode === "selected-cards") {
+    if (!("positions" in request)) {
+      throw new Error(
+        "Choose 1, 2, or 3 different cards from your hand to Burn & Draw.",
+      );
+    }
+    requestedPositions = normalizeBitebluffBurnPositions(request.positions);
+    count = requestedPositions.length;
+  } else {
+    if (!("count" in request)) {
+      throw new Error("Choose 1, 2, or 3 random cards to Burn & Draw.");
+    }
+    count = normalizeBitebluffRedrawCount(request.count);
+  }
   const [entry, account] = await Promise.all([
     repository.getEntry(round.id, userId),
     repository.getAccount(userId),
@@ -309,7 +331,8 @@ export async function redrawBitebluff(
       : [];
     if (
       entry.redrawCount !== count ||
-      !sameBurnPositions(storedPositions, burnedPositions)
+      (requestedPositions !== null &&
+        !sameBurnPositions(storedPositions, requestedPositions))
     ) {
       throw new Error("Burn & Draw has already been used for this hand.");
     }
@@ -327,12 +350,20 @@ export async function redrawBitebluff(
   }
   const secret = decryptBitebluffValue<string>(round.encryptedSecret);
   const originalHand = decryptBitebluffValue<BitebluffCard[]>(entry.encryptedHand);
-  const redraw = redrawCommittedBitebluffHand({
-    secret,
-    entrantId: userId,
-    hand: originalHand,
-    positions: burnedPositions,
-  });
+  const redraw =
+    requestedPositions === null
+      ? redrawRandomCommittedBitebluffHand({
+          secret,
+          entrantId: userId,
+          hand: originalHand,
+          count,
+        })
+      : redrawCommittedBitebluffHand({
+          secret,
+          entrantId: userId,
+          hand: originalHand,
+          positions: requestedPositions,
+        });
   const result = await repository.redraw({
     roundId: round.id,
     userId,
@@ -354,7 +385,8 @@ export async function redrawBitebluff(
       : [];
     if (
       result.entry.redrawCount !== count ||
-      !sameBurnPositions(resultPositions, burnedPositions)
+      (requestedPositions !== null &&
+        !sameBurnPositions(resultPositions, requestedPositions))
     ) {
       throw new Error("Burn & Draw has already been used for this hand.");
     }

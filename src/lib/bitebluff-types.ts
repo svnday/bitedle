@@ -1,4 +1,5 @@
 import type { BitebluffCard, BitebluffCategory } from "./bitebluff-constants";
+import type { BitebluffRedrawMode } from "./bitebluff-time";
 
 export type BitebluffRoundStatus = "open" | "settling" | "settled";
 
@@ -126,6 +127,10 @@ export interface BitebluffRedrawResult {
   applied: boolean;
 }
 
+export type BitebluffRedrawRequest =
+  | { count: number }
+  | { positions: readonly number[] };
+
 export interface BitebluffPotParticipant {
   userId: string;
   displayName: string;
@@ -192,6 +197,7 @@ export interface BitebluffPrivateState {
     };
   };
   burnAndDraw: {
+    mode: BitebluffRedrawMode;
     available: boolean;
     deadline: number;
     surcharge: number | null;

@@ -237,10 +237,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ wager }),
     }),
-  bitebluffRedraw: (positions: readonly number[]) =>
+  bitebluffRedraw: (
+    selection: { count: number } | { positions: readonly number[] },
+  ) =>
     request<BitebluffPrivateState>("/api/bitebluff/redraw", {
       method: "POST",
-      body: JSON.stringify({ positions }),
+      body: JSON.stringify(selection),
     }),
   bitebluffLeaderboard: () =>
     request<BitebluffLeaderboard>("/api/bitebluff/leaderboard"),

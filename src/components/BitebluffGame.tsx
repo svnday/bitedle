@@ -40,6 +40,7 @@ export default function BitebluffGame() {
   const [selectedBurnPositions, setSelectedBurnPositions] = useState<number[]>(
     [],
   );
+  const [redrawCount, setRedrawCount] = useState(1);
   const [reviewingRedraw, setReviewingRedraw] = useState(false);
   const [redrawing, setRedrawing] = useState(false);
   const {
@@ -156,6 +157,8 @@ export default function BitebluffGame() {
   const redrawDeadline = state
     ? easternTime(state.burnAndDraw.deadline)
     : "10:55 PM ET";
+  const selectedCardRedraw =
+    state?.burnAndDraw.mode === "selected-cards";
   const redrawAnimationStatus = redrawAnimation
     ? redrawAnimation.phase === "burning"
       ? `Burning ${redrawAnimation.positions.length} selected ${
@@ -190,8 +193,9 @@ export default function BitebluffGame() {
     if (
       !state?.entry ||
       !state.burnAndDraw.available ||
-      selectedBurnPositions.length < 1 ||
-      selectedBurnPositions.length > 3 ||
+      (selectedCardRedraw &&
+        (selectedBurnPositions.length < 1 ||
+          selectedBurnPositions.length > 3)) ||
       redrawing
     ) {
       return;
@@ -201,7 +205,11 @@ export default function BitebluffGame() {
     setRedrawing(true);
     setError("");
     try {
-      const next = await api.bitebluffRedraw(lockedPositions);
+      const next = await api.bitebluffRedraw(
+        selectedCardRedraw
+          ? { positions: lockedPositions }
+          : { count: redrawCount },
+      );
       setState(next);
       setReviewingRedraw(false);
       setPlacedCount(5);
@@ -313,7 +321,8 @@ export default function BitebluffGame() {
                 burnSelectionMode={
                   phase === "done" &&
                   !entry.redraw &&
-                  Boolean(state?.burnAndDraw.available)
+                  Boolean(state?.burnAndDraw.available) &&
+                  selectedCardRedraw
                 }
                 burnSelectionLocked={reviewingRedraw || redrawing}
                 onToggleBurnPosition={toggleBurnPosition}
@@ -361,7 +370,7 @@ export default function BitebluffGame() {
                   <div className="bitebluff-redraw-complete">
                     <strong>Burn &amp; Draw used</strong>
                     <span>
-                  {entry.redraw.count} selected{" "}
+                      {entry.redraw.count}{" "}
                       {entry.redraw.count === 1 ? "card was" : "cards were"} replaced.
                       The {entry.redraw.surcharge.toLocaleString()} Bite surcharge is
                       now part of your wager.
@@ -371,15 +380,38 @@ export default function BitebluffGame() {
                   <div className="bitebluff-redraw-box">
                     <strong>Burn &amp; Draw</strong>
                     <p>
-                      Pay {state.burnAndDraw.surcharge?.toLocaleString()} Bites to
-                      burn and replace the 1–3 cards you select above. Untouched
-                      cards stay in place, but the replacements can make your hand worse.
+                      {selectedCardRedraw ? (
+                        <>
+                          Pay {state.burnAndDraw.surcharge?.toLocaleString()} Bites
+                          to burn and replace the 1–3 cards you select above.
+                          Untouched cards stay in place, but the replacements can
+                          make your hand worse.
+                        </>
+                      ) : (
+                        <>
+                          Pay {state.burnAndDraw.surcharge?.toLocaleString()} Bites
+                          to replace 1–3 randomly selected cards. You cannot choose
+                          or protect any card in today&apos;s round.
+                        </>
+                      )}
                     </p>
                     {reviewingRedraw ? (
                       <div className="bitebluff-redraw-confirm">
                         <p>
-                          Burn the {selectedBurnPositions.length} selected{" "}
-                          {selectedBurnPositions.length === 1 ? "card" : "cards"}?
+                          {selectedCardRedraw ? (
+                            <>
+                              Burn the {selectedBurnPositions.length} selected{" "}
+                              {selectedBurnPositions.length === 1
+                                ? "card"
+                                : "cards"}
+                              ?
+                            </>
+                          ) : (
+                            <>
+                              The server will randomly burn {redrawCount}{" "}
+                              {redrawCount === 1 ? "card" : "cards"}.
+                            </>
+                          )}{" "}
                           This is irreversible and costs{" "}
                           {state.burnAndDraw.surcharge?.toLocaleString()} Bites.
                         </p>
@@ -390,10 +422,14 @@ export default function BitebluffGame() {
                           onClick={() => void confirmRedraw()}
                         >
                           {redrawing
-                            ? "Locking selection…"
-                            : `Burn & Draw ${selectedBurnPositions.length} ${
-                                selectedBurnPositions.length === 1 ? "card" : "cards"
-                              }`}
+                            ? "Locking redraw…"
+                            : selectedCardRedraw
+                              ? `Burn & Draw ${selectedBurnPositions.length} ${
+                                  selectedBurnPositions.length === 1
+                                    ? "card"
+                                    : "cards"
+                                }`
+                              : `Confirm random redraw of ${redrawCount}`}
                         </button>
                         <button
                           type="button"
@@ -401,23 +437,46 @@ export default function BitebluffGame() {
                           disabled={redrawing}
                           onClick={() => setReviewingRedraw(false)}
                         >
-                          Change selection
+                          {selectedCardRedraw ? "Change selection" : "Go back"}
                         </button>
                       </div>
                     ) : (
                       <>
-                        <div className="bitebluff-redraw-selection-status">
-                          <strong>
-                            {selectedBurnPositions.length} of 3 selected
-                          </strong>
-                          <span>
-                            Select between 1 and 3 cards directly from your hand.
-                          </span>
-                        </div>
+                        {selectedCardRedraw ? (
+                          <div className="bitebluff-redraw-selection-status">
+                            <strong>
+                              {selectedBurnPositions.length} of 3 selected
+                            </strong>
+                            <span>
+                              Select between 1 and 3 cards directly from your hand.
+                            </span>
+                          </div>
+                        ) : (
+                          <div
+                            role="group"
+                            aria-label="Number of random cards to redraw"
+                          >
+                            {[1, 2, 3].map((count) => (
+                              <button
+                                key={count}
+                                type="button"
+                                className={
+                                  redrawCount === count ? "is-selected" : ""
+                                }
+                                onClick={() => setRedrawCount(count)}
+                              >
+                                {count} {count === 1 ? "card" : "cards"}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         <button
                           type="button"
                           className="bitebluff-primary-button"
-                          disabled={selectedBurnPositions.length === 0}
+                          disabled={
+                            selectedCardRedraw &&
+                            selectedBurnPositions.length === 0
+                          }
                           onClick={() => setReviewingRedraw(true)}
                         >
                           Review Burn &amp; Draw

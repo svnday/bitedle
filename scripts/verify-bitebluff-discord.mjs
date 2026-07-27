@@ -39,8 +39,8 @@ const { getBitebluffRepository } = require(
   path.join(repoRoot, "src", "lib", "bitebluff-store.ts"),
 );
 
-const entryTime = new Date("2026-07-26T20:00:00.000Z");
-const settlementTime = new Date("2026-07-27T03:01:00.000Z");
+const entryTime = new Date("2026-07-28T20:00:00.000Z");
+const settlementTime = new Date("2026-07-29T03:01:00.000Z");
 const alice = {
   userId: "11111111-1111-4111-8111-111111111111",
   discordUserId: "100000000000000001",
@@ -55,7 +55,7 @@ const bob = {
 };
 
 const quote = await service.quoteBitebluffEntry(alice.userId, entryTime);
-assert.equal(quote.round.date, "2026-07-26");
+assert.equal(quote.round.date, "2026-07-28");
 assert.equal(quote.balance, 100);
 assert.deepEqual(
   { minimum: quote.minimumWager, maximum: quote.maximumWager },
@@ -76,6 +76,7 @@ assert.equal(aliceBeforeRedraw.pot, 90);
 assert.equal(aliceBeforeRedraw.participants.length, 2);
 assert.equal(aliceBeforeRedraw.participants.every((entry) => !("hand" in entry)), true);
 assert.equal(aliceBeforeRedraw.burnAndDraw.available, true);
+assert.equal(aliceBeforeRedraw.burnAndDraw.mode, "selected-cards");
 
 const duplicateAlice = await service.enterBitebluff(alice, 10, entryTime);
 assert.equal(duplicateAlice.created, false);
@@ -85,7 +86,11 @@ assert.equal(duplicateAlice.account.balance, 40);
 
 const redrawTime = new Date(entryTime.getTime() + 1_000);
 await assert.rejects(
-  service.redrawBitebluff(alice.userId, [0, 0], redrawTime),
+  service.redrawBitebluff(
+    alice.userId,
+    { positions: [0, 0] },
+    redrawTime,
+  ),
   /different cards/,
 );
 assert.equal((await getBitebluffRepository().getAccount(alice.userId)).balance, 40);
@@ -93,7 +98,7 @@ const submittedBurnPositions = [3, 0];
 const selectedBurnPositions = [0, 3];
 const redrawAlice = await service.redrawBitebluff(
   alice.userId,
-  submittedBurnPositions,
+  { positions: submittedBurnPositions },
   redrawTime,
 );
 assert.equal(redrawAlice.applied, true);
@@ -123,13 +128,17 @@ assert.deepEqual(
 assert.equal(aliceAfterRedraw.burnAndDraw.available, false);
 const duplicateRedraw = await service.redrawBitebluff(
   alice.userId,
-  selectedBurnPositions,
+  { positions: selectedBurnPositions },
   redrawTime,
 );
 assert.equal(duplicateRedraw.applied, false);
 assert.equal(duplicateRedraw.account.balance, 10);
 await assert.rejects(
-  service.redrawBitebluff(alice.userId, [1, 3], redrawTime),
+  service.redrawBitebluff(
+    alice.userId,
+    { positions: [1, 3] },
+    redrawTime,
+  ),
   /already been used/,
 );
 
@@ -269,8 +278,8 @@ assert.equal(pendingLeaderboard.entries.every((entry) => entry.rank === null), t
 await assert.rejects(
   service.redrawBitebluff(
     bob.userId,
-    [2],
-    new Date("2026-07-27T02:55:00.000Z"),
+    { positions: [2] },
+    new Date("2026-07-29T02:55:00.000Z"),
   ),
   /closes five minutes/,
 );
@@ -402,6 +411,64 @@ assert.equal(
   1,
 );
 
+const legacyFileDbPath = path.join(tempDir, "bitebluff-legacy.json");
+process.env.BITEBLUFF_FILE_DB_PATH = legacyFileDbPath;
+delete globalThis.__bitebluffRepository;
+const legacyTime = new Date("2026-07-27T20:00:00.000Z");
+const legacyRedrawTime = new Date(legacyTime.getTime() + 1_000);
+await service.enterBitebluff(alice, 60, legacyTime);
+const legacyBeforeRedraw = await service.bitebluffPrivateState(
+  alice.userId,
+  legacyTime,
+);
+assert.equal(legacyBeforeRedraw.round.date, "2026-07-27");
+assert.equal(legacyBeforeRedraw.burnAndDraw.mode, "random-count");
+await assert.rejects(
+  service.redrawBitebluff(
+    alice.userId,
+    { positions: [0, 1] },
+    legacyRedrawTime,
+  ),
+  /random cards/,
+);
+const legacyRedraw = await service.redrawBitebluff(
+  alice.userId,
+  { count: 2 },
+  legacyRedrawTime,
+);
+assert.equal(legacyRedraw.applied, true);
+const legacyAfterRedraw = await service.bitebluffPrivateState(
+  alice.userId,
+  legacyRedrawTime,
+);
+assert.equal(legacyAfterRedraw.entry.redraw.count, 2);
+assert.equal(legacyAfterRedraw.entry.redraw.positions.length, 2);
+assert.deepEqual(
+  legacyAfterRedraw.entry.hand
+    .map((card, index) =>
+      JSON.stringify(card) ===
+      JSON.stringify(legacyBeforeRedraw.entry.hand[index])
+        ? null
+        : index,
+    )
+    .filter((index) => index !== null),
+  legacyAfterRedraw.entry.redraw.positions,
+);
+const legacyRetry = await service.redrawBitebluff(
+  alice.userId,
+  { count: 2 },
+  legacyRedrawTime,
+);
+assert.equal(legacyRetry.applied, false);
+await assert.rejects(
+  service.redrawBitebluff(
+    alice.userId,
+    { count: 3 },
+    legacyRedrawTime,
+  ),
+  /already been used/,
+);
+
 console.log(
-  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time exact-card Burn & Draw with untouched-card preservation, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, zero-ping Play now components, rolling 13-minute preview windows with in-window edits, bot-denied webhook preview fallback, layered-pot conservation, idempotent settlement, balance conservation, and bot settlement fallback after a webhook-authored live preview.",
+  "Bitebluff Discord verification passed: July 27 legacy random-count redraw preservation, July 28 exact-card redraw cutover with untouched-card preservation, daily top-up and redraw-reserved bounds, atomic one-entry debit, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, zero-ping Play now components, rolling 13-minute preview windows with in-window edits, bot-denied webhook preview fallback, layered-pot conservation, idempotent settlement, balance conservation, and bot settlement fallback after a webhook-authored live preview.",
 );

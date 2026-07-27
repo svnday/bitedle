@@ -9,6 +9,7 @@ import {
   bitebluffCardKey,
   bitebluffDeck,
   normalizeBitebluffBurnPositions,
+  normalizeBitebluffRedrawCount,
 } from "./bitebluff-cards";
 import { BITEBLUFF_HAND_SIZE } from "./bitebluff-constants";
 import type { BitebluffCard } from "./bitebluff-constants";
@@ -154,6 +155,60 @@ export function redrawCommittedBitebluffHand(input: {
   const replacements = deck.slice(
     BITEBLUFF_HAND_SIZE,
     BITEBLUFF_HAND_SIZE + burnedPositions.length,
+  );
+  const hand = [...input.hand];
+  const burned = burnedPositions.map((position) => hand[position]);
+  burnedPositions.forEach((position, index) => {
+    hand[position] = replacements[index];
+  });
+  return { hand, burned, positions: burnedPositions };
+}
+
+export function redrawRandomCommittedBitebluffHand(input: {
+  secret: string;
+  entrantId: string;
+  hand: readonly BitebluffCard[];
+  count: number;
+}): {
+  hand: BitebluffCard[];
+  burned: BitebluffCard[];
+  positions: number[];
+} {
+  const count = normalizeBitebluffRedrawCount(input.count);
+  const deck = committedBitebluffDeck(input.secret, input.entrantId);
+  const originalHand = deck.slice(0, BITEBLUFF_HAND_SIZE);
+  if (
+    input.hand.length !== BITEBLUFF_HAND_SIZE ||
+    input.hand.some(
+      (card, index) =>
+        bitebluffCardKey(card) !== bitebluffCardKey(originalHand[index]),
+    )
+  ) {
+    throw new Error("The committed Bitebluff hand does not match the round deck.");
+  }
+
+  const positions = Array.from(
+    { length: BITEBLUFF_HAND_SIZE },
+    (_, index) => index,
+  );
+  const counter = { value: 0 };
+  const context = `bitebluff-redraw:v1:${input.entrantId}:${count}:positions`;
+  for (let index = positions.length - 1; index > 0; index -= 1) {
+    const swapIndex = unbiasedIndex(
+      input.secret,
+      context,
+      index + 1,
+      counter,
+    );
+    [positions[index], positions[swapIndex]] = [
+      positions[swapIndex],
+      positions[index],
+    ];
+  }
+  const burnedPositions = positions.slice(0, count).sort((a, b) => a - b);
+  const replacements = deck.slice(
+    BITEBLUFF_HAND_SIZE,
+    BITEBLUFF_HAND_SIZE + count,
   );
   const hand = [...input.hand];
   const burned = burnedPositions.map((position) => hand[position]);

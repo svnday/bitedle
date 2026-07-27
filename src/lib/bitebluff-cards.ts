@@ -78,6 +78,17 @@ export function normalizeBitebluffBurnPositions(
   return [...positions].sort((a, b) => a - b);
 }
 
+export function normalizeBitebluffRedrawCount(count: number): number {
+  if (
+    !Number.isInteger(count) ||
+    count < BITEBLUFF_REDRAW_MIN ||
+    count > BITEBLUFF_REDRAW_MAX
+  ) {
+    throw new Error("Choose 1, 2, or 3 random cards to Burn & Draw.");
+  }
+  return count;
+}
+
 export function applySelectedBitebluffRedraw(input: {
   hand: readonly BitebluffCard[];
   remaining: readonly BitebluffCard[];

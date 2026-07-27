@@ -2,6 +2,9 @@ import { todayStr } from "./time";
 
 export const BITEBLUFF_TIME_ZONE = "America/New_York";
 export const BITEBLUFF_REVEAL_HOUR = 23;
+export const BITEBLUFF_SELECTED_REDRAW_FROM = "2026-07-28";
+
+export type BitebluffRedrawMode = "random-count" | "selected-cards";
 
 function timeZoneOffsetMs(date: Date, timeZone: string): number {
   const parts = Object.fromEntries(
@@ -45,6 +48,12 @@ export function bitebluffEasternWallClock(
 
 export function bitebluffDate(now: Date = new Date()): string {
   return todayStr(now, BITEBLUFF_TIME_ZONE);
+}
+
+export function bitebluffRedrawMode(date: string): BitebluffRedrawMode {
+  return date >= BITEBLUFF_SELECTED_REDRAW_FROM
+    ? "selected-cards"
+    : "random-count";
 }
 
 export function bitebluffRoundWindow(date: string): { opensAt: number; revealAt: number } {

@@ -154,6 +154,10 @@ assert.throws(() => cards.normalizeBitebluffBurnPositions([]));
 assert.throws(() => cards.normalizeBitebluffBurnPositions([0, 0]));
 assert.throws(() => cards.normalizeBitebluffBurnPositions([0, 1, 2, 3]));
 assert.throws(() => cards.normalizeBitebluffBurnPositions([5]));
+assert.equal(cards.normalizeBitebluffRedrawCount(1), 1);
+assert.equal(cards.normalizeBitebluffRedrawCount(3), 3);
+assert.throws(() => cards.normalizeBitebluffRedrawCount(0));
+assert.throws(() => cards.normalizeBitebluffRedrawCount(4));
 
 assert.equal(economy.bitebluffTopUp(0), 100);
 assert.equal(economy.bitebluffTopUp(70), 30);
@@ -263,6 +267,33 @@ assert.deepEqual(committedRedraw.hand[2], committedHand[2]);
 assert.deepEqual(committedRedraw.hand[4], committedHand[4]);
 assert.notDeepEqual(committedRedraw.hand[1], committedHand[1]);
 assert.notDeepEqual(committedRedraw.hand[3], committedHand[3]);
+const legacyCommittedRedraw =
+  bitebluffCrypto.redrawRandomCommittedBitebluffHand({
+    secret: roundSecret,
+    entrantId: "alice",
+    hand: committedHand,
+    count: 2,
+  });
+assert.equal(legacyCommittedRedraw.positions.length, 2);
+assert.deepEqual(
+  legacyCommittedRedraw,
+  bitebluffCrypto.redrawRandomCommittedBitebluffHand({
+    secret: roundSecret,
+    entrantId: "alice",
+    hand: committedHand,
+    count: 2,
+  }),
+);
+assert.deepEqual(
+  legacyCommittedRedraw.hand
+    .map((card, index) =>
+      JSON.stringify(card) === JSON.stringify(committedHand[index])
+        ? null
+        : index,
+    )
+    .filter((index) => index !== null),
+  legacyCommittedRedraw.positions,
+);
 assert.equal(encryptedHand.includes(JSON.stringify(committedHand)), false);
 assert.equal(
   bitebluffCrypto.bitebluffSecretCommitment(roundSecret),
@@ -276,6 +307,8 @@ assert.equal(
   new Date(bitebluffTime.bitebluffRoundWindow("2026-07-15").revealAt).toISOString(),
   "2026-07-16T03:00:00.000Z",
 );
+assert.equal(bitebluffTime.bitebluffRedrawMode("2026-07-27"), "random-count");
+assert.equal(bitebluffTime.bitebluffRedrawMode("2026-07-28"), "selected-cards");
 
 const demoSource = fs.readFileSync(
   path.join(repoRoot, "src", "components", "BitebluffDemo.tsx"),
@@ -363,12 +396,14 @@ const bitebluffGameSource = fs.readFileSync(
 );
 assert.equal(bitebluffGameSource.includes("api.bitebluffEnter(selectedWager)"), true);
 assert.equal(
-  bitebluffGameSource.includes("api.bitebluffRedraw(lockedPositions)"),
+  bitebluffGameSource.includes('{ positions: lockedPositions }'),
   true,
 );
+assert.equal(bitebluffGameSource.includes("{ count: redrawCount }"), true);
+assert.equal(bitebluffGameSource.includes('=== "selected-cards"'), true);
 assert.equal(bitebluffGameSource.includes("selectedBurnPositions"), true);
 assert.equal(bitebluffGameSource.includes("startRedrawAnimation"), true);
-assert.equal(bitebluffGameSource.includes("randomly selected cards"), false);
+assert.equal(bitebluffGameSource.includes("randomly selected cards"), true);
 assert.equal(bitebluffGameSource.includes("api.bitebluffLeaderboard()"), true);
 assert.equal(bitebluffGameSource.includes("Review wager"), true);
 assert.equal(bitebluffGameSource.includes("Final confirmation"), true);
@@ -393,13 +428,14 @@ const redrawRouteSource = fs.readFileSync(
 );
 assert.equal(redrawRouteSource.includes("redrawBitebluff("), true);
 assert.equal(redrawRouteSource.includes("body?.positions"), true);
-assert.equal(redrawRouteSource.includes("body?.count"), false);
+assert.equal(redrawRouteSource.includes("body?.count"), true);
+assert.equal(redrawRouteSource.includes("bitebluffRedrawMode"), true);
 assert.equal(redrawRouteSource.includes("updateBitebluffPublicPreview"), true);
 const clientApiSource = fs.readFileSync(
   path.join(repoRoot, "src", "lib", "client-api.ts"),
   "utf8",
 );
-assert.equal(clientApiSource.includes("JSON.stringify({ positions })"), true);
+assert.equal(clientApiSource.includes("JSON.stringify(selection)"), true);
 const leaderboardRouteSource = fs.readFileSync(
   path.join(repoRoot, "src", "app", "api", "bitebluff", "leaderboard", "route.ts"),
   "utf8",

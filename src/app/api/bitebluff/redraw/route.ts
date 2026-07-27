@@ -9,9 +9,14 @@ import {
   bitebluffPrivateState,
   redrawBitebluff,
 } from "@/lib/bitebluff-service";
-import { normalizeBitebluffBurnPositions } from "@/lib/bitebluff-cards";
+import {
+  normalizeBitebluffBurnPositions,
+  normalizeBitebluffRedrawCount,
+} from "@/lib/bitebluff-cards";
 import { getBitebluffRepository } from "@/lib/bitebluff-store";
 import { updateBitebluffPublicPreview } from "@/lib/bitebluff-discord-preview";
+import { bitebluffDate, bitebluffRedrawMode } from "@/lib/bitebluff-time";
+import type { BitebluffRedrawRequest } from "@/lib/bitebluff-types";
 
 export const runtime = "nodejs";
 
@@ -37,19 +42,34 @@ export async function POST(request: NextRequest) {
     );
   }
   const body = await request.json().catch(() => null);
-  let positions: number[];
+  const now = new Date();
+  const redrawMode = bitebluffRedrawMode(bitebluffDate(now));
+  let redrawRequest: BitebluffRedrawRequest;
   try {
-    if (!Array.isArray(body?.positions)) throw new Error("Invalid positions");
-    positions = normalizeBitebluffBurnPositions(body.positions);
+    if (redrawMode === "selected-cards") {
+      if (!Array.isArray(body?.positions)) throw new Error("Invalid positions");
+      redrawRequest = {
+        positions: normalizeBitebluffBurnPositions(body.positions),
+      };
+    } else {
+      redrawRequest = {
+        count: normalizeBitebluffRedrawCount(body?.count),
+      };
+    }
   } catch {
     return NextResponse.json(
-      { error: "Choose 1, 2, or 3 different cards from your hand to Burn & Draw." },
+      {
+        error:
+          redrawMode === "selected-cards"
+            ? "Choose 1, 2, or 3 different cards from your hand to Burn & Draw."
+            : "Choose 1, 2, or 3 random cards to Burn & Draw.",
+      },
       { status: 400 },
     );
   }
 
   try {
-    const result = await redrawBitebluff(userId, positions);
+    const result = await redrawBitebluff(userId, redrawRequest, now);
     if (result.applied) {
       const destinations =
         await getBitebluffRepository().destinationsForRound(result.entry.roundId);
