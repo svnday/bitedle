@@ -263,6 +263,12 @@ const interactionSource = fs.readFileSync(
 assert.equal(interactionSource.includes('body?.data?.name === "bitebluff"'), true);
 assert.equal(interactionSource.includes("BITEBLUFF_CONFIRM_PREFIX"), false);
 assert.equal(interactionSource.includes('recordIntent(body, "bitebluff", false)'), true);
+assert.equal(interactionSource.includes("ensureBitebluffRound(new Date(launchedAt))"), true);
+assert.equal(
+  interactionSource.indexOf("recordBitebluffDestination({") <
+    interactionSource.indexOf("getUserIdByDiscordId(discordUserId)"),
+  true,
+);
 assert.equal(interactionSource.includes("updateBitebluffPublicPreview(destination.id)"), true);
 assert.equal(interactionSource.includes("allowed_mentions: { parse: [] }"), true);
 const registrationSource = fs.readFileSync(
@@ -319,6 +325,14 @@ assert.equal(
   true,
 );
 assert.equal(discordPreviewSource.includes("messageId: previewMessageId ?? undefined"), true);
+const bitebluffStoreSource = fs.readFileSync(
+  path.join(repoRoot, "src", "lib", "bitebluff-store.ts"),
+  "utf8",
+);
+assert.equal(
+  bitebluffStoreSource.includes("ELSE bitebluff_destinations.webhook_token"),
+  true,
+);
 assert.deepEqual(
   cronConfig.crons.map((cron) => cron.path),
   ["/api/bitebluff/settle", "/api/bitebluff/settle-est"],

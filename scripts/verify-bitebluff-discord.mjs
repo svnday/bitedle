@@ -122,14 +122,61 @@ const destination = await service.recordBitebluffDestination({
   now: entryTime.getTime(),
 });
 assert.equal((await repository.destinationsForRound(quote.round.id)).length, 1);
+const activityUpsert = await service.recordBitebluffDestination({
+  roundId: quote.round.id,
+  guildId: destination.guildId,
+  channelId: destination.channelId,
+  applicationId: "",
+  webhookToken: "",
+  tokenCreatedAt: entryTime.getTime() + 1_000,
+  now: entryTime.getTime() + 1_000,
+});
+assert.equal(activityUpsert.applicationId, destination.applicationId);
+assert.equal(activityUpsert.webhookToken, destination.webhookToken);
+assert.equal(activityUpsert.tokenCreatedAt, destination.tokenCreatedAt);
 assert.equal(await repository.claimPreview(destination.id), true);
 assert.equal(await repository.claimPreview(destination.id), false);
 await repository.releasePreview(destination.id);
-await repository.completePreview(
-  destination.id,
-  "preview-message",
-  entryTime.getTime(),
+const livePreviewRequests = [];
+const livePreviewServer = http.createServer((request, response) => {
+  const chunks = [];
+  request.on("data", (chunk) => chunks.push(chunk));
+  request.on("end", () => {
+    livePreviewRequests.push({
+      method: request.method,
+      url: request.url,
+      body: Buffer.concat(chunks).toString("utf8"),
+    });
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ id: "live-preview-message" }));
+  });
+});
+await new Promise((resolve) => livePreviewServer.listen(0, "127.0.0.1", resolve));
+const livePreviewAddress = livePreviewServer.address();
+process.env.BITEDLE_DISCORD_API_BASE_URL =
+  `http://127.0.0.1:${livePreviewAddress.port}`;
+delete process.env.DISCORD_BOT_TOKEN;
+const {
+  deliverBitebluffFinalResults,
+  updateBitebluffPublicPreview,
+} = require(
+  path.join(repoRoot, "src", "lib", "bitebluff-discord-preview.tsx"),
 );
+try {
+  await updateBitebluffPublicPreview(destination.id);
+} finally {
+  await new Promise((resolve, reject) =>
+    livePreviewServer.close((error) => (error ? reject(error) : resolve())),
+  );
+}
+assert.equal(livePreviewRequests.length, 1);
+assert.equal(livePreviewRequests[0].method, "POST");
+assert.equal(
+  livePreviewRequests[0].url,
+  `/webhooks/${destination.applicationId}/${destination.webhookToken}`,
+);
+assert.equal(livePreviewRequests[0].body.includes('"allowed_mentions"'), true);
+assert.equal(livePreviewRequests[0].body.includes('"parse":[]'), true);
 assert.equal(await repository.totalCommittedForRound(quote.round.id), 120);
 const pendingLeaderboard = await service.bitebluffLeaderboard(alice.userId, redrawTime);
 assert.equal(pendingLeaderboard.entries.length, 2);
@@ -214,7 +261,7 @@ const discordServer = http.createServer((request, response) => {
       body: Buffer.concat(chunks).toString("utf8"),
     });
     response.writeHead(200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify({ id: "preview-message" }));
+    response.end(JSON.stringify({ id: "live-preview-message" }));
   });
 });
 await new Promise((resolve) => discordServer.listen(0, "127.0.0.1", resolve));
@@ -222,9 +269,6 @@ const discordAddress = discordServer.address();
 process.env.BITEDLE_DISCORD_API_BASE_URL =
   `http://127.0.0.1:${discordAddress.port}`;
 process.env.DISCORD_BOT_TOKEN = "test-bot-token";
-const { deliverBitebluffFinalResults } = require(
-  path.join(repoRoot, "src", "lib", "bitebluff-discord-preview.tsx"),
-);
 try {
   await deliverBitebluffFinalResults(quote.round.id);
 } finally {
@@ -236,13 +280,13 @@ assert.equal(discordRequests.length, 1);
 assert.equal(discordRequests[0].method, "PATCH");
 assert.equal(
   discordRequests[0].url,
-  `/channels/${destination.channelId}/messages/preview-message`,
+  `/channels/${destination.channelId}/messages/live-preview-message`,
 );
 assert.equal(discordRequests[0].body.includes('"allowed_mentions"'), true);
 assert.equal(discordRequests[0].body.includes('"parse":[]'), true);
 assert.deepEqual(await repository.roundsNeedingFinalDelivery(), []);
 const deliveredDestination = await repository.getDestination(destination.id);
-assert.deepEqual(deliveredDestination.finalMessageIds, ["preview-message"]);
+assert.deepEqual(deliveredDestination.finalMessageIds, ["live-preview-message"]);
 assert.equal(deliveredDestination.finalPostedAt > 0, true);
 
 const persisted = JSON.parse(fs.readFileSync(fileDbPath, "utf8"));
@@ -260,5 +304,5 @@ assert.equal(
 );
 
 console.log(
-  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time random Burn & Draw, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, destination claims, layered-pot conservation, idempotent settlement, balance conservation, and final reveal replacement of the zero-ping live preview.",
+  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time random Burn & Draw, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, first-launch destination and webhook preview delivery, layered-pot conservation, idempotent settlement, balance conservation, and final reveal replacement of the zero-ping live preview.",
 );

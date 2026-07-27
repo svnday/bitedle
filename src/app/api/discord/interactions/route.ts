@@ -45,11 +45,13 @@ import {
   BITESWEEPER_WEBHOOK_TOKEN_TTL_MS,
   type BitesweeperPreviewPlayer,
 } from "@/lib/bitesweeper-discord-preview";
-import { bitebluffDate } from "@/lib/bitebluff-time";
 import {
   getBitebluffRepository,
 } from "@/lib/bitebluff-store";
-import { recordBitebluffDestination } from "@/lib/bitebluff-service";
+import {
+  ensureBitebluffRound,
+  recordBitebluffDestination,
+} from "@/lib/bitebluff-service";
 import { updateBitebluffPublicPreview } from "@/lib/bitebluff-discord-preview";
 
 // Imports next/og (via discord-summary) for the preview image — needs Node.
@@ -124,17 +126,9 @@ async function handleBitebluffCommand(body: Interaction): Promise<NextResponse> 
     const launchedAt = Date.now();
     after(async () => {
       try {
-        const store = getStore();
-        const userId = await store.getUserIdByDiscordId(discordUserId);
-        if (!userId) return;
-        const repository = getBitebluffRepository();
-        const entry = await repository.getEntry(
-          bitebluffDate(new Date(launchedAt)),
-          userId,
-        );
-        if (!entry) return;
+        const round = await ensureBitebluffRound(new Date(launchedAt));
         const destination = await recordBitebluffDestination({
-          roundId: entry.roundId,
+          roundId: round.id,
           guildId,
           channelId,
           applicationId,
@@ -142,6 +136,12 @@ async function handleBitebluffCommand(body: Interaction): Promise<NextResponse> 
           tokenCreatedAt: launchedAt,
           now: launchedAt,
         });
+        const store = getStore();
+        const userId = await store.getUserIdByDiscordId(discordUserId);
+        if (!userId) return;
+        const repository = getBitebluffRepository();
+        const entry = await repository.getEntry(round.id, userId);
+        if (!entry) return;
         await updateBitebluffPublicPreview(destination.id);
       } catch (error) {
         console.error("interactions: Bitebluff preview refresh failed", error);

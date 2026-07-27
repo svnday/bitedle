@@ -370,9 +370,12 @@ class BitebluffFileRepository implements BitebluffRepository {
       roundId: input.roundId,
       guildId: input.guildId,
       channelId: input.channelId,
-      applicationId: input.applicationId,
-      webhookToken: input.webhookToken,
-      tokenCreatedAt: input.tokenCreatedAt,
+      applicationId: input.applicationId || previous?.applicationId || "",
+      webhookToken: input.webhookToken || previous?.webhookToken || "",
+      tokenCreatedAt:
+        input.webhookToken || !previous
+          ? input.tokenCreatedAt
+          : previous.tokenCreatedAt,
       previewMessageId: previous?.previewMessageId ?? null,
       previewPosting: previous?.previewPosting ?? false,
       finalMessageIds: previous?.finalMessageIds ?? [],
@@ -1024,9 +1027,18 @@ class BitebluffNeonRepository implements BitebluffRepository {
         ${input.applicationId}, ${input.webhookToken}, ${input.tokenCreatedAt}, ${input.now}
       )
       ON CONFLICT (round_id, guild_id, channel_id) DO UPDATE
-      SET application_id = EXCLUDED.application_id,
-          webhook_token = EXCLUDED.webhook_token,
-          token_created_at = EXCLUDED.token_created_at,
+      SET application_id = CASE
+            WHEN EXCLUDED.application_id <> '' THEN EXCLUDED.application_id
+            ELSE bitebluff_destinations.application_id
+          END,
+          webhook_token = CASE
+            WHEN EXCLUDED.webhook_token <> '' THEN EXCLUDED.webhook_token
+            ELSE bitebluff_destinations.webhook_token
+          END,
+          token_created_at = CASE
+            WHEN EXCLUDED.webhook_token <> '' THEN EXCLUDED.token_created_at
+            ELSE bitebluff_destinations.token_created_at
+          END,
           updated_at = EXCLUDED.updated_at
       RETURNING *`;
     return destinationFromRow(rows[0] as Record<string, unknown>);
