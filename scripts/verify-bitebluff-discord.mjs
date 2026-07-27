@@ -112,13 +112,14 @@ await assert.rejects(
 );
 
 const repository = getBitebluffRepository();
+const liveTokenCreatedAt = Date.now();
 const destination = await service.recordBitebluffDestination({
   roundId: quote.round.id,
   guildId: "300000000000000001",
   channelId: "400000000000000001",
   applicationId: "500000000000000001",
   webhookToken: "local-token",
-  tokenCreatedAt: entryTime.getTime(),
+  tokenCreatedAt: liveTokenCreatedAt,
   now: entryTime.getTime(),
 });
 assert.equal((await repository.destinationsForRound(quote.round.id)).length, 1);
@@ -128,7 +129,7 @@ const activityUpsert = await service.recordBitebluffDestination({
   channelId: destination.channelId,
   applicationId: "",
   webhookToken: "",
-  tokenCreatedAt: entryTime.getTime() + 1_000,
+  tokenCreatedAt: liveTokenCreatedAt + 1_000,
   now: entryTime.getTime() + 1_000,
 });
 assert.equal(activityUpsert.applicationId, destination.applicationId);
@@ -147,15 +148,24 @@ const livePreviewServer = http.createServer((request, response) => {
       url: request.url,
       body: Buffer.concat(chunks).toString("utf8"),
     });
-    response.writeHead(200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify({ id: "live-preview-message" }));
+    const botChannelAttempt = request.url?.startsWith("/channels/");
+    response.writeHead(botChannelAttempt ? 403 : 200, {
+      "Content-Type": "application/json",
+    });
+    response.end(
+      JSON.stringify(
+        botChannelAttempt
+          ? { message: "Missing Access" }
+          : { id: "live-preview-message" },
+      ),
+    );
   });
 });
 await new Promise((resolve) => livePreviewServer.listen(0, "127.0.0.1", resolve));
 const livePreviewAddress = livePreviewServer.address();
 process.env.BITEDLE_DISCORD_API_BASE_URL =
   `http://127.0.0.1:${livePreviewAddress.port}`;
-delete process.env.DISCORD_BOT_TOKEN;
+process.env.DISCORD_BOT_TOKEN = "configured-but-webhook-must-win";
 const {
   deliverBitebluffFinalResults,
   updateBitebluffPublicPreview,
@@ -169,14 +179,19 @@ try {
     livePreviewServer.close((error) => (error ? reject(error) : resolve())),
   );
 }
-assert.equal(livePreviewRequests.length, 1);
+assert.equal(livePreviewRequests.length, 2);
 assert.equal(livePreviewRequests[0].method, "POST");
 assert.equal(
   livePreviewRequests[0].url,
+  `/channels/${destination.channelId}/messages`,
+);
+assert.equal(livePreviewRequests[1].method, "POST");
+assert.equal(
+  livePreviewRequests[1].url,
   `/webhooks/${destination.applicationId}/${destination.webhookToken}`,
 );
-assert.equal(livePreviewRequests[0].body.includes('"allowed_mentions"'), true);
-assert.equal(livePreviewRequests[0].body.includes('"parse":[]'), true);
+assert.equal(livePreviewRequests[1].body.includes('"allowed_mentions"'), true);
+assert.equal(livePreviewRequests[1].body.includes('"parse":[]'), true);
 assert.equal(await repository.totalCommittedForRound(quote.round.id), 120);
 const pendingLeaderboard = await service.bitebluffLeaderboard(alice.userId, redrawTime);
 assert.equal(pendingLeaderboard.entries.length, 2);
@@ -260,8 +275,16 @@ const discordServer = http.createServer((request, response) => {
       url: request.url,
       body: Buffer.concat(chunks).toString("utf8"),
     });
-    response.writeHead(200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify({ id: "live-preview-message" }));
+    response.writeHead(request.method === "PATCH" ? 403 : 200, {
+      "Content-Type": "application/json",
+    });
+    response.end(
+      JSON.stringify(
+        request.method === "PATCH"
+          ? { message: "Cannot edit a webhook-authored message" }
+          : { id: "final-message" },
+      ),
+    );
   });
 });
 await new Promise((resolve) => discordServer.listen(0, "127.0.0.1", resolve));
@@ -276,17 +299,22 @@ try {
     discordServer.close((error) => (error ? reject(error) : resolve())),
   );
 }
-assert.equal(discordRequests.length, 1);
+assert.equal(discordRequests.length, 2);
 assert.equal(discordRequests[0].method, "PATCH");
 assert.equal(
   discordRequests[0].url,
   `/channels/${destination.channelId}/messages/live-preview-message`,
 );
-assert.equal(discordRequests[0].body.includes('"allowed_mentions"'), true);
-assert.equal(discordRequests[0].body.includes('"parse":[]'), true);
+assert.equal(discordRequests[1].method, "POST");
+assert.equal(
+  discordRequests[1].url,
+  `/channels/${destination.channelId}/messages`,
+);
+assert.equal(discordRequests[1].body.includes('"allowed_mentions"'), true);
+assert.equal(discordRequests[1].body.includes('"parse":[]'), true);
 assert.deepEqual(await repository.roundsNeedingFinalDelivery(), []);
 const deliveredDestination = await repository.getDestination(destination.id);
-assert.deepEqual(deliveredDestination.finalMessageIds, ["live-preview-message"]);
+assert.deepEqual(deliveredDestination.finalMessageIds, ["final-message"]);
 assert.equal(deliveredDestination.finalPostedAt > 0, true);
 
 const persisted = JSON.parse(fs.readFileSync(fileDbPath, "utf8"));
@@ -304,5 +332,5 @@ assert.equal(
 );
 
 console.log(
-  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time random Burn & Draw, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, first-launch destination and webhook preview delivery, layered-pot conservation, idempotent settlement, balance conservation, and final reveal replacement of the zero-ping live preview.",
+  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time random Burn & Draw, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, bot-denied webhook preview fallback, layered-pot conservation, idempotent settlement, balance conservation, and bot settlement fallback after a webhook-authored live preview.",
 );

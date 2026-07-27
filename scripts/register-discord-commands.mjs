@@ -179,10 +179,14 @@ function commandUrl(id) {
 }
 
 function installUrl() {
-  const scope = "applications.commands";
+  const scope = "applications.commands bot";
   const params = new URLSearchParams({
     client_id: clientId,
     scope,
+    // VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES. Bitebluff's immediate
+    // preview uses the interaction webhook, but its scheduled 11 PM reveal
+    // needs a persistent bot member that can post the generated PNG.
+    permissions: "35840",
     // Force GUILD_INSTALL. Without this, an app that supports both install
     // types can be added only to the administrator's account, making its
     // commands visible to them but not to the rest of the server.

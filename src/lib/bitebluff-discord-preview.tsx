@@ -14,6 +14,7 @@ import type { BitebluffCard } from "./bitebluff-constants";
 
 const PREVIEW_MAX_PARTICIPANTS = 24;
 const FINAL_PAGE_SIZE = 6;
+const BITEBLUFF_WEBHOOK_TOKEN_TTL_MS = 13 * 60 * 1000;
 
 function abbreviatedName(name: string): string {
   return name.length <= 22 ? name : `${name.slice(0, 21)}…`;
@@ -441,6 +442,9 @@ export async function updateBitebluffPublicPreview(
     const content = `🃏 **Bitebluff** — ${entries.length} sealed ${
       entries.length === 1 ? "hand" : "hands"
     }, ${totalCommitted.toLocaleString()} Bites in the pool.`;
+    const webhookIsFresh =
+      Boolean(destination.applicationId && destination.webhookToken) &&
+      Date.now() - destination.tokenCreatedAt < BITEBLUFF_WEBHOOK_TOKEN_TTL_MS;
     let result = await botImageRequest({
       channelId: destination.channelId,
       messageId: destination.previewMessageId ?? undefined,
@@ -456,26 +460,35 @@ export async function updateBitebluffPublicPreview(
         filename: "bitebluff-preview.png",
       });
     }
-    if (!result.ok && !process.env.DISCORD_BOT_TOKEN) {
-      result = destination.previewMessageId
-        ? {
-            ...(await patchImageWebhookMessage({
-              applicationId: destination.applicationId,
-              webhookToken: destination.webhookToken,
-              messageId: destination.previewMessageId,
-              pngBuffer,
-              content,
-              filename: "bitebluff-preview.png",
-            })),
-            messageId: destination.previewMessageId,
-          }
-        : await postImageWebhookFollowup({
+    if ((!result.ok || !result.messageId) && webhookIsFresh) {
+      if (destination.previewMessageId) {
+        const patched = await patchImageWebhookMessage({
+          applicationId: destination.applicationId,
+          webhookToken: destination.webhookToken,
+          messageId: destination.previewMessageId,
+          pngBuffer,
+          content,
+          filename: "bitebluff-preview.png",
+        });
+        result = { ...patched, messageId: destination.previewMessageId };
+        if (!patched.ok && patched.status === 404) {
+          result = await postImageWebhookFollowup({
             applicationId: destination.applicationId,
             webhookToken: destination.webhookToken,
             pngBuffer,
             content,
             filename: "bitebluff-preview.png",
           });
+        }
+      } else {
+        result = await postImageWebhookFollowup({
+          applicationId: destination.applicationId,
+          webhookToken: destination.webhookToken,
+          pngBuffer,
+          content,
+          filename: "bitebluff-preview.png",
+        });
+      }
     }
     if (!result.ok || !result.messageId) {
       throw new Error(`Discord preview failed (${result.status}): ${result.body}`);
@@ -532,7 +545,11 @@ export async function deliverBitebluffFinalResults(roundId: string): Promise<voi
               : `Bitebluff ${round.date} — results ${page + 1}/${pageCount}`,
           filename: `bitebluff-final-${page + 1}.png`,
         });
-        if (!result.ok && result.status === 404 && previewMessageId) {
+        if (
+          !result.ok &&
+          previewMessageId &&
+          (result.status === 403 || result.status === 404)
+        ) {
           result = await botImageRequest({
             channelId: destination.channelId,
             pngBuffer,

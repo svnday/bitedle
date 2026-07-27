@@ -308,13 +308,15 @@ entry point command's name.)
   environment variable in your own terminal.
 
 `register-discord-commands.mjs` also prints a **guild install URL** using
-Discord's `applications.commands` scope and `integration_type=0`. A server
+Discord's `applications.commands` and `bot` scopes with `integration_type=0`.
+It requests only View Channel, Send Messages, and Attach Files. A server
 administrator must open that URL and add the app to the server so the slash
-commands are exposed to every eligible member. Installing Bitedle only to your
-own account makes the user-installed commands available to you, not to everyone
-else in the guild. A `bot`-scope-only invite is not enough; **no slash command
-(including `/play`) shows up in a server unless the app was added there with
-the `applications.commands` scope**.
+commands are exposed to every eligible member and Bitebluff can publish its
+scheduled final image. Installing Bitedle only to your own account makes the
+user-installed commands available to you, not to everyone else in the guild.
+A `bot`-scope-only invite is not enough; **no slash command (including `/play`)
+shows up in a server unless the app was also added with the
+`applications.commands` scope**.
 
 The registration payload also sets `default_member_permissions` to `null`,
 which clears any stale developer-defined permission requirement. Server owners
@@ -346,10 +348,12 @@ Discord has two independent install models, and Bitedle supports both:
   then launch the Activity in **any** server, even one that hasn't added the
   app.
 
-Every feature — the Activity, avatars, per-server leaderboards, `/share`,
-`/results`, the live preview, and the [daily recap](#daily-results-recap) —
-works identically in both models: all channel posting rides interaction
-webhooks, so no bot member is ever needed.
+The Activity, avatars, per-server leaderboards, `/share`, `/results`, the
+ordinary live previews, and the [daily recap](#daily-results-recap) work in
+both models through interaction webhooks. Bitebluff is deliberately
+guild-install-only: its immediate wager preview also uses the fresh interaction
+webhook, but the scheduled 11 PM result needs the bot member installed by the
+guild URL above.
 
 If the app only supports guild install, opening it from the Activities
 button in a server that hasn't added it fails with *"Your app has enabled

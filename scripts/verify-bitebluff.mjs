@@ -277,6 +277,11 @@ const registrationSource = fs.readFileSync(
 );
 assert.equal(registrationSource.includes('name: "bitebluff"'), true);
 assert.equal(registrationSource.includes('name: "wager"'), false);
+assert.equal(
+  registrationSource.includes('const scope = "applications.commands bot"'),
+  true,
+);
+assert.equal(registrationSource.includes('permissions: "35840"'), true);
 const bitebluffGameSource = fs.readFileSync(
   path.join(repoRoot, "src", "components", "BitebluffGame.tsx"),
   "utf8",
@@ -331,6 +336,18 @@ const bitebluffStoreSource = fs.readFileSync(
 );
 assert.equal(
   bitebluffStoreSource.includes("ELSE bitebluff_destinations.webhook_token"),
+  true,
+);
+assert.equal(
+  discordPreviewSource.includes(
+    "if ((!result.ok || !result.messageId) && webhookIsFresh)",
+  ),
+  true,
+);
+assert.equal(
+  discordPreviewSource.includes(
+    "(result.status === 403 || result.status === 404)",
+  ),
   true,
 );
 assert.deepEqual(
