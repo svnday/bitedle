@@ -74,14 +74,18 @@ function avatar(
 export function renderBitebluffPublicPreviewImage(
   round: BitebluffRoundRecord,
   entries: BitebluffPreviewEntry[],
+  totalCommitted = entries.reduce((total, entry) => total + entry.wager, 0),
 ) {
   const shown = entries.slice(0, PREVIEW_MAX_PARTICIPANTS);
   const columns = Math.min(4, Math.max(1, shown.length));
   const rows = Math.max(1, Math.ceil(shown.length / columns));
   const width = 900;
-  const height = 210 + rows * 150 + (entries.length > shown.length ? 50 : 0);
+  const shownWagers = entries.reduce((total, entry) => total + entry.wager, 0);
+  const sealedRedrawBites = Math.max(0, totalCommitted - shownWagers);
+  const height =
+    250 + rows * 150 + (entries.length > shown.length ? 50 : 0);
   const cardWidth = Math.floor((width - 80 - (columns - 1) * 14) / columns);
-  const pot = entries.reduce((total, entry) => total + entry.wager, 0);
+  const pot = totalCommitted;
   return new ImageResponse(
     (
       <div
@@ -179,6 +183,19 @@ export function renderBitebluffPublicPreviewImage(
             {`+${entries.length - shown.length} more sealed entries`}
           </div>
         ) : null}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            marginTop: "auto",
+            color: "#78988a",
+            fontSize: 14,
+          }}
+        >
+          {sealedRedrawBites > 0
+            ? `${sealedRedrawBites.toLocaleString()} sealed redraw Bites are included in the pool`
+            : "Only profiles and locked wagers are public before the reveal"}
+        </div>
       </div>
     ),
     { width, height },
@@ -213,7 +230,10 @@ export function renderBitebluffFinalImage(
   entries: BitebluffEntryRecord[],
   page: number,
   pageCount: number,
-  totalPool = entries.reduce((total, entry) => total + entry.wager, 0),
+  totalPool = entries.reduce(
+    (total, entry) => total + entry.wager + entry.redrawSurcharge,
+    0,
+  ),
 ) {
   const winners = new Set(
     entries.filter((entry) => entry.contestedPayout > 0).map((entry) => entry.id),
@@ -261,7 +281,8 @@ export function renderBitebluffFinalImage(
         <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 20 }}>
           {entries.map((entry) => {
             const winner = winners.has(entry.id);
-            const net = entry.payout - entry.wager;
+            const committed = entry.wager + entry.redrawSurcharge;
+            const net = entry.payout - committed;
             const wonLayers = entry.wonLayers ?? [];
             const winnerLabel =
               wonLayers.length === 0
@@ -269,7 +290,9 @@ export function renderBitebluffFinalImage(
                 : wonLayers.includes(0)
                   ? wonLayers.length === 1
                     ? "MAIN POT WINNER"
-                    : `MAIN + ${wonLayers.length - 1} LAYER`
+                    : `MAIN + ${wonLayers.length - 1} ${
+                        wonLayers.length === 2 ? "LAYER" : "LAYERS"
+                      }`
                   : `LAYER ${wonLayers.map((layer) => layer + 1).join(", ")} WINNER`;
             return (
               <div
@@ -312,7 +335,7 @@ export function renderBitebluffFinalImage(
                   }}
                 >
                   <div style={{ color: "#9fb5aa", fontSize: 14 }}>
-                    {`Wagered ${entry.wager.toLocaleString()}`}
+                    {`Committed ${committed.toLocaleString()}`}
                   </div>
                   <div
                     style={{
@@ -404,15 +427,20 @@ export async function updateBitebluffPublicPreview(
   try {
     const destination = await repository.getDestination(destinationId);
     if (!destination) throw new Error("Bitebluff destination not found.");
-    const [round, entries] = await Promise.all([
+    const [round, entries, totalCommitted] = await Promise.all([
       repository.getRound(destination.roundId),
       repository.previewEntriesForRound(destination.roundId),
+      repository.totalCommittedForRound(destination.roundId),
     ]);
     if (!round) throw new Error("Bitebluff round not found for preview.");
-    const pngBuffer = await renderBitebluffPublicPreviewImage(round, entries).arrayBuffer();
+    const pngBuffer = await renderBitebluffPublicPreviewImage(
+      round,
+      entries,
+      totalCommitted,
+    ).arrayBuffer();
     const content = `🃏 **Bitebluff** — ${entries.length} sealed ${
       entries.length === 1 ? "hand" : "hands"
-    }, ${entries.reduce((total, entry) => total + entry.wager, 0).toLocaleString()} Bites in the pool.`;
+    }, ${totalCommitted.toLocaleString()} Bites in the pool.`;
     let result = await botImageRequest({
       channelId: destination.channelId,
       messageId: destination.previewMessageId ?? undefined,
@@ -468,7 +496,10 @@ export async function deliverBitebluffFinalResults(roundId: string): Promise<voi
   ]);
   if (!round || round.status !== "settled") return;
   const pageCount = Math.max(1, Math.ceil(entries.length / FINAL_PAGE_SIZE));
-  const totalPool = entries.reduce((total, entry) => total + entry.wager, 0);
+  const totalPool = entries.reduce(
+    (total, entry) => total + entry.wager + entry.redrawSurcharge,
+    0,
+  );
   for (const destination of destinations) {
     if (!(await repository.claimFinalDelivery(destination.id))) continue;
     const claimedDestination =
@@ -487,8 +518,13 @@ export async function deliverBitebluffFinalResults(roundId: string): Promise<voi
           pageCount,
           totalPool,
         ).arrayBuffer();
-        const result = await botImageRequest({
+        const previewMessageId =
+          page === 0 && messageIds.length === 0
+            ? claimedDestination.previewMessageId
+            : null;
+        let result = await botImageRequest({
           channelId: destination.channelId,
+          messageId: previewMessageId ?? undefined,
           pngBuffer,
           content:
             page === 0
@@ -496,6 +532,14 @@ export async function deliverBitebluffFinalResults(roundId: string): Promise<voi
               : `Bitebluff ${round.date} — results ${page + 1}/${pageCount}`,
           filename: `bitebluff-final-${page + 1}.png`,
         });
+        if (!result.ok && result.status === 404 && previewMessageId) {
+          result = await botImageRequest({
+            channelId: destination.channelId,
+            pngBuffer,
+            content: `🏆 **Bitebluff ${round.date} — final results**`,
+            filename: "bitebluff-final-1.png",
+          });
+        }
         if (!result.ok || !result.messageId) {
           throw new Error(`Discord final post failed (${result.status}): ${result.body}`);
         }

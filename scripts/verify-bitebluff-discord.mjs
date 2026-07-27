@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -70,11 +71,45 @@ assert.equal(firstBob.account.balance, 70);
 assert.equal(firstAlice.entry.revealedHand, null);
 assert.equal(JSON.stringify(firstAlice.entry).includes('"rank"'), false);
 
+const aliceBeforeRedraw = await service.bitebluffPrivateState(alice.userId, entryTime);
+assert.equal(aliceBeforeRedraw.pot, 90);
+assert.equal(aliceBeforeRedraw.participants.length, 2);
+assert.equal(aliceBeforeRedraw.participants.every((entry) => !("hand" in entry)), true);
+assert.equal(aliceBeforeRedraw.burnAndDraw.available, true);
+
 const duplicateAlice = await service.enterBitebluff(alice, 10, entryTime);
 assert.equal(duplicateAlice.created, false);
 assert.equal(duplicateAlice.entry.id, firstAlice.entry.id);
 assert.equal(duplicateAlice.entry.wager, 60);
 assert.equal(duplicateAlice.account.balance, 40);
+
+const redrawTime = new Date(entryTime.getTime() + 1_000);
+const redrawAlice = await service.redrawBitebluff(alice.userId, 2, redrawTime);
+assert.equal(redrawAlice.applied, true);
+assert.equal(redrawAlice.account.balance, 10);
+assert.equal(redrawAlice.entry.redrawCount, 2);
+assert.equal(redrawAlice.entry.redrawSurcharge, 30);
+assert.equal(redrawAlice.entry.revealedHand, null);
+const aliceAfterRedraw = await service.bitebluffPrivateState(alice.userId, redrawTime);
+assert.equal(aliceAfterRedraw.pot, 120);
+assert.equal(aliceAfterRedraw.entry.committed, 90);
+assert.equal(aliceAfterRedraw.entry.redraw.count, 2);
+assert.equal(aliceAfterRedraw.entry.redraw.positions.length, 2);
+assert.equal(
+  aliceAfterRedraw.entry.hand.filter(
+    (card, index) =>
+      JSON.stringify(card) !== JSON.stringify(aliceBeforeRedraw.entry.hand[index]),
+  ).length,
+  2,
+);
+assert.equal(aliceAfterRedraw.burnAndDraw.available, false);
+const duplicateRedraw = await service.redrawBitebluff(alice.userId, 2, redrawTime);
+assert.equal(duplicateRedraw.applied, false);
+assert.equal(duplicateRedraw.account.balance, 10);
+await assert.rejects(
+  service.redrawBitebluff(alice.userId, 1, redrawTime),
+  /already been used/,
+);
 
 const repository = getBitebluffRepository();
 const destination = await service.recordBitebluffDestination({
@@ -90,6 +125,24 @@ assert.equal((await repository.destinationsForRound(quote.round.id)).length, 1);
 assert.equal(await repository.claimPreview(destination.id), true);
 assert.equal(await repository.claimPreview(destination.id), false);
 await repository.releasePreview(destination.id);
+await repository.completePreview(
+  destination.id,
+  "preview-message",
+  entryTime.getTime(),
+);
+assert.equal(await repository.totalCommittedForRound(quote.round.id), 120);
+const pendingLeaderboard = await service.bitebluffLeaderboard(alice.userId, redrawTime);
+assert.equal(pendingLeaderboard.entries.length, 2);
+assert.equal(pendingLeaderboard.entries.every((entry) => entry.bankroll === 100), true);
+assert.equal(pendingLeaderboard.entries.every((entry) => entry.rank === null), true);
+await assert.rejects(
+  service.redrawBitebluff(
+    bob.userId,
+    1,
+    new Date("2026-07-27T02:55:00.000Z"),
+  ),
+  /closes five minutes/,
+);
 
 const settlement = await service.settleBitebluffRound(quote.round.id, settlementTime);
 assert.ok(settlement);
@@ -102,14 +155,14 @@ assert.equal(
 );
 assert.equal(
   settlement.entries.reduce((total, entry) => total + entry.payout, 0),
-  90,
+  120,
 );
 assert.equal(
   settlement.entries.reduce(
     (total, entry) => total + entry.contestedPayout + entry.unmatchedReturn,
     0,
   ),
-  90,
+  120,
 );
 
 const balancesAfterSettlement = await Promise.all([
@@ -131,6 +184,16 @@ assert.deepEqual(
   balancesAfterRetry.map((account) => account?.balance),
   balancesAfterSettlement.map((account) => account?.balance),
 );
+const settledLeaderboard = await service.bitebluffLeaderboard(
+  alice.userId,
+  settlementTime,
+);
+assert.equal(settledLeaderboard.entries.every((entry) => entry.active), true);
+assert.equal(settledLeaderboard.entries[0].rank, 1);
+assert.equal(
+  settledLeaderboard.entries.reduce((total, entry) => total + entry.bankroll, 0),
+  200,
+);
 assert.deepEqual(await repository.roundsNeedingFinalDelivery(), [quote.round.id]);
 assert.equal((await repository.previewEntriesForRound(quote.round.id)).length, 2);
 assert.equal(
@@ -139,6 +202,48 @@ assert.equal(
   ),
   false,
 );
+
+const discordRequests = [];
+const discordServer = http.createServer((request, response) => {
+  const chunks = [];
+  request.on("data", (chunk) => chunks.push(chunk));
+  request.on("end", () => {
+    discordRequests.push({
+      method: request.method,
+      url: request.url,
+      body: Buffer.concat(chunks).toString("utf8"),
+    });
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ id: "preview-message" }));
+  });
+});
+await new Promise((resolve) => discordServer.listen(0, "127.0.0.1", resolve));
+const discordAddress = discordServer.address();
+process.env.BITEDLE_DISCORD_API_BASE_URL =
+  `http://127.0.0.1:${discordAddress.port}`;
+process.env.DISCORD_BOT_TOKEN = "test-bot-token";
+const { deliverBitebluffFinalResults } = require(
+  path.join(repoRoot, "src", "lib", "bitebluff-discord-preview.tsx"),
+);
+try {
+  await deliverBitebluffFinalResults(quote.round.id);
+} finally {
+  await new Promise((resolve, reject) =>
+    discordServer.close((error) => (error ? reject(error) : resolve())),
+  );
+}
+assert.equal(discordRequests.length, 1);
+assert.equal(discordRequests[0].method, "PATCH");
+assert.equal(
+  discordRequests[0].url,
+  `/channels/${destination.channelId}/messages/preview-message`,
+);
+assert.equal(discordRequests[0].body.includes('"allowed_mentions"'), true);
+assert.equal(discordRequests[0].body.includes('"parse":[]'), true);
+assert.deepEqual(await repository.roundsNeedingFinalDelivery(), []);
+const deliveredDestination = await repository.getDestination(destination.id);
+assert.deepEqual(deliveredDestination.finalMessageIds, ["preview-message"]);
+assert.equal(deliveredDestination.finalPostedAt > 0, true);
 
 const persisted = JSON.parse(fs.readFileSync(fileDbPath, "utf8"));
 assert.equal(
@@ -149,7 +254,11 @@ assert.equal(
   Object.values(persisted.ledger).filter((event) => event.kind === "daily_top_up").length,
   2,
 );
+assert.equal(
+  Object.values(persisted.ledger).filter((event) => event.kind === "redraw_surcharge").length,
+  1,
+);
 
 console.log(
-  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, encrypted pre-settlement hands, destination claims, layered-pot conservation, idempotent settlement, balance conservation, and retryable final delivery.",
+  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time random Burn & Draw, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, destination claims, layered-pot conservation, idempotent settlement, balance conservation, and final reveal replacement of the zero-ping live preview.",
 );

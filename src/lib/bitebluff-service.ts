@@ -5,10 +5,23 @@ import {
   dealCommittedBitebluffHand,
   decryptBitebluffValue,
   encryptBitebluffValue,
+  redrawCommittedBitebluffHand,
 } from "./bitebluff-crypto";
-import { bitebluffTopUp, bitebluffWagerBounds } from "./bitebluff-economy";
+import {
+  bitebluffRedrawSurcharge,
+  bitebluffTopUp,
+  bitebluffWagerBounds,
+  isBitebluffActive,
+} from "./bitebluff-economy";
 import { settleBitebluffLayers } from "./bitebluff-payout";
 import { evaluateBitebluffHand } from "./bitebluff-poker";
+import {
+  BITEBLUFF_ACTIVE_DAYS,
+  BITEBLUFF_REDRAW_CLOSE_MS,
+  BITEBLUFF_REDRAW_MAX,
+  BITEBLUFF_REDRAW_MIN,
+} from "./bitebluff-constants";
+import { discordAvatarUrl } from "./discord";
 import {
   getBitebluffRepository,
   type BitebluffDestinationInput,
@@ -21,7 +34,9 @@ import type {
   BitebluffDestinationRecord,
   BitebluffEnterResult,
   BitebluffEntryQuote,
+  BitebluffLeaderboard,
   BitebluffPrivateState,
+  BitebluffRedrawResult,
   BitebluffRoundRecord,
   BitebluffSettlementResult,
 } from "./bitebluff-types";
@@ -144,6 +159,10 @@ export async function recordBitebluffDestination(
   return getBitebluffRepository().upsertDestination(input);
 }
 
+function committedBites(entry: { wager: number; redrawSurcharge: number }): number {
+  return entry.wager + entry.redrawSurcharge;
+}
+
 export async function bitebluffPrivateState(
   userId: string,
   now: Date = new Date(),
@@ -160,6 +179,12 @@ export async function bitebluffPrivateState(
     ? entry.revealedHand ??
       decryptBitebluffValue<BitebluffCard[]>(entry.encryptedHand)
     : null;
+  const redrawSurcharge = entry ? bitebluffRedrawSurcharge(entry.wager) : null;
+  const redrawDeadline = round.revealAt - BITEBLUFF_REDRAW_CLOSE_MS;
+  const redrawPositions =
+    entry?.encryptedBurnPositions && entry.redrawCount !== null
+      ? decryptBitebluffValue<number[]>(entry.encryptedBurnPositions)
+      : null;
   const storedBalance = account?.balance ?? 0;
   const topUp =
     entry || account?.lastTopUpDate === round.date
@@ -169,6 +194,18 @@ export async function bitebluffPrivateState(
   const wagerBounds = entry
     ? { minimum: 0, maximum: 0 }
     : bitebluffWagerBounds(availableBalance);
+  let redrawUnavailableReason: string | null = null;
+  if (entry) {
+    if (entry.redrawCount !== null) {
+      redrawUnavailableReason = "Burn & Draw has already been used for this hand.";
+    } else if (round.status !== "open") {
+      redrawUnavailableReason = "This round is no longer open.";
+    } else if (now.getTime() >= redrawDeadline) {
+      redrawUnavailableReason = "Burn & Draw closes five minutes before the reveal.";
+    } else if (redrawSurcharge !== null && storedBalance < redrawSurcharge) {
+      redrawUnavailableReason = "Your bankroll cannot cover the redraw surcharge.";
+    }
+  }
   return {
     round: {
       id: round.id,
@@ -194,6 +231,7 @@ export async function bitebluffPrivateState(
       entry && hand
         ? {
             wager: entry.wager,
+            committed: committedBites(entry),
             enteredAt: entry.enteredAt,
             hand,
             handLabel: entry.handLabel,
@@ -202,11 +240,177 @@ export async function bitebluffPrivateState(
               round.status === "settled" ? entry.contestedPayout : null,
             unmatchedReturn:
               round.status === "settled" ? entry.unmatchedReturn : null,
-            net: round.status === "settled" ? entry.payout - entry.wager : null,
+            net:
+              round.status === "settled"
+                ? entry.payout - committedBites(entry)
+                : null,
+            redraw:
+              entry.redrawCount !== null &&
+              entry.redrawAt !== null &&
+              redrawPositions
+                ? {
+                    count: entry.redrawCount,
+                    surcharge: entry.redrawSurcharge,
+                    at: entry.redrawAt,
+                    positions: redrawPositions,
+                  }
+                : null,
           }
         : null,
-    pot: entries.reduce((total, participant) => total + participant.wager, 0),
+    burnAndDraw: {
+      available: Boolean(entry) && redrawUnavailableReason === null,
+      deadline: redrawDeadline,
+      surcharge: redrawSurcharge,
+      unavailableReason: redrawUnavailableReason,
+    },
+    participants: entries.map((participant) => ({
+      userId: participant.userId,
+      displayName: participant.displayName,
+      avatarUrl: discordAvatarUrl(
+        participant.discordUserId,
+        participant.avatarHash,
+      ),
+      wager: participant.wager,
+      me: participant.userId === userId,
+    })),
+    pot: entries.reduce((total, participant) => total + committedBites(participant), 0),
     participantCount: entries.length,
+  };
+}
+
+export async function redrawBitebluff(
+  userId: string,
+  count: number,
+  now: Date = new Date(),
+): Promise<BitebluffRedrawResult> {
+  if (
+    !Number.isInteger(count) ||
+    count < BITEBLUFF_REDRAW_MIN ||
+    count > BITEBLUFF_REDRAW_MAX
+  ) {
+    throw new Error("Choose 1, 2, or 3 random cards to Burn & Draw.");
+  }
+  const repository = getBitebluffRepository();
+  const round = await ensureBitebluffRound(now);
+  const [entry, account] = await Promise.all([
+    repository.getEntry(round.id, userId),
+    repository.getAccount(userId),
+  ]);
+  if (!entry || !account) {
+    throw new Error("Place today’s Bitebluff wager before using Burn & Draw.");
+  }
+  if (entry.redrawCount !== null) {
+    if (entry.redrawCount !== count) {
+      throw new Error("Burn & Draw has already been used for this hand.");
+    }
+    return { entry, account, applied: false };
+  }
+  if (
+    round.status !== "open" ||
+    now.getTime() >= round.revealAt - BITEBLUFF_REDRAW_CLOSE_MS
+  ) {
+    throw new Error("Burn & Draw closes five minutes before the reveal.");
+  }
+  const surcharge = bitebluffRedrawSurcharge(entry.wager);
+  if (account.balance < surcharge) {
+    throw new Error("Your bankroll cannot cover the redraw surcharge.");
+  }
+  const secret = decryptBitebluffValue<string>(round.encryptedSecret);
+  const originalHand = decryptBitebluffValue<BitebluffCard[]>(entry.encryptedHand);
+  const redraw = redrawCommittedBitebluffHand({
+    secret,
+    entrantId: userId,
+    hand: originalHand,
+    count,
+  });
+  const result = await repository.redraw({
+    roundId: round.id,
+    userId,
+    now: now.getTime(),
+    count,
+    surcharge,
+    encryptedHand: encryptBitebluffValue(redraw.hand),
+    encryptedDiscardedCards: encryptBitebluffValue(redraw.burned),
+    encryptedBurnPositions: encryptBitebluffValue(redraw.positions),
+  });
+  if (!result) {
+    throw new Error(
+      "Burn & Draw could not be completed. Refresh to check the deadline and bankroll.",
+    );
+  }
+  if (!result.applied && result.entry.redrawCount !== count) {
+    throw new Error("Burn & Draw has already been used for this hand.");
+  }
+  return result;
+}
+
+function bitebluffDayNumber(date: string): number {
+  return Math.floor(Date.parse(`${date}T00:00:00.000Z`) / 86_400_000);
+}
+
+export async function bitebluffLeaderboard(
+  viewerUserId: string,
+  now: Date = new Date(),
+): Promise<BitebluffLeaderboard> {
+  const today = bitebluffDayNumber(bitebluffDate(now));
+  const accounts = await getBitebluffRepository().leaderboardAccounts();
+  const rows = accounts.map((account) => {
+    const active =
+      account.lastSettledDate !== null &&
+      isBitebluffActive(
+        bitebluffDayNumber(account.lastSettledDate),
+        today,
+      );
+    return {
+      ...account,
+      active,
+      avatarUrl: discordAvatarUrl(account.discordUserId, account.avatarHash),
+    };
+  });
+  const active = rows
+    .filter((entry) => entry.active)
+    .sort(
+      (a, b) =>
+        b.bankroll - a.bankroll ||
+        a.displayName.localeCompare(b.displayName) ||
+        a.userId.localeCompare(b.userId),
+    );
+  let previousBankroll: number | null = null;
+  let previousRank = 0;
+  const ranked = active.map((entry, index) => {
+    if (entry.bankroll !== previousBankroll) previousRank = index + 1;
+    previousBankroll = entry.bankroll;
+    return {
+      userId: entry.userId,
+      displayName: entry.displayName,
+      avatarUrl: entry.avatarUrl,
+      bankroll: entry.bankroll,
+      rank: previousRank,
+      active: true,
+      me: entry.userId === viewerUserId,
+    };
+  });
+  const inactive = rows
+    .filter((entry) => !entry.active)
+    .sort(
+      (a, b) =>
+        b.bankroll - a.bankroll ||
+        a.displayName.localeCompare(b.displayName) ||
+        a.userId.localeCompare(b.userId),
+    )
+    .map((entry) => ({
+      userId: entry.userId,
+      displayName: entry.displayName,
+      avatarUrl: entry.avatarUrl,
+      bankroll: entry.bankroll,
+      rank: null,
+      active: false,
+      me: entry.userId === viewerUserId,
+    }));
+  return {
+    title: "Active bankroll",
+    activeWindowDays: BITEBLUFF_ACTIVE_DAYS,
+    entries: [...ranked, ...inactive],
   };
 }
 
@@ -240,7 +444,7 @@ export async function settleBitebluffRound(
   const settlement = settleBitebluffLayers(
     entries.map((entry) => ({
       id: entry.id,
-      committed: entry.wager,
+      committed: committedBites(entry),
       hand: hands.get(entry.id)!,
     })),
   );

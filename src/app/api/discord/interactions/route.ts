@@ -45,6 +45,12 @@ import {
   BITESWEEPER_WEBHOOK_TOKEN_TTL_MS,
   type BitesweeperPreviewPlayer,
 } from "@/lib/bitesweeper-discord-preview";
+import { bitebluffDate } from "@/lib/bitebluff-time";
+import {
+  getBitebluffRepository,
+} from "@/lib/bitebluff-store";
+import { recordBitebluffDestination } from "@/lib/bitebluff-service";
+import { updateBitebluffPublicPreview } from "@/lib/bitebluff-discord-preview";
 
 // Imports next/og (via discord-summary) for the preview image — needs Node.
 export const runtime = "nodejs";
@@ -108,7 +114,40 @@ async function handleBitebluffCommand(body: Interaction): Promise<NextResponse> 
   if (!body.guild_id) {
     return reply("Bitebluff is a server-wide daily game. Run it in a server channel.", true);
   }
+  const discordUserId = discordUser.id;
   await recordIntent(body, "bitebluff", false);
+  if (body.channel_id && body.application_id && body.token) {
+    const channelId = body.channel_id;
+    const applicationId = body.application_id;
+    const webhookToken = body.token;
+    const guildId = body.guild_id;
+    const launchedAt = Date.now();
+    after(async () => {
+      try {
+        const store = getStore();
+        const userId = await store.getUserIdByDiscordId(discordUserId);
+        if (!userId) return;
+        const repository = getBitebluffRepository();
+        const entry = await repository.getEntry(
+          bitebluffDate(new Date(launchedAt)),
+          userId,
+        );
+        if (!entry) return;
+        const destination = await recordBitebluffDestination({
+          roundId: entry.roundId,
+          guildId,
+          channelId,
+          applicationId,
+          webhookToken,
+          tokenCreatedAt: launchedAt,
+          now: launchedAt,
+        });
+        await updateBitebluffPublicPreview(destination.id);
+      } catch (error) {
+        console.error("interactions: Bitebluff preview refresh failed", error);
+      }
+    });
+  }
   return NextResponse.json({ type: 12 });
 }
 

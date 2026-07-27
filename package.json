@@ -12,7 +12,8 @@
     "verify:bitefight": "node scripts/verify-bitefight.mjs",
     "verify:biteshooter": "node scripts/verify-biteshooter.mjs",
     "verify:bitebluff": "node scripts/verify-bitebluff.mjs",
-    "verify:bitebluff-discord": "node scripts/verify-bitebluff-discord.mjs"
+    "verify:bitebluff-discord": "node scripts/verify-bitebluff-discord.mjs",
+    "render:bitebluff-samples": "node scripts/render-bitebluff-samples.mjs"
   },
   "dependencies": {
     "@discord/embedded-app-sdk": "^2.5.0",

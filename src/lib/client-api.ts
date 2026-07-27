@@ -26,7 +26,10 @@ import type {
   MegaGameState,
   UserStats,
 } from "./types";
-import type { BitebluffPrivateState } from "./bitebluff-types";
+import type {
+  BitebluffLeaderboard,
+  BitebluffPrivateState,
+} from "./bitebluff-types";
 
 const DISCORD_USER_HEADER_NAME = "X-Bitedle-Discord-User-Id";
 const TZ_HEADER_NAME = "X-Bitedle-TZ";
@@ -42,6 +45,8 @@ const IDENTITY_REQUIRED_PATHS = new Set([
   "/api/click",
   "/api/bitebluff/state",
   "/api/bitebluff/entry",
+  "/api/bitebluff/redraw",
+  "/api/bitebluff/leaderboard",
 ]);
 
 /** The player's IANA timezone, so the server can roll their board at their own
@@ -232,4 +237,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ wager }),
     }),
+  bitebluffRedraw: (count: number) =>
+    request<BitebluffPrivateState>("/api/bitebluff/redraw", {
+      method: "POST",
+      body: JSON.stringify({ count }),
+    }),
+  bitebluffLeaderboard: () =>
+    request<BitebluffLeaderboard>("/api/bitebluff/leaderboard"),
 };

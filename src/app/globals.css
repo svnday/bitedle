@@ -436,6 +436,29 @@ body {
   box-shadow: inset 0 1px rgb(255 255 255 / 0.04);
 }
 
+.bitebluff-hero-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 0.7rem;
+}
+
+.bitebluff-leaderboard-button,
+.bitebluff-secondary-button {
+  cursor: pointer;
+  border: 1px solid rgb(226 183 91 / 0.35);
+  border-radius: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  color: #ead093;
+  background: rgb(20 27 24 / 0.82);
+  font-weight: 850;
+}
+
+.bitebluff-leaderboard-button:hover,
+.bitebluff-secondary-button:hover {
+  border-color: rgb(226 183 91 / 0.7);
+  background: #1b2924;
+}
+
 .bitebluff-clock span,
 .bitebluff-clock small {
   display: block;
@@ -468,7 +491,7 @@ body {
 
 .bitebluff-stats {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 0.5rem;
 }
 
@@ -510,6 +533,136 @@ body {
   box-shadow:
     inset 0 0 6rem rgb(0 0 0 / 0.48),
     0 1.4rem 3rem rgb(0 0 0 / 0.24);
+}
+
+.bitebluff-private-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(15.5rem, 18rem);
+  gap: 0.85rem;
+  align-items: stretch;
+}
+
+.bitebluff-pot-roster {
+  display: flex;
+  min-height: 26rem;
+  max-height: 26rem;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgb(157 178 166 / 0.17);
+  border-radius: 1rem;
+  padding: 0.9rem;
+  background: rgb(21 28 26 / 0.88);
+  box-shadow: inset 0 1px rgb(255 255 255 / 0.035);
+}
+
+.bitebluff-pot-roster-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  border-bottom: 1px solid rgb(157 178 166 / 0.13);
+  padding-bottom: 0.75rem;
+}
+
+.bitebluff-pot-roster-heading span,
+.bitebluff-leaderboard-modal-heading span {
+  color: #e2b75b;
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.bitebluff-pot-roster-heading h2,
+.bitebluff-leaderboard-modal-heading h2 {
+  margin-top: 0.12rem;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.18rem;
+}
+
+.bitebluff-pot-roster-heading > b {
+  display: grid;
+  width: 2rem;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid rgb(226 183 91 / 0.35);
+  border-radius: 999px;
+  color: #f3d28c;
+  background: #14231d;
+}
+
+.bitebluff-pot-roster-list {
+  display: grid;
+  gap: 0.25rem;
+  overflow-y: auto;
+  padding: 0.55rem 0;
+  scrollbar-color: #6f7f77 transparent;
+  scrollbar-width: thin;
+}
+
+.bitebluff-pot-roster-list > div {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  border-radius: 0.65rem;
+  padding: 0.48rem;
+}
+
+.bitebluff-pot-roster-list > div + div {
+  border-top: 1px solid rgb(157 178 166 / 0.1);
+}
+
+.bitebluff-pot-roster-list img,
+.bitebluff-player-fallback {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.bitebluff-player-fallback {
+  display: grid;
+  place-items: center;
+  color: #f3d28c;
+  background: #234738;
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.bitebluff-pot-roster-list strong,
+.bitebluff-pot-roster-list small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bitebluff-pot-roster-list strong {
+  font-size: 0.74rem;
+}
+
+.bitebluff-pot-roster-list small {
+  color: #74877d;
+  font-size: 0.54rem;
+}
+
+.bitebluff-pot-roster-list > div > b {
+  color: #ead093;
+  font-size: 0.7rem;
+}
+
+.bitebluff-pot-player-me {
+  background: rgb(39 79 61 / 0.28);
+}
+
+.bitebluff-pot-roster > p {
+  margin-top: auto;
+  border-top: 1px solid rgb(157 178 166 / 0.1);
+  padding-top: 0.65rem;
+  color: #71837a;
+  font-size: 0.56rem;
+  line-height: 1.45;
 }
 
 .bitebluff-table::before {
@@ -700,6 +853,12 @@ body {
   animation: bitebluff-flip-card 320ms cubic-bezier(0.45, 0.08, 0.2, 1) both;
 }
 
+.bitebluff-card-replacement .bitebluff-card-face {
+  box-shadow:
+    0 0 0 2px rgb(226 183 91 / 0.72),
+    0 0.8rem 1.8rem rgb(226 183 91 / 0.24);
+}
+
 .bitebluff-card-slot-0 {
   --bitebluff-deal-x: 220%;
   --bitebluff-deal-mid-x: 58%;
@@ -855,11 +1014,56 @@ body {
   background: rgb(85 35 25 / 0.24);
 }
 
+.bitebluff-redraw-box {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.bitebluff-redraw-box > p {
+  max-width: 48rem;
+}
+
 .bitebluff-redraw-box > div {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
   margin-top: 0.65rem;
+}
+
+.bitebluff-redraw-box button.is-selected {
+  border-color: #e4c170;
+  color: #171b16;
+  background: #e4c170;
+}
+
+.bitebluff-redraw-box > small {
+  color: #9b8a70;
+  font-size: 0.62rem;
+}
+
+.bitebluff-redraw-confirm {
+  display: flex !important;
+  align-items: center;
+}
+
+.bitebluff-redraw-confirm p {
+  width: 100%;
+}
+
+.bitebluff-redraw-complete {
+  display: grid;
+  gap: 0.2rem;
+  border-left: 3px solid #d4a947;
+  padding-left: 0.8rem;
+}
+
+.bitebluff-redraw-complete strong {
+  color: #e4bd68;
+}
+
+.bitebluff-redraw-complete span {
+  color: #8fa198;
+  font-size: 0.72rem;
 }
 
 .bitebluff-redraw-box button,
@@ -1097,6 +1301,127 @@ body {
   opacity: 0.5;
 }
 
+.bitebluff-modal-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(4 9 7 / 0.76);
+  backdrop-filter: blur(6px);
+}
+
+.bitebluff-leaderboard-modal {
+  width: min(36rem, 100%);
+  max-height: min(42rem, calc(100vh - 2rem));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgb(157 178 166 / 0.22);
+  border-radius: 1rem;
+  padding: 1rem;
+  color: #f8f4e8;
+  background: #121c18;
+  box-shadow: 0 2rem 6rem rgb(0 0 0 / 0.5);
+}
+
+.bitebluff-leaderboard-modal-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid rgb(157 178 166 / 0.14);
+  padding-bottom: 0.8rem;
+}
+
+.bitebluff-leaderboard-modal-heading small {
+  color: #789087;
+  font-size: 0.58rem;
+}
+
+.bitebluff-leaderboard-modal-heading button {
+  cursor: pointer;
+  border: 1px solid rgb(157 178 166 / 0.2);
+  border-radius: 999px;
+  width: 2rem;
+  height: 2rem;
+  color: #d9e1dc;
+  background: #1a2923;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.bitebluff-leaderboard-scroll {
+  overflow-y: auto;
+  scrollbar-color: #6f7f77 transparent;
+  scrollbar-width: thin;
+}
+
+.bitebluff-leaderboard-row {
+  display: grid;
+  grid-template-columns: 1.4rem 2.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  border-bottom: 1px solid rgb(157 178 166 / 0.1);
+  padding: 0.7rem 0.4rem;
+}
+
+.bitebluff-leaderboard-row img,
+.bitebluff-leaderboard-row .bitebluff-player-fallback {
+  width: 2.25rem;
+  height: 2.25rem;
+  object-fit: cover;
+}
+
+.bitebluff-leaderboard-rank {
+  color: #e9d8ac;
+  text-align: center;
+}
+
+.bitebluff-leaderboard-row strong,
+.bitebluff-leaderboard-row small {
+  display: block;
+}
+
+.bitebluff-leaderboard-row strong {
+  overflow: hidden;
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bitebluff-leaderboard-row small {
+  color: #71837a;
+  font-size: 0.57rem;
+}
+
+.bitebluff-leaderboard-row > b:last-child {
+  color: #ead093;
+  font-size: 0.76rem;
+}
+
+.bitebluff-leaderboard-me {
+  background: rgb(39 79 61 / 0.24);
+}
+
+.bitebluff-leaderboard-note,
+.bitebluff-modal-status {
+  color: #75877e;
+  font-size: 0.6rem;
+  line-height: 1.5;
+}
+
+.bitebluff-leaderboard-note {
+  border-top: 1px solid rgb(157 178 166 / 0.12);
+  padding-top: 0.75rem;
+}
+
+.bitebluff-modal-status {
+  padding: 2rem 0;
+  text-align: center;
+}
+
 .bitebluff-settlement {
   display: grid;
   gap: 0.85rem;
@@ -1215,12 +1540,25 @@ body {
     text-align: left;
   }
 
+  .bitebluff-hero-actions {
+    flex-direction: column-reverse;
+  }
+
   .bitebluff-stats {
     grid-template-columns: repeat(2, 1fr);
   }
 
   .bitebluff-table {
     min-height: 19rem;
+  }
+
+  .bitebluff-private-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .bitebluff-pot-roster {
+    min-height: 0;
+    max-height: 18rem;
   }
 
   .bitebluff-table::before {

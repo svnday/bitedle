@@ -8,6 +8,7 @@ export default function BitebluffTable({
   dealing,
   readyToFlip,
   flipping,
+  replacementPositions = [],
 }: {
   hand: readonly Card[];
   placedCount: number;
@@ -15,6 +16,7 @@ export default function BitebluffTable({
   dealing: boolean;
   readyToFlip: boolean;
   flipping: boolean;
+  replacementPositions?: readonly number[];
 }) {
   return (
     <section
@@ -54,6 +56,11 @@ export default function BitebluffTable({
               dealing={dealing && index === placedCount - 1}
               flipping={flipping && index === revealedCount - 1}
               dealIndex={index}
+              className={
+                replacementPositions.includes(index)
+                  ? "bitebluff-card-replacement"
+                  : ""
+              }
             />
           ),
         )}

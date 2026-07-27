@@ -7,7 +7,10 @@ import type {
   BitebluffEnterInput,
   BitebluffEnterResult,
   BitebluffEntryRecord,
+  BitebluffLeaderboardAccount,
   BitebluffPreviewEntry,
+  BitebluffRedrawInput,
+  BitebluffRedrawResult,
   BitebluffRoundRecord,
 } from "./bitebluff-types";
 
@@ -33,7 +36,10 @@ export interface BitebluffRepository {
   getEntry(roundId: string, userId: string): Promise<BitebluffEntryRecord | null>;
   entriesForRound(roundId: string): Promise<BitebluffEntryRecord[]>;
   previewEntriesForRound(roundId: string): Promise<BitebluffPreviewEntry[]>;
+  totalCommittedForRound(roundId: string): Promise<number>;
+  leaderboardAccounts(): Promise<BitebluffLeaderboardAccount[]>;
   enter(input: BitebluffEnterInput): Promise<BitebluffEnterResult | null>;
+  redraw(input: BitebluffRedrawInput): Promise<BitebluffRedrawResult | null>;
   upsertDestination(input: BitebluffDestinationInput): Promise<BitebluffDestinationRecord>;
   getDestination(destinationId: string): Promise<BitebluffDestinationRecord | null>;
   destinationsForRound(roundId: string): Promise<BitebluffDestinationRecord[]>;
@@ -100,10 +106,23 @@ class BitebluffFileRepository implements BitebluffRepository {
   private load(): BitebluffFileDb {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8")) as Partial<BitebluffFileDb>;
+      const entries = Object.fromEntries(
+        Object.entries(parsed.entries ?? {}).map(([key, entry]) => [
+          key,
+          {
+            ...entry,
+            redrawSurcharge: entry.redrawSurcharge ?? 0,
+            encryptedDiscardedCards: entry.encryptedDiscardedCards ?? null,
+            encryptedBurnPositions: entry.encryptedBurnPositions ?? null,
+            redrawCount: entry.redrawCount ?? null,
+            redrawAt: entry.redrawAt ?? null,
+          },
+        ]),
+      );
       return {
         accounts: parsed.accounts ?? {},
         rounds: parsed.rounds ?? {},
-        entries: parsed.entries ?? {},
+        entries,
         destinations: parsed.destinations ?? {},
         ledger: parsed.ledger ?? {},
       };
@@ -176,6 +195,38 @@ class BitebluffFileRepository implements BitebluffRepository {
       }));
   }
 
+  async totalCommittedForRound(roundId: string): Promise<number> {
+    return Object.values(this.db.entries)
+      .filter((entry) => entry.roundId === roundId)
+      .reduce(
+        (total, entry) => total + entry.wager + (entry.redrawSurcharge ?? 0),
+        0,
+      );
+  }
+
+  async leaderboardAccounts(): Promise<BitebluffLeaderboardAccount[]> {
+    return Object.values(this.db.accounts).map((account) => {
+      const entries = Object.values(this.db.entries)
+        .filter((entry) => entry.userId === account.userId)
+        .sort((a, b) => b.enteredAt - a.enteredAt || b.id.localeCompare(a.id));
+      const latest = entries[0];
+      const pendingCommitment = entries
+        .filter((entry) => this.db.rounds[entry.roundId]?.status !== "settled")
+        .reduce(
+          (total, entry) => total + entry.wager + (entry.redrawSurcharge ?? 0),
+          0,
+        );
+      return {
+        userId: account.userId,
+        displayName: latest?.displayName ?? "Bitebluff player",
+        discordUserId: latest?.discordUserId ?? "",
+        avatarHash: latest?.avatarHash ?? null,
+        bankroll: account.balance + pendingCommitment,
+        lastSettledDate: account.lastSettledDate,
+      };
+    });
+  }
+
   async enter(input: BitebluffEnterInput): Promise<BitebluffEnterResult | null> {
     const round = this.db.rounds[input.roundId];
     if (!round || round.status !== "open" || input.now >= round.revealAt) return null;
@@ -234,6 +285,11 @@ class BitebluffFileRepository implements BitebluffRepository {
       displayName: input.displayName,
       avatarHash: input.avatarHash,
       wager: input.wager,
+      redrawSurcharge: 0,
+      encryptedDiscardedCards: null,
+      encryptedBurnPositions: null,
+      redrawCount: null,
+      redrawAt: null,
       encryptedHand: input.encryptedHand,
       revealedHand: null,
       handCategory: null,
@@ -259,6 +315,51 @@ class BitebluffFileRepository implements BitebluffRepository {
     };
     this.persist();
     return { entry: structuredClone(entry), account: structuredClone(account), created: true, topUp };
+  }
+
+  async redraw(input: BitebluffRedrawInput): Promise<BitebluffRedrawResult | null> {
+    const round = this.db.rounds[input.roundId];
+    const key = entryKey(input.roundId, input.userId);
+    const entry = this.db.entries[key];
+    const account = this.db.accounts[input.userId];
+    if (!round || !entry || !account) return null;
+    if (entry.redrawCount !== null) {
+      return {
+        entry: structuredClone(entry),
+        account: structuredClone(account),
+        applied: false,
+      };
+    }
+    if (
+      round.status !== "open" ||
+      input.now >= round.revealAt - 5 * 60_000 ||
+      account.balance < input.surcharge
+    ) {
+      return null;
+    }
+    account.balance -= input.surcharge;
+    account.lifetimeWagered += input.surcharge;
+    account.updatedAt = input.now;
+    entry.redrawSurcharge = input.surcharge;
+    entry.encryptedDiscardedCards = input.encryptedDiscardedCards;
+    entry.encryptedBurnPositions = input.encryptedBurnPositions;
+    entry.redrawCount = input.count;
+    entry.redrawAt = input.now;
+    entry.encryptedHand = input.encryptedHand;
+    this.db.ledger[`redraw:${input.roundId}:${input.userId}`] = {
+      id: `redraw:${input.roundId}:${input.userId}`,
+      userId: input.userId,
+      roundId: input.roundId,
+      kind: "redraw_surcharge",
+      amount: -input.surcharge,
+      at: input.now,
+    };
+    this.persist();
+    return {
+      entry: structuredClone(entry),
+      account: structuredClone(account),
+      applied: true,
+    };
   }
 
   async upsertDestination(input: BitebluffDestinationInput): Promise<BitebluffDestinationRecord> {
@@ -480,6 +581,18 @@ function entryFromRow(row: Record<string, unknown>): BitebluffEntryRecord {
     displayName: row.display_name as string,
     avatarHash: (row.avatar_hash as string | null) ?? null,
     wager: Number(row.wager),
+    redrawSurcharge: Number(row.redraw_surcharge ?? 0),
+    encryptedDiscardedCards:
+      (row.encrypted_discarded_cards as string | null) ?? null,
+    encryptedBurnPositions:
+      (row.encrypted_burn_positions as string | null) ?? null,
+    redrawCount: row.redraw_count === null || row.redraw_count === undefined
+      ? null
+      : Number(row.redraw_count),
+    redrawAt:
+      row.redraw_at === null || row.redraw_at === undefined
+        ? null
+        : Number(row.redraw_at),
     encryptedHand: row.encrypted_hand as string,
     revealedHand: (row.revealed_hand as BitebluffEntryRecord["revealedHand"]) ?? null,
     handCategory: (row.hand_category as BitebluffEntryRecord["handCategory"]) ?? null,
@@ -568,6 +681,11 @@ class BitebluffNeonRepository implements BitebluffRepository {
           display_name text NOT NULL,
           avatar_hash text,
           wager bigint NOT NULL CHECK (wager > 0),
+          redraw_surcharge bigint NOT NULL DEFAULT 0 CHECK (redraw_surcharge >= 0),
+          encrypted_discarded_cards text,
+          encrypted_burn_positions text,
+          redraw_count integer,
+          redraw_at bigint,
           encrypted_hand text NOT NULL,
           revealed_hand jsonb,
           hand_category text,
@@ -585,6 +703,21 @@ class BitebluffNeonRepository implements BitebluffRepository {
       await this.sql`
         ALTER TABLE bitebluff_entries
         ADD COLUMN IF NOT EXISTS won_layers jsonb NOT NULL DEFAULT '[]'`;
+      await this.sql`
+        ALTER TABLE bitebluff_entries
+        ADD COLUMN IF NOT EXISTS redraw_surcharge bigint NOT NULL DEFAULT 0`;
+      await this.sql`
+        ALTER TABLE bitebluff_entries
+        ADD COLUMN IF NOT EXISTS encrypted_discarded_cards text`;
+      await this.sql`
+        ALTER TABLE bitebluff_entries
+        ADD COLUMN IF NOT EXISTS encrypted_burn_positions text`;
+      await this.sql`
+        ALTER TABLE bitebluff_entries
+        ADD COLUMN IF NOT EXISTS redraw_count integer`;
+      await this.sql`
+        ALTER TABLE bitebluff_entries
+        ADD COLUMN IF NOT EXISTS redraw_at bigint`;
       await this.sql`
         CREATE INDEX IF NOT EXISTS bitebluff_entries_round_idx
         ON bitebluff_entries (round_id, entered_at)`;
@@ -694,6 +827,50 @@ class BitebluffNeonRepository implements BitebluffRepository {
     }));
   }
 
+  async totalCommittedForRound(roundId: string): Promise<number> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT COALESCE(SUM(wager + redraw_surcharge), 0) AS total
+      FROM bitebluff_entries
+      WHERE round_id = ${roundId}`;
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  async leaderboardAccounts(): Promise<BitebluffLeaderboardAccount[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT account.user_id,
+             COALESCE(latest.display_name, 'Bitebluff player') AS display_name,
+             COALESCE(latest.discord_user_id, '') AS discord_user_id,
+             latest.avatar_hash,
+             account.balance + COALESCE(pending.committed, 0) AS bankroll,
+             account.last_settled_date
+      FROM bitebluff_accounts account
+      LEFT JOIN LATERAL (
+        SELECT entry.display_name, entry.discord_user_id, entry.avatar_hash
+        FROM bitebluff_entries entry
+        WHERE entry.user_id = account.user_id
+        ORDER BY entry.entered_at DESC, entry.id DESC
+        LIMIT 1
+      ) latest ON true
+      LEFT JOIN LATERAL (
+        SELECT SUM(entry.wager + entry.redraw_surcharge) AS committed
+        FROM bitebluff_entries entry
+        JOIN bitebluff_rounds round ON round.id = entry.round_id
+        WHERE entry.user_id = account.user_id
+          AND round.status <> 'settled'
+      ) pending ON true
+      ORDER BY bankroll DESC, display_name, account.user_id`;
+    return rows.map((row) => ({
+      userId: row.user_id as string,
+      displayName: row.display_name as string,
+      discordUserId: row.discord_user_id as string,
+      avatarHash: (row.avatar_hash as string | null) ?? null,
+      bankroll: Number(row.bankroll),
+      lastSettledDate: (row.last_settled_date as string | null) ?? null,
+    }));
+  }
+
   async enter(input: BitebluffEnterInput): Promise<BitebluffEnterResult | null> {
     await this.ensureSchema();
     const entryId = crypto.randomUUID();
@@ -771,6 +948,68 @@ class BitebluffNeonRepository implements BitebluffRepository {
       account: accountFromRow(row),
       created: Boolean(row.created),
       topUp: Number(row.top_up),
+    };
+  }
+
+  async redraw(input: BitebluffRedrawInput): Promise<BitebluffRedrawResult | null> {
+    await this.ensureSchema();
+    const ledgerId = `redraw:${input.roundId}:${input.userId}`;
+    const results = await this.sql.transaction([
+      this.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`bitebluff-redraw:${input.roundId}:${input.userId}`}, 0))`,
+      this.sql`
+        UPDATE bitebluff_entries entry
+        SET redraw_surcharge = ${input.surcharge},
+            encrypted_discarded_cards = ${input.encryptedDiscardedCards},
+            encrypted_burn_positions = ${input.encryptedBurnPositions},
+            redraw_count = ${input.count},
+            redraw_at = ${input.now},
+            encrypted_hand = ${input.encryptedHand}
+        FROM bitebluff_rounds round, bitebluff_accounts account
+        WHERE entry.round_id = ${input.roundId}
+          AND entry.user_id = ${input.userId}
+          AND entry.round_id = round.id
+          AND entry.user_id = account.user_id
+          AND entry.redraw_count IS NULL
+          AND round.status = 'open'
+          AND round.reveal_at > ${input.now + 5 * 60_000}
+          AND account.balance >= ${input.surcharge}`,
+      this.sql`
+        WITH charged AS (
+          INSERT INTO bitebluff_ledger (id, user_id, round_id, kind, amount, created_at)
+          SELECT ${ledgerId}, ${input.userId}, ${input.roundId}, 'redraw_surcharge',
+                 ${-input.surcharge}, ${input.now}
+          FROM bitebluff_entries
+          WHERE round_id = ${input.roundId}
+            AND user_id = ${input.userId}
+            AND redraw_at = ${input.now}
+            AND redraw_count = ${input.count}
+          ON CONFLICT (id) DO NOTHING
+          RETURNING -amount AS surcharge
+        )
+        UPDATE bitebluff_accounts account
+        SET balance = account.balance - charged.surcharge,
+            lifetime_wagered = account.lifetime_wagered + charged.surcharge,
+            updated_at = ${input.now}
+        FROM charged
+        WHERE account.user_id = ${input.userId}`,
+      this.sql`
+        SELECT entry.*, account.balance, account.last_top_up_date,
+               account.lifetime_wagered, account.lifetime_payout,
+               account.last_settled_date, account.updated_at,
+               (entry.redraw_at = ${input.now}
+                 AND entry.redraw_count = ${input.count}) AS applied
+        FROM bitebluff_entries entry
+        JOIN bitebluff_accounts account ON account.user_id = entry.user_id
+        WHERE entry.round_id = ${input.roundId}
+          AND entry.user_id = ${input.userId}`,
+    ]);
+    const rows = results[results.length - 1];
+    const row = rows[0] as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      entry: entryFromRow(row),
+      account: accountFromRow(row),
+      applied: Boolean(row.applied),
     };
   }
 

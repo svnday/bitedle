@@ -263,6 +263,7 @@ const interactionSource = fs.readFileSync(
 assert.equal(interactionSource.includes('body?.data?.name === "bitebluff"'), true);
 assert.equal(interactionSource.includes("BITEBLUFF_CONFIRM_PREFIX"), false);
 assert.equal(interactionSource.includes('recordIntent(body, "bitebluff", false)'), true);
+assert.equal(interactionSource.includes("updateBitebluffPublicPreview(destination.id)"), true);
 assert.equal(interactionSource.includes("allowed_mentions: { parse: [] }"), true);
 const registrationSource = fs.readFileSync(
   path.join(repoRoot, "scripts", "register-discord-commands.mjs"),
@@ -275,14 +276,29 @@ const bitebluffGameSource = fs.readFileSync(
   "utf8",
 );
 assert.equal(bitebluffGameSource.includes("api.bitebluffEnter(selectedWager)"), true);
+assert.equal(bitebluffGameSource.includes("api.bitebluffRedraw(redrawCount)"), true);
+assert.equal(bitebluffGameSource.includes("api.bitebluffLeaderboard()"), true);
 assert.equal(bitebluffGameSource.includes("Review wager"), true);
 assert.equal(bitebluffGameSource.includes("Final confirmation"), true);
+assert.equal(bitebluffGameSource.includes("Current bankroll"), true);
+assert.equal(bitebluffGameSource.includes("BitebluffPotRoster"), true);
 const entryRouteSource = fs.readFileSync(
   path.join(repoRoot, "src", "app", "api", "bitebluff", "entry", "route.ts"),
   "utf8",
 );
 assert.equal(entryRouteSource.includes("enterBitebluff("), true);
 assert.equal(entryRouteSource.includes("discordChannelIdFromRequest"), true);
+const redrawRouteSource = fs.readFileSync(
+  path.join(repoRoot, "src", "app", "api", "bitebluff", "redraw", "route.ts"),
+  "utf8",
+);
+assert.equal(redrawRouteSource.includes("redrawBitebluff("), true);
+assert.equal(redrawRouteSource.includes("updateBitebluffPublicPreview"), true);
+const leaderboardRouteSource = fs.readFileSync(
+  path.join(repoRoot, "src", "app", "api", "bitebluff", "leaderboard", "route.ts"),
+  "utf8",
+);
+assert.equal(leaderboardRouteSource.includes("bitebluffLeaderboard("), true);
 const cronConfig = JSON.parse(
   fs.readFileSync(path.join(repoRoot, "vercel.json"), "utf8"),
 );
@@ -298,6 +314,11 @@ assert.equal(
   discordPreviewSource.includes("repository.previewEntriesForRound(destination.roundId)"),
   true,
 );
+assert.equal(
+  discordPreviewSource.includes("repository.totalCommittedForRound(destination.roundId)"),
+  true,
+);
+assert.equal(discordPreviewSource.includes("messageId: previewMessageId ?? undefined"), true);
 assert.deepEqual(
   cronConfig.crons.map((cron) => cron.path),
   ["/api/bitebluff/settle", "/api/bitebluff/settle-est"],

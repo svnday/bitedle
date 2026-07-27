@@ -34,6 +34,11 @@ export interface BitebluffEntryRecord {
   displayName: string;
   avatarHash: string | null;
   wager: number;
+  redrawSurcharge: number;
+  encryptedDiscardedCards: string | null;
+  encryptedBurnPositions: string | null;
+  redrawCount: number | null;
+  redrawAt: number | null;
   encryptedHand: string;
   revealedHand: BitebluffCard[] | null;
   handCategory: BitebluffCategory | null;
@@ -103,6 +108,50 @@ export interface BitebluffEnterResult {
   topUp: number;
 }
 
+export interface BitebluffRedrawInput {
+  roundId: string;
+  userId: string;
+  now: number;
+  count: number;
+  surcharge: number;
+  encryptedHand: string;
+  encryptedDiscardedCards: string;
+  encryptedBurnPositions: string;
+}
+
+export interface BitebluffRedrawResult {
+  entry: BitebluffEntryRecord;
+  account: BitebluffAccountRecord;
+  applied: boolean;
+}
+
+export interface BitebluffPotParticipant {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  wager: number;
+  me: boolean;
+}
+
+export interface BitebluffLeaderboardAccount {
+  userId: string;
+  displayName: string;
+  discordUserId: string;
+  avatarHash: string | null;
+  bankroll: number;
+  lastSettledDate: string | null;
+}
+
+export interface BitebluffLeaderboardEntry {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  bankroll: number;
+  rank: number | null;
+  active: boolean;
+  me: boolean;
+}
+
 export interface BitebluffPrivateState {
   round: {
     id: string;
@@ -126,6 +175,7 @@ export interface BitebluffPrivateState {
   };
   entry: null | {
     wager: number;
+    committed: number;
     enteredAt: number;
     hand: BitebluffCard[];
     handLabel: string | null;
@@ -133,9 +183,28 @@ export interface BitebluffPrivateState {
     contestedPayout: number | null;
     unmatchedReturn: number | null;
     net: number | null;
+    redraw: null | {
+      count: number;
+      surcharge: number;
+      at: number;
+      positions: number[];
+    };
   };
+  burnAndDraw: {
+    available: boolean;
+    deadline: number;
+    surcharge: number | null;
+    unavailableReason: string | null;
+  };
+  participants: BitebluffPotParticipant[];
   pot: number;
   participantCount: number;
+}
+
+export interface BitebluffLeaderboard {
+  title: "Active bankroll";
+  activeWindowDays: number;
+  entries: BitebluffLeaderboardEntry[];
 }
 
 export interface BitebluffSettlementResult {

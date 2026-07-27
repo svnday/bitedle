@@ -5,7 +5,12 @@ import {
   createHmac,
   randomBytes,
 } from "node:crypto";
-import { bitebluffDeck } from "./bitebluff-cards";
+import { bitebluffCardKey, bitebluffDeck } from "./bitebluff-cards";
+import {
+  BITEBLUFF_HAND_SIZE,
+  BITEBLUFF_REDRAW_MAX,
+  BITEBLUFF_REDRAW_MIN,
+} from "./bitebluff-constants";
 import type { BitebluffCard } from "./bitebluff-constants";
 
 const ENCRYPTION_VERSION = "v1";
@@ -76,34 +81,98 @@ export function decryptBitebluffValue<T>(encrypted: string): T {
   return JSON.parse(plaintext.toString("utf8")) as T;
 }
 
-function hmacUint32(secret: string, entrantId: string, counter: number): number {
+function hmacUint32(secret: string, context: string, counter: number): number {
   return createHmac("sha256", secret)
-    .update(`bitebluff-deck:v1:${entrantId}:${counter}`)
+    .update(`${context}:${counter}`)
     .digest()
     .readUInt32BE(0);
+}
+
+function unbiasedIndex(
+  secret: string,
+  context: string,
+  range: number,
+  counter: { value: number },
+): number {
+  const limit = Math.floor(0x1_0000_0000 / range) * range;
+  let sample = hmacUint32(secret, context, counter.value);
+  counter.value += 1;
+  while (sample >= limit) {
+    sample = hmacUint32(secret, context, counter.value);
+    counter.value += 1;
+  }
+  return sample % range;
 }
 
 /**
  * A deterministic, unbiased Fisher-Yates shuffle. Every entrant gets their
  * own logical 52-card deck, derived from the committed round secret.
  */
-export function dealCommittedBitebluffHand(
+export function committedBitebluffDeck(
   secret: string,
   entrantId: string,
 ): BitebluffCard[] {
   const deck = bitebluffDeck();
-  let counter = 0;
+  const counter = { value: 0 };
+  const context = `bitebluff-deck:v1:${entrantId}`;
   for (let index = deck.length - 1; index > 0; index -= 1) {
-    const range = index + 1;
-    const limit = Math.floor(0x1_0000_0000 / range) * range;
-    let sample = hmacUint32(secret, entrantId, counter);
-    counter += 1;
-    while (sample >= limit) {
-      sample = hmacUint32(secret, entrantId, counter);
-      counter += 1;
-    }
-    const swapIndex = sample % range;
+    const swapIndex = unbiasedIndex(secret, context, index + 1, counter);
     [deck[index], deck[swapIndex]] = [deck[swapIndex], deck[index]];
   }
-  return deck.slice(0, 5);
+  return deck;
+}
+
+export function dealCommittedBitebluffHand(
+  secret: string,
+  entrantId: string,
+): BitebluffCard[] {
+  return committedBitebluffDeck(secret, entrantId).slice(0, BITEBLUFF_HAND_SIZE);
+}
+
+export function redrawCommittedBitebluffHand(input: {
+  secret: string;
+  entrantId: string;
+  hand: readonly BitebluffCard[];
+  count: number;
+}): {
+  hand: BitebluffCard[];
+  burned: BitebluffCard[];
+  positions: number[];
+} {
+  if (
+    !Number.isInteger(input.count) ||
+    input.count < BITEBLUFF_REDRAW_MIN ||
+    input.count > BITEBLUFF_REDRAW_MAX
+  ) {
+    throw new Error("Burn & Draw count must be an integer from 1 through 3.");
+  }
+  const deck = committedBitebluffDeck(input.secret, input.entrantId);
+  const originalHand = deck.slice(0, BITEBLUFF_HAND_SIZE);
+  if (
+    input.hand.length !== BITEBLUFF_HAND_SIZE ||
+    input.hand.some(
+      (card, index) => bitebluffCardKey(card) !== bitebluffCardKey(originalHand[index]),
+    )
+  ) {
+    throw new Error("The committed Bitebluff hand does not match the round deck.");
+  }
+
+  const positions = Array.from({ length: BITEBLUFF_HAND_SIZE }, (_, index) => index);
+  const counter = { value: 0 };
+  const context = `bitebluff-redraw:v1:${input.entrantId}:${input.count}:positions`;
+  for (let index = positions.length - 1; index > 0; index -= 1) {
+    const swapIndex = unbiasedIndex(input.secret, context, index + 1, counter);
+    [positions[index], positions[swapIndex]] = [positions[swapIndex], positions[index]];
+  }
+  const burnedPositions = positions.slice(0, input.count).sort((a, b) => a - b);
+  const replacements = deck.slice(
+    BITEBLUFF_HAND_SIZE,
+    BITEBLUFF_HAND_SIZE + input.count,
+  );
+  const hand = [...input.hand];
+  const burned = burnedPositions.map((position) => hand[position]);
+  burnedPositions.forEach((position, index) => {
+    hand[position] = replacements[index];
+  });
+  return { hand, burned, positions: burnedPositions };
 }
