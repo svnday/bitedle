@@ -192,6 +192,8 @@ assert.equal(
 );
 assert.equal(livePreviewRequests[1].body.includes('"allowed_mentions"'), true);
 assert.equal(livePreviewRequests[1].body.includes('"parse":[]'), true);
+assert.equal(livePreviewRequests[1].body.includes('"label":"Play now!"'), true);
+assert.equal(livePreviewRequests[1].body.includes('"custom_id":"bitebluff-launch"'), true);
 assert.equal(await repository.totalCommittedForRound(quote.round.id), 120);
 const pendingLeaderboard = await service.bitebluffLeaderboard(alice.userId, redrawTime);
 assert.equal(pendingLeaderboard.entries.length, 2);
@@ -312,6 +314,8 @@ assert.equal(
 );
 assert.equal(discordRequests[1].body.includes('"allowed_mentions"'), true);
 assert.equal(discordRequests[1].body.includes('"parse":[]'), true);
+assert.equal(discordRequests[1].body.includes('"label":"Play now!"'), true);
+assert.equal(discordRequests[1].body.includes('"custom_id":"bitebluff-launch"'), true);
 assert.deepEqual(await repository.roundsNeedingFinalDelivery(), []);
 const deliveredDestination = await repository.getDestination(destination.id);
 assert.deepEqual(deliveredDestination.finalMessageIds, ["final-message"]);
@@ -332,5 +336,5 @@ assert.equal(
 );
 
 console.log(
-  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time random Burn & Draw, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, bot-denied webhook preview fallback, layered-pot conservation, idempotent settlement, balance conservation, and bot settlement fallback after a webhook-authored live preview.",
+  "Bitebluff Discord verification passed: daily top-up and redraw-reserved bounds, atomic one-entry debit, one-time random Burn & Draw, redacted pot roster, settled-snapshot active bankroll leaderboard, encrypted pre-settlement hands, zero-ping Play now components, bot-denied webhook preview fallback, layered-pot conservation, idempotent settlement, balance conservation, and bot settlement fallback after a webhook-authored live preview.",
 );

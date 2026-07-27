@@ -270,6 +270,12 @@ assert.equal(
   true,
 );
 assert.equal(interactionSource.includes("updateBitebluffPublicPreview(destination.id)"), true);
+assert.equal(
+  interactionSource.includes(
+    "body?.data?.custom_id === BITEBLUFF_LAUNCH_BUTTON_ID",
+  ),
+  true,
+);
 assert.equal(interactionSource.includes("allowed_mentions: { parse: [] }"), true);
 const registrationSource = fs.readFileSync(
   path.join(repoRoot, "scripts", "register-discord-commands.mjs"),
@@ -350,6 +356,13 @@ assert.equal(
   ),
   true,
 );
+assert.equal(
+  discordPreviewSource.includes(
+    'export const BITEBLUFF_LAUNCH_BUTTON_ID = "bitebluff-launch"',
+  ),
+  true,
+);
+assert.equal(discordPreviewSource.includes('label: "Play now!"'), true);
 assert.deepEqual(
   cronConfig.crons.map((cron) => cron.path),
   ["/api/bitebluff/settle", "/api/bitebluff/settle-est"],

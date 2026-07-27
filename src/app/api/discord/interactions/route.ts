@@ -52,7 +52,10 @@ import {
   ensureBitebluffRound,
   recordBitebluffDestination,
 } from "@/lib/bitebluff-service";
-import { updateBitebluffPublicPreview } from "@/lib/bitebluff-discord-preview";
+import {
+  BITEBLUFF_LAUNCH_BUTTON_ID,
+  updateBitebluffPublicPreview,
+} from "@/lib/bitebluff-discord-preview";
 
 // Imports next/og (via discord-summary) for the preview image — needs Node.
 export const runtime = "nodejs";
@@ -879,6 +882,10 @@ export async function POST(request: NextRequest) {
   }
 
   if (body?.type === 2 && body?.data?.name === "bitebluff") {
+    return handleBitebluffCommand(body);
+  }
+
+  if (body?.type === 3 && body?.data?.custom_id === BITEBLUFF_LAUNCH_BUTTON_ID) {
     return handleBitebluffCommand(body);
   }
 
