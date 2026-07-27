@@ -8,6 +8,7 @@ import { renderSummaryImage, sortTodayRows } from "@/lib/discord-summary";
 import { LAUNCH_BUTTON_ID, updateLivePreviewMessage } from "@/lib/discord-live-preview";
 import { isBlockedDiscordId } from "@/lib/discord";
 import { getStore } from "@/lib/store";
+import type { GameMode } from "@/lib/types";
 import {
   BITERACER_CHALLENGE_TTL_MS,
   acceptRace,
@@ -101,9 +102,22 @@ function interactionName(user: InteractionUser | undefined): string {
   return user?.global_name ?? user?.username ?? "Player";
 }
 
+async function handleBitebluffCommand(body: Interaction): Promise<NextResponse> {
+  const discordUser = body.member?.user ?? body.user;
+  if (!discordUser?.id) return reply("Couldn't identify your Discord account.", true);
+  if (!body.guild_id) {
+    return reply("Bitebluff is a server-wide daily game. Run it in a server channel.", true);
+  }
+  await recordIntent(body, "bitebluff", false);
+  return NextResponse.json({ type: 12 });
+}
+
 async function handleBiteracerChallenge(body: Interaction): Promise<NextResponse> {
   const challenger = body.member?.user ?? body.user;
-  const opponentId = body.data?.options?.find((option) => option.name === "opponent")?.value;
+  const opponentValue = body.data?.options?.find(
+    (option) => option.name === "opponent",
+  )?.value;
+  const opponentId = typeof opponentValue === "string" ? opponentValue : undefined;
   const opponent = opponentId ? body.data?.resolved?.users?.[opponentId] : undefined;
   if (!challenger?.id || !opponentId || !opponent) {
     return reply("Couldn't identify both racers. Try the command again.", true);
@@ -234,7 +248,10 @@ async function handleBiteracerButton(body: Interaction): Promise<NextResponse> {
 
 async function handleBitefightChallenge(body: Interaction): Promise<NextResponse> {
   const challenger = body.member?.user ?? body.user;
-  const opponentId = body.data?.options?.find((option) => option.name === "opponent")?.value;
+  const opponentValue = body.data?.options?.find(
+    (option) => option.name === "opponent",
+  )?.value;
+  const opponentId = typeof opponentValue === "string" ? opponentValue : undefined;
   const opponent = opponentId ? body.data?.resolved?.users?.[opponentId] : undefined;
   if (!challenger?.id || !opponentId || !opponent) {
     return reply("Couldn't identify both fighters. Try the command again.", true);
@@ -368,7 +385,10 @@ async function handleBitefightButton(body: Interaction): Promise<NextResponse> {
 
 async function handleBiteshooterChallenge(body: Interaction): Promise<NextResponse> {
   const challenger = body.member?.user ?? body.user;
-  const opponentId = body.data?.options?.find((option) => option.name === "opponent")?.value;
+  const opponentValue = body.data?.options?.find(
+    (option) => option.name === "opponent",
+  )?.value;
+  const opponentId = typeof opponentValue === "string" ? opponentValue : undefined;
   const opponent = opponentId ? body.data?.resolved?.users?.[opponentId] : undefined;
   if (!challenger?.id || !opponentId || !opponent) {
     return reply("Couldn't identify both shooters. Try the command again.", true);
@@ -618,7 +638,7 @@ async function handleShare(body: Interaction): Promise<NextResponse> {
  */
 async function recordIntent(
   body: Interaction,
-  mode: "classic" | "mega",
+  mode: GameMode,
   viaEntryPoint: boolean,
 ): Promise<void> {
   const callerId = body.member?.user?.id ?? body.user?.id;
@@ -817,6 +837,10 @@ export async function POST(request: NextRequest) {
       body?.data?.custom_id?.startsWith(BITESHOOTER_DECLINE_PREFIX))
   ) {
     return handleBiteshooterButton(body);
+  }
+
+  if (body?.type === 2 && body?.data?.name === "bitebluff") {
+    return handleBitebluffCommand(body);
   }
 
   if (body?.type === 2 && body?.data?.name === "bitesweeper") {

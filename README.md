@@ -66,6 +66,40 @@ notification; later preview updates never ping.
 Website practice does not create multiplayer records or affect the Discord
 leaderboard.
 
+## Bitebluff
+
+`/bitebluff` opens one server-wide daily sealed-hand poker pool. The command
+does not accept a wager or expose a balance. Inside the private Activity, the
+player sees their available Bites, chooses a whole-number wager, reviews the
+remaining balance and irreversible terms, then confirms before any cards are
+dealt. Each entrant receives an exclusive independently derived deck, so entry
+order never changes anyone's odds. The public channel preview shows only
+profiles and wagers until the 11:00 PM Eastern settlement.
+
+Bitebluff balances persist between days. A player below 100 Bites is topped up
+to exactly 100 at most once per Eastern day; balances already at or above 100
+receive no grant. The wager minimum is the greater of 10 or 5% of the topped-up
+balance. The current maximum deliberately reserves the approved 50% redraw
+surcharge, although Burn & Draw itself remains disabled in Discord pending a
+separate product approval. Payouts use layered poker pots, so a small wager
+cannot win wager layers it did not cover.
+
+At settlement, the committed round secret is verified and published, every
+hand is revealed, balances are credited idempotently, and paginated result
+images are posted with winners, payouts, losses, and unmatched returns. The
+pre-settlement preview path never reads decrypted hands.
+
+Production Bitebluff additionally requires `BITEBLUFF_ENCRYPTION_KEY`,
+`CRON_SECRET`, and `DISCORD_BOT_TOKEN`. The bot needs View Channel, Send
+Messages, and Attach Files in participating channels. `vercel.json` invokes
+the protected settlement route at 03:00 and 04:00 UTC; this covers 11 PM
+Eastern on both sides of daylight-saving time, and the extra call is an
+idempotent no-op. A Vercel Pro deployment is recommended for a timely reveal;
+Hobby cron invocations can occur at any point in the scheduled hour. Activity
+reads provide a second overdue-settlement fallback. Do not run the registration
+script until the production secrets, database, bot permissions, and deployment
+are ready.
+
 ## Running it
 
 ```bash
@@ -92,6 +126,8 @@ npm run verify:bitesweeper
 npm run verify:biteracer-race
 npm run verify:bitefight
 npm run verify:biteshooter
+npm run verify:bitebluff
+npm run verify:bitebluff-discord
 ```
 
 or for production:

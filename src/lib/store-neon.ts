@@ -1288,7 +1288,16 @@ export class NeonStore implements Store {
         LIMIT 1`,
     ]);
     const mode = rows[0]?.mode;
-    if (mode === "mega" || mode === "classic") return mode;
+    if (
+      mode === "mega" ||
+      mode === "classic" ||
+      mode === "biteracer" ||
+      mode === "bitefight" ||
+      mode === "biteshooter" ||
+      mode === "bitebluff"
+    ) {
+      return mode;
+    }
     return this.resolveActivityMode(instanceId, channelId, freshSince);
   }
 

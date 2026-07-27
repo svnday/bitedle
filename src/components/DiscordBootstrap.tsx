@@ -10,6 +10,7 @@ import {
   setBiteshooterMatchId,
   setBiteracerRaceId,
   setDiscordUserId,
+  setDiscordChannelId,
   setGuildId,
   setLaunchMode,
 } from "@/lib/discord-context";
@@ -34,6 +35,7 @@ export default function DiscordBootstrap() {
       setGuildId(null);
       setActivityInstanceId(null);
       setDiscordUserId(null);
+      setDiscordChannelId(null);
       setLaunchMode("unavailable");
     }, 5000);
 
@@ -46,6 +48,7 @@ export default function DiscordBootstrap() {
           setGuildId(null);
           setActivityInstanceId(null);
           setDiscordUserId(null);
+          setDiscordChannelId(null);
           setLaunchMode("unavailable");
           return;
         }
@@ -55,6 +58,7 @@ export default function DiscordBootstrap() {
         if (cancelled) return;
 
         setActivityInstanceId(discordSdk.instanceId);
+        setDiscordChannelId(discordSdk.channelId ?? null);
 
         // Available immediately post-ready, no OAuth needed — used to scope
         // the leaderboard to this server.
@@ -84,7 +88,8 @@ export default function DiscordBootstrap() {
             mode === "mega" ||
             mode === "biteracer" ||
             mode === "bitefight" ||
-            mode === "biteshooter"
+            mode === "biteshooter" ||
+            mode === "bitebluff"
               ? mode
               : "classic",
           );
@@ -100,6 +105,7 @@ export default function DiscordBootstrap() {
         setGuildId(null);
         setActivityInstanceId(null);
         setDiscordUserId(null);
+        setDiscordChannelId(null);
         setLaunchMode("unavailable");
       } finally {
         clearTimeout(timeout);

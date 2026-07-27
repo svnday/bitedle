@@ -11,6 +11,7 @@ export type ActivityLaunchMode = GameMode | "unavailable";
 let guildId: string | null = null;
 let discordUserId: string | null = null;
 let activityInstanceId: string | null = null;
+let discordChannelId: string | null = null;
 let biteracerRaceId: string | null = null;
 let bitefightMatchId: string | null = null;
 let biteshooterMatchId: string | null = null;
@@ -59,6 +60,14 @@ export function setActivityInstanceId(id: string | null): void {
 
 export function getActivityInstanceId(): string | null {
   return activityInstanceId;
+}
+
+export function setDiscordChannelId(id: string | null): void {
+  discordChannelId = id;
+}
+
+export function getDiscordChannelId(): string | null {
+  return discordChannelId;
 }
 
 export function setBiteracerRaceId(id: string | null): void {

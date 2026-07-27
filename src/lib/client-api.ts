@@ -2,6 +2,7 @@ import {
   discordIdentitySettled,
   getActivityInstanceId,
   getDiscordUserId,
+  getDiscordChannelId,
   getGuildId,
   guildContextSettled,
   isDiscordEmbed,
@@ -25,6 +26,7 @@ import type {
   MegaGameState,
   UserStats,
 } from "./types";
+import type { BitebluffPrivateState } from "./bitebluff-types";
 
 const DISCORD_USER_HEADER_NAME = "X-Bitedle-Discord-User-Id";
 const TZ_HEADER_NAME = "X-Bitedle-TZ";
@@ -35,7 +37,12 @@ const IDENTITY_BOOTSTRAP_PATHS = new Set([
   // waiting on discordIdentitySettled() here would deadlock the boot.
   "/api/activity/mode",
 ]);
-const IDENTITY_REQUIRED_PATHS = new Set(["/api/state", "/api/click"]);
+const IDENTITY_REQUIRED_PATHS = new Set([
+  "/api/state",
+  "/api/click",
+  "/api/bitebluff/state",
+  "/api/bitebluff/entry",
+]);
 
 /** The player's IANA timezone, so the server can roll their board at their own
  *  local midnight (Wordle-style). Resolved once; empty string if unavailable. */
@@ -87,6 +94,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   const tz = localTimeZone();
   const activityInstanceId = embedded ? getActivityInstanceId() : null;
+  const discordChannelId = embedded ? getDiscordChannelId() : null;
   const res = await fetch(url, {
     ...init,
     headers: {
@@ -95,6 +103,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...(discordUserId ? { [DISCORD_USER_HEADER_NAME]: discordUserId } : {}),
       ...(activityInstanceId
         ? { "X-Bitedle-Activity-Instance-Id": activityInstanceId }
+        : {}),
+      ...(discordChannelId
+        ? { "X-Bitedle-Discord-Channel-Id": discordChannelId }
         : {}),
       ...(tz ? { [TZ_HEADER_NAME]: tz } : {}),
       ...init?.headers,
@@ -214,4 +225,11 @@ export const api = {
     request<{ entries: BiteshooterLeaderboardEntry[] }>(
       "/api/biteshooter/leaderboard",
     ),
+  bitebluffState: () =>
+    request<BitebluffPrivateState>("/api/bitebluff/state"),
+  bitebluffEnter: (wager: number) =>
+    request<BitebluffPrivateState>("/api/bitebluff/entry", {
+      method: "POST",
+      body: JSON.stringify({ wager }),
+    }),
 };

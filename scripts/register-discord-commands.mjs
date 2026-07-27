@@ -64,8 +64,10 @@ async function discordFetch(url, options, action) {
 // [0, 1, 2] = server, app DM, group DM. This lets /bitedle and /share work
 // both where a server has added the app and where an individual has
 // user-installed it. Requires User Install to be enabled for the app in the
-// Developer Portal -> Installation tab first (see README). All ordinary
-// commands below support server, app-DM, and group-DM contexts.
+// Developer Portal -> Installation tab first (see README). Most ordinary
+// commands below support server, app-DM, and group-DM contexts; Bitebluff is
+// deliberately Guild Install + server context only because it posts a shared
+// daily pool and needs bot-authenticated scheduled results.
 const commands = [
   {
     name: "bitedle",
@@ -149,6 +151,16 @@ const commands = [
         required: true,
       },
     ],
+  },
+  {
+    name: "bitebluff",
+    description: "Open the daily blind-card pool",
+    type: 1,
+    default_member_permissions: null,
+    // The pool and scheduled results belong to a server channel. Guild
+    // Install also provides the bot membership needed for the final post.
+    integration_types: [0],
+    contexts: [0],
   },
 ];
 

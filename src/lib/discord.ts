@@ -9,6 +9,8 @@ export const DISCORD_USER_HEADER_NAME = "X-Bitedle-Discord-User-Id";
 export const TZ_HEADER_NAME = "X-Bitedle-TZ";
 /** Header carrying the current Discord Activity instance for Bitesweeper presence. */
 export const ACTIVITY_INSTANCE_HEADER_NAME = "X-Bitedle-Activity-Instance-Id";
+/** Discord channel containing the current Activity, used by Bitebluff previews. */
+export const DISCORD_CHANNEL_HEADER_NAME = "X-Bitedle-Discord-Channel-Id";
 
 export const SNOWFLAKE_RE = /^\d{5,25}$/;
 
@@ -36,6 +38,11 @@ export function guildIdFromRequest(request: NextRequest): string | null {
 export function activityInstanceIdFromRequest(request: NextRequest): string | null {
   const raw = request.headers.get(ACTIVITY_INSTANCE_HEADER_NAME);
   return raw && /^[A-Za-z0-9_-]{1,128}$/.test(raw) ? raw : null;
+}
+
+export function discordChannelIdFromRequest(request: NextRequest): string | null {
+  const raw = request.headers.get(DISCORD_CHANNEL_HEADER_NAME);
+  return raw && SNOWFLAKE_RE.test(raw) ? raw : null;
 }
 
 /**

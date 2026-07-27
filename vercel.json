@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/bitebluff/settle",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/bitebluff/settle-est",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}

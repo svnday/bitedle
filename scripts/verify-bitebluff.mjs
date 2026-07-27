@@ -23,6 +23,8 @@ fs.writeFileSync(
       skipLibCheck: true,
       outDir: compileDir,
       rootDir: path.join(repoRoot, "src", "lib"),
+      typeRoots: [path.join(repoRoot, "node_modules", "@types")],
+      types: ["node"],
     },
     files: [
       "bitebluff-constants.ts",
@@ -30,6 +32,9 @@ fs.writeFileSync(
       "bitebluff-poker.ts",
       "bitebluff-economy.ts",
       "bitebluff-payout.ts",
+      "time.ts",
+      "bitebluff-time.ts",
+      "bitebluff-crypto.ts",
     ].map((file) => path.join(repoRoot, "src", "lib", file)),
   }),
 );
@@ -46,6 +51,8 @@ const cards = require(path.join(compileDir, "bitebluff-cards.js"));
 const poker = require(path.join(compileDir, "bitebluff-poker.js"));
 const economy = require(path.join(compileDir, "bitebluff-economy.js"));
 const payout = require(path.join(compileDir, "bitebluff-payout.js"));
+const bitebluffTime = require(path.join(compileDir, "bitebluff-time.js"));
+const bitebluffCrypto = require(path.join(compileDir, "bitebluff-crypto.js"));
 
 const c = (rank, suit) => ({ rank, suit });
 const hands = {
@@ -201,6 +208,34 @@ assert.equal(finalPreview.participants[2].amountLost, 50);
 assert.equal(finalPreview.participants[2].unmatchedReturn, 50);
 assert.equal(finalPreview.participants.every((participant) => participant.hand.length === 5), true);
 
+process.env.BITEBLUFF_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+const roundSecret = "committed-round-secret";
+const committedHand = bitebluffCrypto.dealCommittedBitebluffHand(roundSecret, "alice");
+assert.deepEqual(
+  committedHand,
+  bitebluffCrypto.dealCommittedBitebluffHand(roundSecret, "alice"),
+);
+assert.notDeepEqual(
+  committedHand,
+  bitebluffCrypto.dealCommittedBitebluffHand(roundSecret, "bob"),
+);
+assert.equal(new Set(committedHand.map(cards.bitebluffCardKey)).size, 5);
+const encryptedHand = bitebluffCrypto.encryptBitebluffValue(committedHand);
+assert.deepEqual(bitebluffCrypto.decryptBitebluffValue(encryptedHand), committedHand);
+assert.equal(encryptedHand.includes(JSON.stringify(committedHand)), false);
+assert.equal(
+  bitebluffCrypto.bitebluffSecretCommitment(roundSecret),
+  bitebluffCrypto.bitebluffSecretCommitment(roundSecret),
+);
+assert.equal(
+  new Date(bitebluffTime.bitebluffRoundWindow("2026-01-15").revealAt).toISOString(),
+  "2026-01-16T04:00:00.000Z",
+);
+assert.equal(
+  new Date(bitebluffTime.bitebluffRoundWindow("2026-07-15").revealAt).toISOString(),
+  "2026-07-16T03:00:00.000Z",
+);
+
 const demoSource = fs.readFileSync(
   path.join(repoRoot, "src", "components", "BitebluffDemo.tsx"),
   "utf8",
@@ -221,7 +256,54 @@ assert.equal(tableSource.includes("bitebluff-card-placeholder"), true);
 assert.equal(tableSource.includes("dealing={dealing && index === placedCount - 1}"), true);
 assert.equal(tableSource.includes("flipping={flipping && index === revealedCount - 1}"), true);
 
+const interactionSource = fs.readFileSync(
+  path.join(repoRoot, "src", "app", "api", "discord", "interactions", "route.ts"),
+  "utf8",
+);
+assert.equal(interactionSource.includes('body?.data?.name === "bitebluff"'), true);
+assert.equal(interactionSource.includes("BITEBLUFF_CONFIRM_PREFIX"), false);
+assert.equal(interactionSource.includes('recordIntent(body, "bitebluff", false)'), true);
+assert.equal(interactionSource.includes("allowed_mentions: { parse: [] }"), true);
+const registrationSource = fs.readFileSync(
+  path.join(repoRoot, "scripts", "register-discord-commands.mjs"),
+  "utf8",
+);
+assert.equal(registrationSource.includes('name: "bitebluff"'), true);
+assert.equal(registrationSource.includes('name: "wager"'), false);
+const bitebluffGameSource = fs.readFileSync(
+  path.join(repoRoot, "src", "components", "BitebluffGame.tsx"),
+  "utf8",
+);
+assert.equal(bitebluffGameSource.includes("api.bitebluffEnter(selectedWager)"), true);
+assert.equal(bitebluffGameSource.includes("Review wager"), true);
+assert.equal(bitebluffGameSource.includes("Final confirmation"), true);
+const entryRouteSource = fs.readFileSync(
+  path.join(repoRoot, "src", "app", "api", "bitebluff", "entry", "route.ts"),
+  "utf8",
+);
+assert.equal(entryRouteSource.includes("enterBitebluff("), true);
+assert.equal(entryRouteSource.includes("discordChannelIdFromRequest"), true);
+const cronConfig = JSON.parse(
+  fs.readFileSync(path.join(repoRoot, "vercel.json"), "utf8"),
+);
+assert.deepEqual(
+  cronConfig.crons.map((cron) => cron.schedule),
+  ["0 3 * * *", "0 4 * * *"],
+);
+const discordPreviewSource = fs.readFileSync(
+  path.join(repoRoot, "src", "lib", "bitebluff-discord-preview.tsx"),
+  "utf8",
+);
+assert.equal(
+  discordPreviewSource.includes("repository.previewEntriesForRound(destination.roundId)"),
+  true,
+);
+assert.deepEqual(
+  cronConfig.crons.map((cron) => cron.path),
+  ["/api/bitebluff/settle", "/api/bitebluff/settle-est"],
+);
+
 console.log(
   "Bitebluff verification passed: poker categories and kickers, exclusive seeded decks, random Burn & Draw, safety-net economy, active eligibility, layered pots, tied remainders, unmatched returns, and redacted public preview.",
-  " Bitebluff final preview includes every hand, layer winners, payouts, and loser wager/loss amounts. The private deal places five face-down cards before the separate sequential flip pass.",
+  " Bitebluff final preview includes every hand, layer winners, payouts, and loser wager/loss amounts. The private deal places five face-down cards before the separate sequential flip pass. Discord production checks cover committed encrypted hands, DST-safe 11 PM ET settlement, launch-only command routing, in-Activity blind-wager confirmation, zero-ping payloads, and both UTC scheduler slots.",
 );
