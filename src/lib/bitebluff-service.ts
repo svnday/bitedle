@@ -21,6 +21,10 @@ import {
 import { settleBitebluffLayers } from "./bitebluff-payout";
 import { evaluateBitebluffHand } from "./bitebluff-poker";
 import {
+  bitebluffEntryIsWinner,
+  sortBitebluffFinalEntries,
+} from "./bitebluff-results";
+import {
   BITEBLUFF_ACTIVE_DAYS,
   BITEBLUFF_REDRAW_CLOSE_MS,
 } from "./bitebluff-constants";
@@ -37,6 +41,7 @@ import {
 } from "./bitebluff-time";
 import type {
   BitebluffDestinationRecord,
+  BitebluffEntryRecord,
   BitebluffEnterResult,
   BitebluffEntryQuote,
   BitebluffLeaderboard,
@@ -242,6 +247,16 @@ export async function bitebluffPrivateState(
   const wagerBounds = entry
     ? { minimum: 0, maximum: 0 }
     : bitebluffWagerBounds(availableBalance);
+  const settledEntries =
+    round.status === "settled"
+      ? sortBitebluffFinalEntries(entries).filter(
+          (
+            participant,
+          ): participant is BitebluffEntryRecord & {
+            revealedHand: BitebluffCard[];
+          } => participant.revealedHand !== null,
+        )
+      : [];
   let redrawUnavailableReason: string | null = null;
   if (entry) {
     if (entry.redrawCount !== null) {
@@ -305,6 +320,31 @@ export async function bitebluffPrivateState(
                   }
                 : null,
           }
+        : null,
+    results:
+      round.status === "settled"
+        ? settledEntries.map((participant, index) => ({
+            rank: index + 1,
+            userId: participant.userId,
+            displayName: participant.displayName,
+            avatarUrl: discordAvatarUrl(
+              participant.discordUserId,
+              participant.avatarHash,
+            ),
+            me: participant.userId === userId,
+            hand: participant.revealedHand,
+            handLabel:
+              participant.handLabel ??
+              evaluateBitebluffHand(participant.revealedHand).label,
+            wager: participant.wager,
+            committed: committedBites(participant),
+            payout: participant.payout,
+            contestedPayout: participant.contestedPayout,
+            unmatchedReturn: participant.unmatchedReturn,
+            net: participant.payout - committedBites(participant),
+            wonLayers: [...participant.wonLayers],
+            winner: bitebluffEntryIsWinner(participant),
+          }))
         : null,
     burnAndDraw: {
       mode: bitebluffRedrawMode(round.date),

@@ -16,6 +16,7 @@ import type {
 import BitebluffLeaderboardModal from "./BitebluffLeaderboardModal";
 import BitebluffHandStrength from "./BitebluffHandStrength";
 import BitebluffPotRoster from "./BitebluffPotRoster";
+import BitebluffSettlementResults from "./BitebluffSettlementResults";
 import BitebluffTable from "./BitebluffTable";
 import { useBitebluffRedrawAnimation } from "./useBitebluffRedrawAnimation";
 
@@ -261,7 +262,11 @@ export default function BitebluffGame() {
           <div>
             <p className="bitebluff-kicker">Discord daily blind draw</p>
             <h1>Bitebluff</h1>
-            <p>Your hand is private until the server-wide reveal at {revealTime}.</p>
+            <p>
+              {state?.round.status === "settled"
+                ? "Settlement is complete. Every final hand is now public until midnight Eastern."
+                : `Your hand is private until the server-wide reveal at ${revealTime}.`}
+            </p>
           </div>
           <div className="bitebluff-hero-actions">
             <button
@@ -282,9 +287,13 @@ export default function BitebluffGame() {
         {state ? (
           <div className="bitebluff-stats">
             <div>
-              <span>{entry ? "Current bankroll" : "Available bankroll"}</span>
+              <span>
+                {state.round.status === "settled" || entry
+                  ? "Current bankroll"
+                  : "Available bankroll"}
+              </span>
               <strong>
-                {(entry
+                {(state.round.status === "settled" || entry
                   ? state.account.balance
                   : state.wager.availableBalance
                 ).toLocaleString()}{" "}
@@ -296,7 +305,9 @@ export default function BitebluffGame() {
               <strong>{entry ? `${entry.committed.toLocaleString()} Bites` : "—"}</strong>
             </div>
             <div>
-              <span>Sealed pool</span>
+              <span>
+                {state.round.status === "settled" ? "Final pool" : "Sealed pool"}
+              </span>
               <strong>{state.pot.toLocaleString()} Bites</strong>
             </div>
             <div>
@@ -306,7 +317,12 @@ export default function BitebluffGame() {
           </div>
         ) : null}
 
-        {entry ? (
+        {state?.round.status === "settled" && state.results ? (
+          <BitebluffSettlementResults
+            results={state.results}
+            totalPool={state.pot}
+          />
+        ) : entry ? (
           <>
             <div className="bitebluff-private-layout">
               <BitebluffTable

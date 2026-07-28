@@ -54,6 +54,7 @@ import {
 } from "@/lib/bitebluff-service";
 import {
   BITEBLUFF_LAUNCH_BUTTON_ID,
+  deliverBitebluffFinalResults,
   updateBitebluffPublicPreview,
 } from "@/lib/bitebluff-discord-preview";
 
@@ -148,7 +149,11 @@ async function handleBitebluffCommand(body: Interaction): Promise<NextResponse> 
         const repository = getBitebluffRepository();
         const entry = await repository.getEntry(round.id, userId);
         if (!entry) return;
-        await updateBitebluffPublicPreview(destination.id);
+        if (round.status === "settled") {
+          await deliverBitebluffFinalResults(round.id);
+        } else {
+          await updateBitebluffPublicPreview(destination.id);
+        }
       } catch (error) {
         console.error("interactions: Bitebluff preview refresh failed", error);
       }

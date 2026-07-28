@@ -159,6 +159,14 @@ assert.deepEqual(
   selectedBurnPositions,
 );
 assert.equal(aliceAfterRedraw.burnAndDraw.available, false);
+const sealedSpectatorState = await service.bitebluffPrivateState(
+  "spectator",
+  guildOne,
+  redrawTime,
+);
+assert.equal(sealedSpectatorState.entry, null);
+assert.equal(sealedSpectatorState.results, null);
+assert.equal(JSON.stringify(sealedSpectatorState).includes('"revealedHand"'), false);
 const duplicateRedraw = await service.redrawBitebluff(
   alice.userId,
   guildOne,
@@ -238,6 +246,9 @@ const {
   updateBitebluffPublicPreview,
 } = require(
   path.join(repoRoot, "src", "lib", "bitebluff-discord-preview.tsx"),
+);
+const { sortBitebluffFinalEntries } = require(
+  path.join(repoRoot, "src", "lib", "bitebluff-results.ts"),
 );
 let firstPreviewCreatedAt;
 let refreshedPreviewCreatedAt;
@@ -344,6 +355,70 @@ assert.equal(
   ),
   120,
 );
+const settledWinner = settlement.entries.find(
+  (entry) => entry.contestedPayout > 0,
+);
+assert.ok(settledWinner);
+const rankedFinalEntries = sortBitebluffFinalEntries([
+  {
+    ...settledWinner,
+    id: "weak-loser",
+    contestedPayout: 0,
+    wonLayers: [],
+    payout: 0,
+    revealedHand: [
+      { rank: 9, suit: "clubs" },
+      { rank: 7, suit: "diamonds" },
+      { rank: 5, suit: "hearts" },
+      { rank: 4, suit: "spades" },
+      { rank: 2, suit: "clubs" },
+    ],
+  },
+  {
+    ...settledWinner,
+    id: "strong-loser",
+    contestedPayout: 0,
+    wonLayers: [],
+    payout: 0,
+    revealedHand: [
+      { rank: 14, suit: "clubs" },
+      { rank: 14, suit: "diamonds" },
+      { rank: 12, suit: "hearts" },
+      { rank: 8, suit: "spades" },
+      { rank: 3, suit: "clubs" },
+    ],
+  },
+  settledWinner,
+]);
+assert.deepEqual(
+  rankedFinalEntries.map((entry) => entry.id),
+  [settledWinner.id, "strong-loser", "weak-loser"],
+);
+const settledSpectatorState = await service.bitebluffPrivateState(
+  "spectator",
+  guildOne,
+  settlementTime,
+);
+assert.equal(settledSpectatorState.entry, null);
+assert.equal(settledSpectatorState.results.length, 2);
+assert.equal(
+  settledSpectatorState.results.every((result) => result.hand.length === 5),
+  true,
+);
+assert.equal(settledSpectatorState.results[0].winner, true);
+assert.equal(settledSpectatorState.results.at(-1).winner, false);
+assert.equal(
+  settledSpectatorState.results.every((result) => result.me === false),
+  true,
+);
+const nextRoundSpectatorState = await service.bitebluffPrivateState(
+  "spectator",
+  guildOne,
+  new Date("2026-07-29T04:01:00.000Z"),
+);
+assert.equal(nextRoundSpectatorState.round.date, "2026-07-29");
+assert.equal(nextRoundSpectatorState.round.status, "open");
+assert.equal(nextRoundSpectatorState.results, null);
 
 const balancesAfterSettlement = await Promise.all([
   repository.getAccount(alice.userId),
@@ -384,6 +459,15 @@ assert.equal(
   false,
 );
 
+const inaccessibleDestination = await service.recordBitebluffDestination({
+  roundId: quote.round.id,
+  guildId: guildOne,
+  channelId: "400000000000000099",
+  applicationId: destination.applicationId,
+  webhookToken: "expired-token",
+  tokenCreatedAt: Date.now() - BITEBLUFF_PREVIEW_WINDOW_MS - 1,
+  now: settlementTime.getTime(),
+});
 const discordRequests = [];
 const discordServer = http.createServer((request, response) => {
   const chunks = [];
@@ -394,13 +478,16 @@ const discordServer = http.createServer((request, response) => {
       url: request.url,
       body: Buffer.concat(chunks).toString("utf8"),
     });
-    response.writeHead(request.method === "PATCH" ? 403 : 200, {
+    const botChannelAttempt = request.url?.startsWith("/channels/");
+    const failedWebhookPatch =
+      request.method === "PATCH" && request.url?.startsWith("/webhooks/");
+    response.writeHead(botChannelAttempt || failedWebhookPatch ? 403 : 200, {
       "Content-Type": "application/json",
     });
     response.end(
       JSON.stringify(
-        request.method === "PATCH"
-          ? { message: "Cannot edit a webhook-authored message" }
+        botChannelAttempt || failedWebhookPatch
+          ? { message: "Missing Access" }
           : { id: "final-message" },
       ),
     );
@@ -411,14 +498,19 @@ const discordAddress = discordServer.address();
 process.env.BITEDLE_DISCORD_API_BASE_URL =
   `http://127.0.0.1:${discordAddress.port}`;
 process.env.DISCORD_BOT_TOKEN = "test-bot-token";
+let finalDeliveryError;
 try {
-  await deliverBitebluffFinalResults(quote.round.id);
+  await deliverBitebluffFinalResults(quote.round.id).catch((error) => {
+    finalDeliveryError = error;
+  });
 } finally {
   await new Promise((resolve, reject) =>
     discordServer.close((error) => (error ? reject(error) : resolve())),
   );
 }
-assert.equal(discordRequests.length, 2);
+assert.equal(finalDeliveryError instanceof AggregateError, true);
+assert.equal(finalDeliveryError.errors.length, 1);
+assert.equal(discordRequests.length, 5);
 assert.equal(discordRequests[0].method, "PATCH");
 assert.equal(
   discordRequests[0].url,
@@ -429,14 +521,39 @@ assert.equal(
   discordRequests[1].url,
   `/channels/${destination.channelId}/messages`,
 );
-assert.equal(discordRequests[1].body.includes('"allowed_mentions"'), true);
-assert.equal(discordRequests[1].body.includes('"parse":[]'), true);
-assert.equal(discordRequests[1].body.includes('"label":"Play now!"'), true);
-assert.equal(discordRequests[1].body.includes('"custom_id":"bitebluff-launch"'), true);
-assert.deepEqual(await repository.roundsNeedingFinalDelivery(), []);
+assert.equal(discordRequests[2].method, "PATCH");
+assert.equal(
+  discordRequests[2].url,
+  `/webhooks/${destination.applicationId}/${destination.webhookToken}/messages/live-preview-message`,
+);
+assert.equal(discordRequests[3].method, "POST");
+assert.equal(
+  discordRequests[3].url,
+  `/webhooks/${destination.applicationId}/${destination.webhookToken}`,
+);
+assert.equal(discordRequests[3].body.includes('"allowed_mentions"'), true);
+assert.equal(discordRequests[3].body.includes('"parse":[]'), true);
+assert.equal(discordRequests[3].body.includes('"label":"Play now!"'), true);
+assert.equal(discordRequests[3].body.includes('"custom_id":"bitebluff-launch"'), true);
+assert.equal(discordRequests[4].method, "POST");
+assert.equal(
+  discordRequests[4].url,
+  `/channels/${inaccessibleDestination.channelId}/messages`,
+);
+assert.deepEqual(await repository.roundsNeedingFinalDelivery(), [quote.round.id]);
 const deliveredDestination = await repository.getDestination(destination.id);
 assert.deepEqual(deliveredDestination.finalMessageIds, ["final-message"]);
 assert.equal(deliveredDestination.finalPostedAt > 0, true);
+const stillPendingDestination = await repository.getDestination(
+  inaccessibleDestination.id,
+);
+assert.equal(stillPendingDestination.finalPostedAt, null);
+await repository.completeFinalDelivery(
+  inaccessibleDestination.id,
+  [],
+  Date.now(),
+);
+assert.deepEqual(await repository.roundsNeedingFinalDelivery(), []);
 
 const persisted = JSON.parse(fs.readFileSync(fileDbPath, "utf8"));
 assert.equal(
@@ -587,5 +704,5 @@ await assert.rejects(
 );
 
 console.log(
-  "Bitebluff Discord verification passed: July 27 legacy global-round preservation, July 28 guild-specific rounds with isolated entrants, pots, leaderboard membership, and destinations, exact-card redraw cutover with untouched-card preservation, daily top-up and redraw-reserved bounds, atomic one-entry debit, redacted pot roster, encrypted pre-settlement hands, zero-ping Play now components, rolling 13-minute preview windows, layered-pot conservation, idempotent settlement, and balance conservation.",
+  "Bitebluff Discord verification passed: July 27 legacy global-round preservation, July 28 guild-specific rounds with isolated entrants, pots, leaderboard membership, and destinations, exact-card redraw cutover with untouched-card preservation, daily top-up and redraw-reserved bounds, atomic one-entry debit, redacted pot roster, encrypted pre-settlement hands, guild-wide post-settlement hand review with a midnight reset, zero-ping Play now components, rolling 13-minute preview windows, layered-pot conservation, idempotent settlement, and balance conservation.",
 );

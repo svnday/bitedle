@@ -11,9 +11,12 @@ import type {
   BitebluffRoundRecord,
 } from "./bitebluff-types";
 import type { BitebluffCard } from "./bitebluff-constants";
+import {
+  bitebluffEntryIsWinner,
+  sortBitebluffFinalEntries,
+} from "./bitebluff-results";
 
 const PREVIEW_MAX_PARTICIPANTS = 24;
-const FINAL_PAGE_SIZE = 6;
 const BITEBLUFF_WEBHOOK_TOKEN_TTL_MS = 13 * 60 * 1000;
 export const BITEBLUFF_PREVIEW_WINDOW_MS = 13 * 60 * 1000;
 export const BITEBLUFF_LAUNCH_BUTTON_ID = "bitebluff-launch";
@@ -248,20 +251,20 @@ function playingCard(card: BitebluffCard) {
   return (
     <div
       style={{
-        width: 72,
-        height: 100,
+        width: 42,
+        height: 62,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        borderRadius: 9,
+        borderRadius: 7,
         backgroundColor: "#f7f3e5",
         color: red ? "#a83232" : "#13221c",
-        border: "2px solid #d9d1ba",
+        border: "1px solid #d9d1ba",
       }}
     >
-      <div style={{ fontSize: 26, fontWeight: 900 }}>{rankGlyph(card)}</div>
-      <div style={{ fontSize: 30 }}>{suitGlyph(card)}</div>
+      <div style={{ fontSize: 17, fontWeight: 900 }}>{rankGlyph(card)}</div>
+      <div style={{ fontSize: 20 }}>{suitGlyph(card)}</div>
     </div>
   );
 }
@@ -269,25 +272,29 @@ function playingCard(card: BitebluffCard) {
 export function renderBitebluffFinalImage(
   round: BitebluffRoundRecord,
   entries: BitebluffEntryRecord[],
-  page: number,
-  pageCount: number,
   totalPool = entries.reduce(
     (total, entry) => total + entry.wager + entry.redrawSurcharge,
     0,
   ),
 ) {
-  const winners = new Set(
-    entries.filter((entry) => entry.contestedPayout > 0).map((entry) => entry.id),
+  const rankedEntries = sortBitebluffFinalEntries(entries);
+  const columns = rankedEntries.length > 6 ? 2 : 1;
+  const rows = Math.max(1, Math.ceil(rankedEntries.length / columns));
+  const width = columns === 2 ? 1500 : 1100;
+  const outerPadding = 42;
+  const tileGap = 14;
+  const tileHeight = 142;
+  const tileWidth = Math.floor(
+    (width - outerPadding * 2 - (columns - 1) * tileGap) / columns,
   );
-  const width = 1100;
-  const height = 190 + entries.length * 185;
+  const height = 190 + rows * tileHeight + (rows - 1) * tileGap;
   return new ImageResponse(
     (
       <div
         style={{
           width: "100%",
           height: "100%",
-          padding: 38,
+          padding: outerPadding,
           display: "flex",
           flexDirection: "column",
           color: "#f7f3e5",
@@ -315,13 +322,22 @@ export function renderBitebluffFinalImage(
               {`${totalPool.toLocaleString()} Bite pool`}
             </div>
             <div style={{ color: "#9fb5aa", fontSize: 15 }}>
-              {`Page ${page + 1} of ${pageCount}`}
+              {`${rankedEntries.length} ${
+                rankedEntries.length === 1 ? "player" : "players"
+              } · ranked by final hand`}
             </div>
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 20 }}>
-          {entries.map((entry) => {
-            const winner = winners.has(entry.id);
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: tileGap,
+            paddingTop: 20,
+          }}
+        >
+          {rankedEntries.map((entry, index) => {
+            const winner = bitebluffEntryIsWinner(entry);
             const committed = entry.wager + entry.redrawSurcharge;
             const net = entry.payout - committed;
             const wonLayers = entry.wonLayers ?? [];
@@ -335,31 +351,66 @@ export function renderBitebluffFinalImage(
                         wonLayers.length === 2 ? "LAYER" : "LAYERS"
                       }`
                   : `LAYER ${wonLayers.map((layer) => layer + 1).join(", ")} WINNER`;
+            const outcome =
+              net > 0
+                ? `Won ${net.toLocaleString()} Bites`
+                : net < 0
+                  ? `Lost ${Math.abs(net).toLocaleString()} Bites`
+                  : "Broke even";
             return (
               <div
                 key={entry.id}
                 style={{
-                  height: 170,
+                  width: tileWidth,
+                  height: tileHeight,
                   display: "flex",
                   alignItems: "center",
-                  padding: 18,
-                  gap: 17,
-                  borderRadius: 20,
+                  padding: 14,
+                  gap: 11,
+                  borderRadius: 18,
                   border: winner ? "2px solid #d9b94f" : "1px solid #315246",
-                  backgroundColor: winner ? "#263c27" : "#0d281f",
+                  background: winner
+                    ? "linear-gradient(120deg, #263c27 0%, #183226 100%)"
+                    : "#0d281f",
                 }}
               >
-                {avatar(entry, 72)}
-                <div style={{ width: 180, display: "flex", flexDirection: "column" }}>
-                  <div style={{ fontSize: 21, fontWeight: 800 }}>
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                    borderRadius: 9999,
+                    border: winner ? "1px solid #d9b94f" : "1px solid #456555",
+                    color: winner ? "#f7d56b" : "#a9bbb1",
+                    fontSize: 15,
+                    fontWeight: 900,
+                  }}
+                >
+                  {index + 1}
+                </div>
+                {avatar(entry, 52)}
+                <div style={{ width: 118, display: "flex", flexDirection: "column" }}>
+                  <div style={{ fontSize: 18, fontWeight: 800 }}>
                     {abbreviatedName(entry.displayName)}
                   </div>
-                  <div style={{ color: winner ? "#f7d56b" : "#9fb5aa", fontSize: 15 }}>
+                  <div
+                    style={{
+                      color: winner ? "#f7d56b" : "#8fa69a",
+                      fontSize: 11,
+                      fontWeight: 800,
+                      letterSpacing: 0.5,
+                    }}
+                  >
                     {winnerLabel}
                   </div>
-                  <div style={{ color: "#c7d3cc", fontSize: 16 }}>{entry.handLabel}</div>
+                  <div style={{ color: "#c7d3cc", fontSize: 14 }}>
+                    {entry.handLabel ?? "Final hand"}
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 4 }}>
                   {(entry.revealedHand ?? []).map((card, cardIndex) => (
                     <div key={`${entry.id}:${cardIndex}`} style={{ display: "flex" }}>
                       {playingCard(card)}
@@ -369,32 +420,28 @@ export function renderBitebluffFinalImage(
                 <div
                   style={{
                     marginLeft: "auto",
-                    width: 170,
+                    width: 148,
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "flex-end",
                   }}
                 >
-                  <div style={{ color: "#9fb5aa", fontSize: 14 }}>
-                    {`Committed ${committed.toLocaleString()}`}
-                  </div>
                   <div
                     style={{
                       color: net > 0 ? "#70d697" : net < 0 ? "#e88b82" : "#d8d2be",
-                      fontSize: 25,
+                      fontSize: 20,
                       fontWeight: 900,
+                      textAlign: "right",
                     }}
                   >
-                    {`${net > 0 ? "+" : ""}${net.toLocaleString()} Bites`}
+                    {outcome}
                   </div>
-                  <div style={{ color: "#c7d3cc", fontSize: 14 }}>
+                  <div style={{ color: "#a5b7ad", fontSize: 12 }}>
+                    {`${committed.toLocaleString()} wagered`}
+                  </div>
+                  <div style={{ color: "#a5b7ad", fontSize: 12 }}>
                     {`${entry.payout.toLocaleString()} returned`}
                   </div>
-                  {entry.unmatchedReturn > 0 ? (
-                    <div style={{ color: "#9fb5aa", fontSize: 12 }}>
-                      {`includes ${entry.unmatchedReturn.toLocaleString()} unmatched`}
-                    </div>
-                  ) : null}
                 </div>
               </div>
             );
@@ -563,74 +610,114 @@ export async function deliverBitebluffFinalResults(roundId: string): Promise<voi
     repository.destinationsForRound(roundId),
   ]);
   if (!round || round.status !== "settled") return;
-  const pageCount = Math.max(1, Math.ceil(entries.length / FINAL_PAGE_SIZE));
   const totalPool = entries.reduce(
     (total, entry) => total + entry.wager + entry.redrawSurcharge,
     0,
   );
+  const deliveryErrors: Error[] = [];
   for (const destination of destinations) {
     if (!(await repository.claimFinalDelivery(destination.id))) continue;
     const claimedDestination =
       (await repository.getDestination(destination.id)) ?? destination;
-    const messageIds = [...claimedDestination.finalMessageIds];
     try {
-      for (let page = messageIds.length; page < pageCount; page += 1) {
-        const pageEntries = entries.slice(
-          page * FINAL_PAGE_SIZE,
-          (page + 1) * FINAL_PAGE_SIZE,
-        );
-        const pngBuffer = await renderBitebluffFinalImage(
-          round,
-          pageEntries,
-          page,
-          pageCount,
-          totalPool,
-        ).arrayBuffer();
-        const previewMessageId =
-          page === 0 && messageIds.length === 0
-            ? claimedDestination.previewMessageId
-            : null;
-        let result = await botImageRequest({
+      const pngBuffer = await renderBitebluffFinalImage(
+        round,
+        entries,
+        totalPool,
+      ).arrayBuffer();
+      const existingFinalMessageId =
+        claimedDestination.finalMessageIds[0] ?? null;
+      const targetMessageId =
+        existingFinalMessageId ?? claimedDestination.previewMessageId;
+      const content = `🏆 **Bitebluff ${round.date} — final results**`;
+      const filename = "bitebluff-final.png";
+      let result = await botImageRequest({
+        channelId: destination.channelId,
+        messageId: targetMessageId ?? undefined,
+        pngBuffer,
+        content,
+        filename,
+        components: BITEBLUFF_LAUNCH_COMPONENTS,
+      });
+      if (
+        !result.ok &&
+        targetMessageId &&
+        (result.status === 403 || result.status === 404)
+      ) {
+        result = await botImageRequest({
           channelId: destination.channelId,
-          messageId: previewMessageId ?? undefined,
           pngBuffer,
-          content:
-            page === 0
-              ? `🏆 **Bitebluff ${round.date} — final results**`
-              : `Bitebluff ${round.date} — results ${page + 1}/${pageCount}`,
-          filename: `bitebluff-final-${page + 1}.png`,
-          components: page === 0 ? BITEBLUFF_LAUNCH_COMPONENTS : undefined,
+          content,
+          filename,
+          components: BITEBLUFF_LAUNCH_COMPONENTS,
         });
-        if (
-          !result.ok &&
-          previewMessageId &&
-          (result.status === 403 || result.status === 404)
-        ) {
-          result = await botImageRequest({
-            channelId: destination.channelId,
+      }
+      const webhookIsFresh =
+        Boolean(
+          claimedDestination.applicationId &&
+            claimedDestination.webhookToken,
+        ) &&
+        Date.now() - claimedDestination.tokenCreatedAt <
+          BITEBLUFF_WEBHOOK_TOKEN_TTL_MS;
+      if ((!result.ok || !result.messageId) && webhookIsFresh) {
+        if (targetMessageId) {
+          const patched = await patchImageWebhookMessage({
+            applicationId: claimedDestination.applicationId,
+            webhookToken: claimedDestination.webhookToken,
+            messageId: targetMessageId,
             pngBuffer,
-            content: `🏆 **Bitebluff ${round.date} — final results**`,
-            filename: "bitebluff-final-1.png",
+            content,
+            filename,
+            components: BITEBLUFF_LAUNCH_COMPONENTS,
+          });
+          result = { ...patched, messageId: targetMessageId };
+        }
+        if (!result.ok || !result.messageId) {
+          result = await postImageWebhookFollowup({
+            applicationId: claimedDestination.applicationId,
+            webhookToken: claimedDestination.webhookToken,
+            pngBuffer,
+            content,
+            filename,
             components: BITEBLUFF_LAUNCH_COMPONENTS,
           });
         }
-        if (!result.ok || !result.messageId) {
-          throw new Error(`Discord final post failed (${result.status}): ${result.body}`);
-        }
-        messageIds.push(result.messageId);
-        await repository.recordFinalPage(destination.id, result.messageId, Date.now());
       }
-      await repository.completeFinalDelivery(destination.id, messageIds, Date.now());
+      if (!result.ok || !result.messageId) {
+        throw new Error(`Discord final post failed (${result.status}): ${result.body}`);
+      }
+      await repository.recordFinalPage(destination.id, result.messageId, Date.now());
+      await repository.completeFinalDelivery(
+        destination.id,
+        [result.messageId],
+        Date.now(),
+      );
     } catch (error) {
       await repository.releaseFinalDelivery(destination.id);
-      throw error;
+      deliveryErrors.push(
+        error instanceof Error ? error : new Error("Discord final delivery failed."),
+      );
     }
+  }
+  if (deliveryErrors.length > 0) {
+    throw new AggregateError(
+      deliveryErrors,
+      `Bitebluff final delivery failed for ${deliveryErrors.length} destination(s).`,
+    );
   }
 }
 
 export async function retryPendingBitebluffFinalResults(): Promise<void> {
   const repository = getBitebluffRepository();
+  const errors: Error[] = [];
   for (const roundId of await repository.roundsNeedingFinalDelivery()) {
-    await deliverBitebluffFinalResults(roundId);
+    await deliverBitebluffFinalResults(roundId).catch((error) => {
+      errors.push(
+        error instanceof Error ? error : new Error("Bitebluff final retry failed."),
+      );
+    });
+  }
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "One or more Bitebluff final retries failed.");
   }
 }

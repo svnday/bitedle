@@ -52,6 +52,11 @@ const entries = players.map((displayName, index) => ({
   displayName,
   avatarHash: null,
   wager: wagers[index],
+  redrawSurcharge: 0,
+  encryptedDiscardedCards: null,
+  encryptedBurnPositions: null,
+  redrawCount: null,
+  redrawAt: null,
   encryptedHand: "sealed",
   revealedHand: hands[index],
   handCategory: null,
@@ -91,7 +96,7 @@ const publicImage = renderBitebluffPublicPreviewImage(
     settledAt: null,
   })),
 );
-const finalImage = renderBitebluffFinalImage(round, entries, 0, 1, 275);
+const finalImage = renderBitebluffFinalImage(round, entries, 275);
 await Promise.all([
   publicImage.arrayBuffer().then((buffer) =>
     fs.writeFileSync(path.join(outputDir, "public-preview.png"), Buffer.from(buffer)),

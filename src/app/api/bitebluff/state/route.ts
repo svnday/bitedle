@@ -49,17 +49,17 @@ export async function GET(request: NextRequest) {
   }
 
   const settled = await settleOverdueBitebluffRounds();
-  if (settled.length > 0) {
-    after(async () => {
+  after(async () => {
+    if (settled.length > 0) {
       for (const result of settled) {
         await deliverBitebluffFinalResults(result.round.id).catch((error) => {
           console.error(`bitebluff/state: final delivery failed for ${result.round.id}`, error);
         });
       }
-      await retryPendingBitebluffFinalResults().catch((error) => {
-        console.error("bitebluff/state: pending final delivery retry failed", error);
-      });
+    }
+    await retryPendingBitebluffFinalResults().catch((error) => {
+      console.error("bitebluff/state: pending final delivery retry failed", error);
     });
-  }
+  });
   return NextResponse.json(await bitebluffPrivateState(userId, guildId));
 }

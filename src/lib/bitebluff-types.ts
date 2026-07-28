@@ -198,6 +198,7 @@ export interface BitebluffPrivateState {
       positions: number[];
     };
   };
+  results: BitebluffSettledParticipant[] | null;
   burnAndDraw: {
     mode: BitebluffRedrawMode;
     available: boolean;
@@ -214,6 +215,24 @@ export interface BitebluffLeaderboard {
   title: "Active bankroll";
   activeWindowDays: number;
   entries: BitebluffLeaderboardEntry[];
+}
+
+export interface BitebluffSettledParticipant {
+  rank: number;
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  me: boolean;
+  hand: BitebluffCard[];
+  handLabel: string;
+  wager: number;
+  committed: number;
+  payout: number;
+  contestedPayout: number;
+  unmatchedReturn: number;
+  net: number;
+  wonLayers: number[];
+  winner: boolean;
 }
 
 export interface BitebluffSettlementResult {

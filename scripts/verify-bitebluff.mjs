@@ -466,7 +466,19 @@ assert.equal(
   discordPreviewSource.includes("repository.totalCommittedForRound(destination.roundId)"),
   true,
 );
-assert.equal(discordPreviewSource.includes("messageId: previewMessageId ?? undefined"), true);
+assert.equal(
+  discordPreviewSource.includes("const deliveryErrors: Error[] = []"),
+  true,
+);
+assert.equal(
+  discordPreviewSource.includes("if ((!result.ok || !result.messageId) && webhookIsFresh)"),
+  true,
+);
+assert.equal(
+  discordPreviewSource.includes("messageId: targetMessageId ?? undefined"),
+  true,
+);
+assert.equal(discordPreviewSource.includes("FINAL_PAGE_SIZE"), false);
 const bitebluffStoreSource = fs.readFileSync(
   path.join(repoRoot, "src", "lib", "bitebluff-store.ts"),
   "utf8",
