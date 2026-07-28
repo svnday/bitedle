@@ -1740,7 +1740,7 @@ body {
 
 .bitebluff-reveal-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr));
   gap: 0.65rem;
 }
 
@@ -1748,7 +1748,7 @@ body {
   min-width: 0;
   border: 1px solid rgb(161 183 171 / 0.14);
   border-radius: 0.75rem;
-  padding: 0.65rem;
+  padding: 0.75rem;
   background: #151d1a;
 }
 
@@ -1767,19 +1767,31 @@ body {
 }
 
 .bitebluff-reveal-grid header {
-  display: flex;
+  display: grid;
+  grid-template-areas:
+    "rank avatar identity"
+    "rank avatar outcome";
+  grid-template-columns: 1.5rem 2rem minmax(0, 1fr);
   align-items: center;
-  gap: 0.45rem;
+  column-gap: 0.5rem;
+  row-gap: 0.08rem;
 }
 
 .bitebluff-reveal-grid header > div {
+  grid-area: identity;
   min-width: 0;
-  flex: 1;
 }
 
 .bitebluff-reveal-grid header strong,
 .bitebluff-reveal-grid header small {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bitebluff-reveal-grid header strong {
+  font-size: 0.92rem;
 }
 
 .bitebluff-reveal-grid header small {
@@ -1788,11 +1800,18 @@ body {
 }
 
 .bitebluff-reveal-grid header > b {
+  grid-area: outcome;
+  min-width: 0;
+  overflow: hidden;
   color: #e8c773;
-  font-size: 0.78rem;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bitebluff-result-rank {
+  grid-area: rank;
   display: grid;
   width: 1.5rem;
   height: 1.5rem;
@@ -1806,6 +1825,7 @@ body {
 }
 
 .bitebluff-result-avatar {
+  grid-area: avatar;
   width: 2rem;
   height: 2rem;
   flex: none;
@@ -1822,17 +1842,42 @@ body {
 }
 
 .bitebluff-mini-hand {
-  display: flex;
-  gap: 0.15rem;
-  margin-top: 0.55rem;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.28rem;
+  margin-top: 0.65rem;
 }
 
 .bitebluff-mini-hand .bitebluff-card-shell {
-  width: calc((100% - 0.6rem) / 5);
+  width: 100%;
+  min-width: 0;
+}
+
+.bitebluff-mini-hand .bitebluff-card-face,
+.bitebluff-mini-hand .bitebluff-card-back {
+  border-radius: 0.35rem;
+}
+
+.bitebluff-mini-hand .bitebluff-card-face > strong {
+  font-size: clamp(1.1rem, 2.25vw, 1.65rem);
+}
+
+.bitebluff-mini-hand .bitebluff-card-corner {
+  top: 0.2rem;
+  left: 0.22rem;
+  font-size: clamp(0.48rem, 0.8vw, 0.62rem);
+}
+
+.bitebluff-mini-hand .bitebluff-card-corner-bottom {
+  top: auto;
+  right: 0.22rem;
+  bottom: 0.2rem;
+  left: auto;
 }
 
 .bitebluff-reveal-grid footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 0.4rem;
   margin-top: 0.45rem;
