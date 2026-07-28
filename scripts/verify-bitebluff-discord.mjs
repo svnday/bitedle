@@ -167,6 +167,11 @@ const sealedSpectatorState = await service.bitebluffPrivateState(
 assert.equal(sealedSpectatorState.entry, null);
 assert.equal(sealedSpectatorState.results, null);
 assert.equal(sealedSpectatorState.yesterdayResults, null);
+assert.equal(sealedSpectatorState.yesterdayResultsDate, "2026-07-27");
+assert.equal(
+  sealedSpectatorState.yesterdayResultsUnavailableReason,
+  "legacy-global-round",
+);
 assert.equal(JSON.stringify(sealedSpectatorState).includes('"revealedHand"'), false);
 const duplicateRedraw = await service.redrawBitebluff(
   alice.userId,
@@ -413,6 +418,10 @@ assert.equal(
   true,
 );
 assert.equal(settledSpectatorState.yesterdayResults, null);
+assert.equal(
+  settledSpectatorState.yesterdayResultsUnavailableReason,
+  "legacy-global-round",
+);
 const nextRoundSpectatorState = await service.bitebluffPrivateState(
   "spectator",
   guildOne,
@@ -424,6 +433,7 @@ assert.equal(nextRoundSpectatorState.results, null);
 assert.equal(nextRoundSpectatorState.yesterdayResults.date, "2026-07-28");
 assert.equal(nextRoundSpectatorState.yesterdayResults.totalPool, 120);
 assert.equal(nextRoundSpectatorState.yesterdayResults.results.length, 2);
+assert.equal(nextRoundSpectatorState.yesterdayResultsUnavailableReason, null);
 assert.equal(nextRoundSpectatorState.yesterdayResults.results[0].winner, true);
 assert.equal(
   nextRoundSpectatorState.yesterdayResults.results.every(
@@ -437,6 +447,10 @@ const otherGuildArchiveState = await service.bitebluffPrivateState(
   new Date("2026-07-29T04:01:00.000Z"),
 );
 assert.equal(otherGuildArchiveState.yesterdayResults, null);
+assert.equal(
+  otherGuildArchiveState.yesterdayResultsUnavailableReason,
+  "no-settled-round",
+);
 
 const balancesAfterSettlement = await Promise.all([
   repository.getAccount(alice.userId),

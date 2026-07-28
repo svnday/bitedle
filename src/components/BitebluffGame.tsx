@@ -41,6 +41,7 @@ export default function BitebluffGame() {
   const [selectedBurnPositions, setSelectedBurnPositions] = useState<number[]>(
     [],
   );
+  const [choosingBurnCards, setChoosingBurnCards] = useState(false);
   const [redrawCount, setRedrawCount] = useState(1);
   const [reviewingRedraw, setReviewingRedraw] = useState(false);
   const [redrawing, setRedrawing] = useState(false);
@@ -76,9 +77,18 @@ export default function BitebluffGame() {
       setError("");
       setResultsView((current) => {
         if (current === "current" && next.round.status !== "settled") return null;
-        if (current === "yesterday" && !next.yesterdayResults) return null;
         return current;
       });
+      if (
+        !next.entry ||
+        next.entry.redraw ||
+        !next.burnAndDraw.available ||
+        next.burnAndDraw.mode !== "selected-cards"
+      ) {
+        setChoosingBurnCards(false);
+        setSelectedBurnPositions([]);
+        setReviewingRedraw(false);
+      }
       if (!next.entry) {
         setWagerInput((current) => current || String(next.wager.minimum));
       }
@@ -192,17 +202,32 @@ export default function BitebluffGame() {
           date: state.round.date,
           title: "Everyone’s cards are revealed",
           note: "These revealed hands remain available until the next round opens at midnight Eastern.",
+          emptyMessage: undefined,
           totalPool: state.pot,
           results: state.results,
         }
-      : resultsView === "yesterday" && state?.yesterdayResults
-        ? {
-            date: state.yesterdayResults.date,
-            title: "Yesterday’s hands and winners",
-            note: "This archived board remains available throughout today’s Bitebluff round.",
-            totalPool: state.yesterdayResults.totalPool,
-            results: state.yesterdayResults.results,
-          }
+      : resultsView === "yesterday" && state
+        ? state.yesterdayResults
+          ? {
+              date: state.yesterdayResults.date,
+              title: "Yesterday’s hands and winners",
+              note: "This archived board remains available throughout today’s Bitebluff round.",
+              emptyMessage: undefined,
+              totalPool: state.yesterdayResults.totalPool,
+              results: state.yesterdayResults.results,
+            }
+          : {
+              date: state.yesterdayResultsDate,
+              title: "Yesterday’s results are unavailable",
+              note: "The archive control remains here each day and will automatically point to the latest guild-safe settlement.",
+              emptyMessage:
+                state.yesterdayResultsUnavailableReason ===
+                "legacy-global-round"
+                  ? "July 27 used the former cross-server round. Its entrants cannot be separated reliably by Discord server, so exposing those hands here would reintroduce the cross-guild leak that was fixed for July 28."
+                  : "This Discord server has no settled Bitebluff round for yesterday.",
+              totalPool: null,
+              results: [],
+            }
         : null;
 
   async function confirmWager() {
@@ -226,7 +251,8 @@ export default function BitebluffGame() {
       !state?.entry ||
       !state.burnAndDraw.available ||
       (selectedCardRedraw &&
-        (selectedBurnPositions.length < 1 ||
+        (!choosingBurnCards ||
+          selectedBurnPositions.length < 1 ||
           selectedBurnPositions.length > 3)) ||
       redrawing
     ) {
@@ -244,6 +270,7 @@ export default function BitebluffGame() {
       );
       setState(next);
       setReviewingRedraw(false);
+      setChoosingBurnCards(false);
       setPlacedCount(5);
       setRevealedCount(5);
       setPhase("done");
@@ -260,7 +287,7 @@ export default function BitebluffGame() {
   }
 
   function toggleBurnPosition(position: number) {
-    if (reviewingRedraw || redrawing) return;
+    if (!choosingBurnCards || reviewingRedraw || redrawing) return;
     setError("");
     setSelectedBurnPositions((current) => {
       if (current.includes(position)) {
@@ -269,6 +296,14 @@ export default function BitebluffGame() {
       if (current.length >= 3) return current;
       return [...current, position].sort((a, b) => a - b);
     });
+  }
+
+  function cancelBurnSelection() {
+    if (redrawing) return;
+    setChoosingBurnCards(false);
+    setReviewingRedraw(false);
+    setSelectedBurnPositions([]);
+    setError("");
   }
 
   async function openLeaderboard() {
@@ -300,7 +335,7 @@ export default function BitebluffGame() {
             </p>
           </div>
           <div className="bitebluff-hero-actions">
-            {state?.yesterdayResults ? (
+            {state ? (
               <button
                 type="button"
                 className="bitebluff-leaderboard-button"
@@ -373,7 +408,8 @@ export default function BitebluffGame() {
                   phase === "done" &&
                   !entry.redraw &&
                   Boolean(state?.burnAndDraw.available) &&
-                  selectedCardRedraw
+                  selectedCardRedraw &&
+                  choosingBurnCards
                 }
                 burnSelectionLocked={reviewingRedraw || redrawing}
                 onToggleBurnPosition={toggleBurnPosition}
@@ -444,9 +480,10 @@ export default function BitebluffGame() {
                       {selectedCardRedraw ? (
                         <>
                           Pay {state.burnAndDraw.surcharge?.toLocaleString()} Bites
-                          to burn and replace the 1–3 cards you select above.
-                          Untouched cards stay in place, but the replacements can
-                          make your hand worse.
+                          to burn and replace 1–3 cards. Choose Burn &amp; Draw
+                          below before selecting cards from your hand. Untouched
+                          cards stay in place, but the replacements can make your
+                          hand worse.
                         </>
                       ) : (
                         <>
@@ -501,18 +538,51 @@ export default function BitebluffGame() {
                           {selectedCardRedraw ? "Change selection" : "Go back"}
                         </button>
                       </div>
-                    ) : (
-                      <>
-                        {selectedCardRedraw ? (
+                    ) : selectedCardRedraw ? (
+                      choosingBurnCards ? (
+                        <>
                           <div className="bitebluff-redraw-selection-status">
                             <strong>
                               {selectedBurnPositions.length} of 3 selected
                             </strong>
                             <span>
-                              Select between 1 and 3 cards directly from your hand.
+                              Selection mode is active. Choose 1–3 cards from
+                              your hand above.
                             </span>
                           </div>
-                        ) : (
+                          <div className="bitebluff-redraw-selection-actions">
+                            <button
+                              type="button"
+                              className="bitebluff-primary-button"
+                              disabled={selectedBurnPositions.length === 0}
+                              onClick={() => setReviewingRedraw(true)}
+                            >
+                              Review Burn &amp; Draw
+                            </button>
+                            <button
+                              type="button"
+                              className="bitebluff-secondary-button"
+                              onClick={cancelBurnSelection}
+                            >
+                              Cancel card selection
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="bitebluff-primary-button"
+                          onClick={() => {
+                            setSelectedBurnPositions([]);
+                            setChoosingBurnCards(true);
+                            setError("");
+                          }}
+                        >
+                          Choose cards to Burn &amp; Draw
+                        </button>
+                      )
+                    ) : (
+                      <>
                           <div
                             role="group"
                             aria-label="Number of random cards to redraw"
@@ -530,14 +600,9 @@ export default function BitebluffGame() {
                               </button>
                             ))}
                           </div>
-                        )}
                         <button
                           type="button"
                           className="bitebluff-primary-button"
-                          disabled={
-                            selectedCardRedraw &&
-                            selectedBurnPositions.length === 0
-                          }
                           onClick={() => setReviewingRedraw(true)}
                         >
                           Review Burn &amp; Draw
@@ -719,6 +784,7 @@ export default function BitebluffGame() {
           date={visibleResults.date}
           title={visibleResults.title}
           note={visibleResults.note}
+          emptyMessage={visibleResults.emptyMessage}
           results={visibleResults.results}
           totalPool={visibleResults.totalPool}
           onClose={() => setResultsView(null)}

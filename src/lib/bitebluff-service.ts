@@ -250,21 +250,42 @@ async function yesterdayBitebluffResults(
   userId: string,
   guildId: string,
   currentDate: string,
-): Promise<BitebluffResultBoard | null> {
+): Promise<{
+  date: string;
+  results: BitebluffResultBoard | null;
+  unavailableReason:
+    | "legacy-global-round"
+    | "no-settled-round"
+    | null;
+}> {
   const date = bitebluffPreviousDate(currentDate);
-  if (!bitebluffUsesGuildRounds(date)) return null;
+  if (!bitebluffUsesGuildRounds(date)) {
+    return {
+      date,
+      results: null,
+      unavailableReason: "legacy-global-round",
+    };
+  }
   const round = await repository.getRound(`${date}:guild:${guildId}`);
   if (!round || round.status !== "settled" || round.guildId !== guildId) {
-    return null;
+    return {
+      date,
+      results: null,
+      unavailableReason: "no-settled-round",
+    };
   }
   const entries = await repository.entriesForRound(round.id);
   return {
-    date: round.date,
-    totalPool: entries.reduce(
-      (total, participant) => total + committedBites(participant),
-      0,
-    ),
-    results: settledParticipantResults(entries, userId),
+    date,
+    results: {
+      date: round.date,
+      totalPool: entries.reduce(
+        (total, participant) => total + committedBites(participant),
+        0,
+      ),
+      results: settledParticipantResults(entries, userId),
+    },
+    unavailableReason: null,
   };
 }
 
@@ -286,7 +307,7 @@ export async function bitebluffPrivateState(
   await settleOverdueBitebluffRounds(now);
   const repository = getBitebluffRepository();
   const round = await ensureBitebluffRound(guildId, now);
-  const [account, entry, entries, yesterdayResults] = await Promise.all([
+  const [account, entry, entries, yesterdayArchive] = await Promise.all([
     repository.getAccount(userId),
     repository.getEntry(round.id, userId),
     repository.entriesForRound(round.id),
@@ -379,7 +400,9 @@ export async function bitebluffPrivateState(
       round.status === "settled"
         ? settledParticipantResults(entries, userId)
         : null,
-    yesterdayResults,
+    yesterdayResults: yesterdayArchive.results,
+    yesterdayResultsDate: yesterdayArchive.date,
+    yesterdayResultsUnavailableReason: yesterdayArchive.unavailableReason,
     burnAndDraw: {
       mode: bitebluffRedrawMode(round.date),
       available: Boolean(entry) && redrawUnavailableReason === null,

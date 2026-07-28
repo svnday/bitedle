@@ -413,6 +413,18 @@ assert.equal(
 assert.equal(bitebluffGameSource.includes("{ count: redrawCount }"), true);
 assert.equal(bitebluffGameSource.includes('=== "selected-cards"'), true);
 assert.equal(bitebluffGameSource.includes("selectedBurnPositions"), true);
+assert.equal(bitebluffGameSource.includes("choosingBurnCards"), true);
+assert.equal(
+  bitebluffGameSource.includes("Choose cards to Burn &amp; Draw"),
+  true,
+);
+assert.equal(
+  bitebluffGameSource.includes(
+    "!choosingBurnCards || reviewingRedraw || redrawing",
+  ),
+  true,
+);
+assert.equal(bitebluffGameSource.includes("cancelBurnSelection"), true);
 assert.equal(bitebluffGameSource.includes("startRedrawAnimation"), true);
 assert.equal(bitebluffGameSource.includes("randomly selected cards"), true);
 assert.equal(bitebluffGameSource.includes("api.bitebluffLeaderboard()"), true);
@@ -437,6 +449,10 @@ assert.equal(
   bitebluffGameSource.includes("Yesterday&apos;s results"),
   true,
 );
+assert.equal(
+  bitebluffGameSource.includes('"legacy-global-round"'),
+  true,
+);
 const settlementResultsSource = fs.readFileSync(
   path.join(
     repoRoot,
@@ -448,6 +464,7 @@ const settlementResultsSource = fs.readFileSync(
 );
 assert.equal(settlementResultsSource.includes('aria-modal="true"'), true);
 assert.equal(settlementResultsSource.includes("bitebluff-results-scroll"), true);
+assert.equal(settlementResultsSource.includes("bitebluff-results-empty"), true);
 const handStrengthSource = fs.readFileSync(
   path.join(repoRoot, "src", "components", "BitebluffHandStrength.tsx"),
   "utf8",

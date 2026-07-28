@@ -200,6 +200,11 @@ export interface BitebluffPrivateState {
   };
   results: BitebluffSettledParticipant[] | null;
   yesterdayResults: BitebluffResultBoard | null;
+  yesterdayResultsDate: string;
+  yesterdayResultsUnavailableReason:
+    | "legacy-global-round"
+    | "no-settled-round"
+    | null;
   burnAndDraw: {
     mode: BitebluffRedrawMode;
     available: boolean;

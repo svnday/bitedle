@@ -27,6 +27,7 @@ export default function BitebluffSettlementResults({
   date,
   title,
   note,
+  emptyMessage,
   results,
   totalPool,
   onClose,
@@ -34,8 +35,9 @@ export default function BitebluffSettlementResults({
   date: string;
   title: string;
   note: string;
+  emptyMessage?: string;
   results: BitebluffSettledParticipant[];
-  totalPool: number;
+  totalPool: number | null;
   onClose: () => void;
 }) {
   return (
@@ -59,8 +61,9 @@ export default function BitebluffSettlementResults({
             </span>
             <h2 id="bitebluff-results-title">{title}</h2>
             <p>
-              Winners first, then strongest final hand to weakest ·{" "}
-              {totalPool.toLocaleString()} Bite pool
+              {totalPool === null
+                ? "No guild-safe result board is available for this date."
+                : `Winners first, then strongest final hand to weakest · ${totalPool.toLocaleString()} Bite pool`}
             </p>
           </div>
           <button
@@ -73,8 +76,9 @@ export default function BitebluffSettlementResults({
         </div>
 
         <div className="bitebluff-results-scroll">
-          <div className="bitebluff-reveal-grid">
-            {results.map((result) => (
+          {results.length > 0 ? (
+            <div className="bitebluff-reveal-grid">
+              {results.map((result) => (
               <article
                 key={result.userId}
                 className={`${result.winner ? "bitebluff-result-winner" : ""} ${
@@ -135,8 +139,17 @@ export default function BitebluffSettlementResults({
                   </span>
                 </footer>
               </article>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bitebluff-results-empty">
+              <strong>Nothing to reveal here</strong>
+              <p>
+                {emptyMessage ??
+                  "No hands were recorded for this Bitebluff round."}
+              </p>
+            </div>
+          )}
         </div>
 
         <p className="bitebluff-results-note">

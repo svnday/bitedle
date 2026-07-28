@@ -1632,6 +1632,31 @@ body {
   scrollbar-width: thin;
 }
 
+.bitebluff-results-empty {
+  display: grid;
+  min-height: 12rem;
+  place-content: center;
+  gap: 0.45rem;
+  border: 1px dashed rgb(157 178 166 / 0.2);
+  border-radius: 0.8rem;
+  padding: 2rem;
+  text-align: center;
+  background: rgb(9 24 19 / 0.42);
+}
+
+.bitebluff-results-empty strong {
+  color: #e8c773;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.1rem;
+}
+
+.bitebluff-results-empty p {
+  max-width: 38rem;
+  color: #8fa198;
+  font-size: 0.7rem;
+  line-height: 1.6;
+}
+
 .bitebluff-results-note {
   border-top: 1px solid rgb(157 178 166 / 0.12);
   padding-top: 0.75rem;
