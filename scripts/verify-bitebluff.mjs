@@ -312,6 +312,10 @@ assert.equal(bitebluffTime.bitebluffRedrawMode("2026-07-28"), "selected-cards");
 assert.equal(bitebluffTime.bitebluffUsesGuildRounds("2026-07-27"), false);
 assert.equal(bitebluffTime.bitebluffUsesGuildRounds("2026-07-28"), true);
 assert.equal(
+  bitebluffTime.BITEBLUFF_LEGACY_ARCHIVE_VISIBLE_DATE,
+  "2026-07-28",
+);
+assert.equal(
   bitebluffTime.bitebluffPreviousDate("2026-01-01"),
   "2025-12-31",
 );

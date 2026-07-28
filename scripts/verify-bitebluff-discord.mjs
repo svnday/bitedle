@@ -170,7 +170,7 @@ assert.equal(sealedSpectatorState.yesterdayResults, null);
 assert.equal(sealedSpectatorState.yesterdayResultsDate, "2026-07-27");
 assert.equal(
   sealedSpectatorState.yesterdayResultsUnavailableReason,
-  "legacy-global-round",
+  "no-settled-round",
 );
 assert.equal(JSON.stringify(sealedSpectatorState).includes('"revealedHand"'), false);
 const duplicateRedraw = await service.redrawBitebluff(
@@ -420,7 +420,7 @@ assert.equal(
 assert.equal(settledSpectatorState.yesterdayResults, null);
 assert.equal(
   settledSpectatorState.yesterdayResultsUnavailableReason,
-  "legacy-global-round",
+  "no-settled-round",
 );
 const nextRoundSpectatorState = await service.bitebluffPrivateState(
   "spectator",
@@ -725,6 +725,36 @@ const legacyRetry = await service.redrawBitebluff(
   legacyRedrawTime,
 );
 assert.equal(legacyRetry.applied, false);
+const legacySettlementTime = new Date("2026-07-28T03:01:00.000Z");
+await service.settleBitebluffRound(
+  legacyAfterRedraw.round.id,
+  legacySettlementTime,
+);
+const legacyArchiveExceptionState = await service.bitebluffPrivateState(
+  "legacy-spectator",
+  guildTwo,
+  new Date("2026-07-28T04:01:00.000Z"),
+);
+assert.equal(legacyArchiveExceptionState.yesterdayResults.date, "2026-07-27");
+assert.equal(legacyArchiveExceptionState.yesterdayResults.results.length, 1);
+assert.equal(
+  legacyArchiveExceptionState.yesterdayResults.results[0].userId,
+  alice.userId,
+);
+assert.equal(
+  legacyArchiveExceptionState.yesterdayResultsUnavailableReason,
+  null,
+);
+const legacyArchiveExpiredState = await service.bitebluffPrivateState(
+  "legacy-spectator",
+  guildOne,
+  new Date("2026-07-29T04:01:00.000Z"),
+);
+assert.equal(legacyArchiveExpiredState.yesterdayResults, null);
+assert.equal(
+  legacyArchiveExpiredState.yesterdayResultsUnavailableReason,
+  "no-settled-round",
+);
 await assert.rejects(
   service.redrawBitebluff(
     alice.userId,

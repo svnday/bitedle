@@ -40,6 +40,7 @@ import {
   bitebluffRedrawMode,
   bitebluffRoundWindow,
   bitebluffUsesGuildRounds,
+  BITEBLUFF_LEGACY_ARCHIVE_VISIBLE_DATE,
 } from "./bitebluff-time";
 import type {
   BitebluffDestinationRecord,
@@ -259,15 +260,25 @@ async function yesterdayBitebluffResults(
     | null;
 }> {
   const date = bitebluffPreviousDate(currentDate);
-  if (!bitebluffUsesGuildRounds(date)) {
+  const guildScoped = bitebluffUsesGuildRounds(date);
+  if (
+    !guildScoped &&
+    currentDate !== BITEBLUFF_LEGACY_ARCHIVE_VISIBLE_DATE
+  ) {
     return {
       date,
       results: null,
       unavailableReason: "legacy-global-round",
     };
   }
-  const round = await repository.getRound(`${date}:guild:${guildId}`);
-  if (!round || round.status !== "settled" || round.guildId !== guildId) {
+  const round = await repository.getRound(
+    guildScoped ? `${date}:guild:${guildId}` : date,
+  );
+  if (
+    !round ||
+    round.status !== "settled" ||
+    (guildScoped && round.guildId !== guildId)
+  ) {
     return {
       date,
       results: null,

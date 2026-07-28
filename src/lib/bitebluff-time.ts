@@ -4,6 +4,7 @@ export const BITEBLUFF_TIME_ZONE = "America/New_York";
 export const BITEBLUFF_REVEAL_HOUR = 23;
 export const BITEBLUFF_SELECTED_REDRAW_FROM = "2026-07-28";
 export const BITEBLUFF_GUILD_ROUNDS_FROM = "2026-07-28";
+export const BITEBLUFF_LEGACY_ARCHIVE_VISIBLE_DATE = "2026-07-28";
 
 export type BitebluffRedrawMode = "random-count" | "selected-cards";
 
