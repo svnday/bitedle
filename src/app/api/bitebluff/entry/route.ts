@@ -18,6 +18,13 @@ import { updateBitebluffPublicPreview } from "@/lib/bitebluff-discord-preview";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
+  const guildId = guildIdFromRequest(request);
+  if (!guildId) {
+    return NextResponse.json(
+      { error: "Launch Bitebluff from a Discord server channel." },
+      { status: 428 },
+    );
+  }
   const discordUserId = request.headers.get(DISCORD_USER_HEADER_NAME);
   if (
     !discordUserId ||
@@ -56,10 +63,10 @@ export async function POST(request: NextRequest) {
         avatarHash: user.discordAvatar,
       },
       wager,
+      guildId,
     );
-    const guildId = guildIdFromRequest(request);
     const channelId = discordChannelIdFromRequest(request);
-    if (guildId && channelId) {
+    if (channelId) {
       await recordBitebluffDestination({
         roundId: result.entry.roundId,
         guildId,
@@ -83,7 +90,7 @@ export async function POST(request: NextRequest) {
         }
       });
     }
-    return NextResponse.json(await bitebluffPrivateState(userId));
+    return NextResponse.json(await bitebluffPrivateState(userId, guildId));
   } catch (error) {
     return NextResponse.json(
       {

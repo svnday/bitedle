@@ -3,6 +3,7 @@ import { todayStr } from "./time";
 export const BITEBLUFF_TIME_ZONE = "America/New_York";
 export const BITEBLUFF_REVEAL_HOUR = 23;
 export const BITEBLUFF_SELECTED_REDRAW_FROM = "2026-07-28";
+export const BITEBLUFF_GUILD_ROUNDS_FROM = "2026-07-28";
 
 export type BitebluffRedrawMode = "random-count" | "selected-cards";
 
@@ -54,6 +55,10 @@ export function bitebluffRedrawMode(date: string): BitebluffRedrawMode {
   return date >= BITEBLUFF_SELECTED_REDRAW_FROM
     ? "selected-cards"
     : "random-count";
+}
+
+export function bitebluffUsesGuildRounds(date: string): boolean {
+  return date >= BITEBLUFF_GUILD_ROUNDS_FROM;
 }
 
 export function bitebluffRoundWindow(date: string): { opensAt: number; revealAt: number } {

@@ -1,6 +1,7 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import {
   DISCORD_USER_HEADER_NAME,
+  guildIdFromRequest,
   isBlockedDiscordId,
   SNOWFLAKE_RE,
 } from "@/lib/discord";
@@ -17,6 +18,13 @@ import {
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
+  const guildId = guildIdFromRequest(request);
+  if (!guildId) {
+    return NextResponse.json(
+      { error: "Launch Bitebluff from a Discord server channel." },
+      { status: 428 },
+    );
+  }
   const discordUserId = request.headers.get(DISCORD_USER_HEADER_NAME);
   if (
     !discordUserId ||
@@ -53,5 +61,5 @@ export async function GET(request: NextRequest) {
       });
     });
   }
-  return NextResponse.json(await bitebluffPrivateState(userId));
+  return NextResponse.json(await bitebluffPrivateState(userId, guildId));
 }

@@ -16,6 +16,7 @@ export interface BitebluffAccountRecord {
 export interface BitebluffRoundRecord {
   id: string;
   date: string;
+  guildId: string | null;
   status: BitebluffRoundStatus;
   opensAt: number;
   revealAt: number;
@@ -162,6 +163,7 @@ export interface BitebluffPrivateState {
   round: {
     id: string;
     date: string;
+    guildId: string | null;
     status: BitebluffRoundStatus;
     revealAt: number;
     secretCommitment: string;

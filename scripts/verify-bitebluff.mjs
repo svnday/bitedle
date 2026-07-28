@@ -309,6 +309,8 @@ assert.equal(
 );
 assert.equal(bitebluffTime.bitebluffRedrawMode("2026-07-27"), "random-count");
 assert.equal(bitebluffTime.bitebluffRedrawMode("2026-07-28"), "selected-cards");
+assert.equal(bitebluffTime.bitebluffUsesGuildRounds("2026-07-27"), false);
+assert.equal(bitebluffTime.bitebluffUsesGuildRounds("2026-07-28"), true);
 
 const demoSource = fs.readFileSync(
   path.join(repoRoot, "src", "components", "BitebluffDemo.tsx"),
@@ -365,7 +367,8 @@ const interactionSource = fs.readFileSync(
 assert.equal(interactionSource.includes('body?.data?.name === "bitebluff"'), true);
 assert.equal(interactionSource.includes("BITEBLUFF_CONFIRM_PREFIX"), false);
 assert.equal(interactionSource.includes('recordIntent(body, "bitebluff", false)'), true);
-assert.equal(interactionSource.includes("ensureBitebluffRound(new Date(launchedAt))"), true);
+assert.equal(interactionSource.includes("ensureBitebluffRound("), true);
+assert.equal(interactionSource.includes("guildId,"), true);
 assert.equal(
   interactionSource.indexOf("recordBitebluffDestination({") <
     interactionSource.indexOf("getUserIdByDiscordId(discordUserId)"),
@@ -422,6 +425,7 @@ const entryRouteSource = fs.readFileSync(
 );
 assert.equal(entryRouteSource.includes("enterBitebluff("), true);
 assert.equal(entryRouteSource.includes("discordChannelIdFromRequest"), true);
+assert.equal(entryRouteSource.includes("guildIdFromRequest"), true);
 const redrawRouteSource = fs.readFileSync(
   path.join(repoRoot, "src", "app", "api", "bitebluff", "redraw", "route.ts"),
   "utf8",
@@ -430,6 +434,7 @@ assert.equal(redrawRouteSource.includes("redrawBitebluff("), true);
 assert.equal(redrawRouteSource.includes("body?.positions"), true);
 assert.equal(redrawRouteSource.includes("body?.count"), true);
 assert.equal(redrawRouteSource.includes("bitebluffRedrawMode"), true);
+assert.equal(redrawRouteSource.includes("guildIdFromRequest"), true);
 assert.equal(redrawRouteSource.includes("updateBitebluffPublicPreview"), true);
 const clientApiSource = fs.readFileSync(
   path.join(repoRoot, "src", "lib", "client-api.ts"),
@@ -441,6 +446,7 @@ const leaderboardRouteSource = fs.readFileSync(
   "utf8",
 );
 assert.equal(leaderboardRouteSource.includes("bitebluffLeaderboard("), true);
+assert.equal(leaderboardRouteSource.includes("guildIdFromRequest"), true);
 const cronConfig = JSON.parse(
   fs.readFileSync(path.join(repoRoot, "vercel.json"), "utf8"),
 );
@@ -467,6 +473,14 @@ const bitebluffStoreSource = fs.readFileSync(
 );
 assert.equal(
   bitebluffStoreSource.includes("ELSE bitebluff_destinations.webhook_token"),
+  true,
+);
+assert.equal(
+  bitebluffStoreSource.includes("bitebluff_rounds_date_guild_idx"),
+  true,
+);
+assert.equal(
+  bitebluffStoreSource.includes("member_round.guild_id"),
   true,
 );
 assert.equal(

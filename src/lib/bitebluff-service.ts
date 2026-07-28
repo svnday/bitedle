@@ -24,7 +24,7 @@ import {
   BITEBLUFF_ACTIVE_DAYS,
   BITEBLUFF_REDRAW_CLOSE_MS,
 } from "./bitebluff-constants";
-import { discordAvatarUrl } from "./discord";
+import { discordAvatarUrl, SNOWFLAKE_RE } from "./discord";
 import {
   getBitebluffRepository,
   type BitebluffDestinationInput,
@@ -33,6 +33,7 @@ import {
   bitebluffDate,
   bitebluffRedrawMode,
   bitebluffRoundWindow,
+  bitebluffUsesGuildRounds,
 } from "./bitebluff-time";
 import type {
   BitebluffDestinationRecord,
@@ -53,12 +54,32 @@ export interface BitebluffPlayerIdentity {
   avatarHash: string | null;
 }
 
-function newRound(date: string, now: number): BitebluffRoundRecord {
+function bitebluffRoundGuildId(
+  date: string,
+  guildId: string | null,
+): string | null {
+  if (!bitebluffUsesGuildRounds(date)) return null;
+  if (!guildId || !SNOWFLAKE_RE.test(guildId)) {
+    throw new Error("Bitebluff requires a valid Discord server context.");
+  }
+  return guildId;
+}
+
+function newRound(
+  date: string,
+  guildId: string | null,
+  now: number,
+): BitebluffRoundRecord {
   const secret = createBitebluffRoundSecret();
   const window = bitebluffRoundWindow(date);
+  const scopedGuildId = bitebluffRoundGuildId(date, guildId);
   return {
-    id: date,
+    id:
+      scopedGuildId === null
+        ? date
+        : `${date}:guild:${scopedGuildId}`,
     date,
+    guildId: scopedGuildId,
     status: "open",
     opensAt: window.opensAt,
     revealAt: window.revealAt,
@@ -72,18 +93,22 @@ function newRound(date: string, now: number): BitebluffRoundRecord {
 }
 
 export async function ensureBitebluffRound(
+  guildId: string | null,
   now: Date = new Date(),
 ): Promise<BitebluffRoundRecord> {
   const date = bitebluffDate(now);
-  return getBitebluffRepository().ensureRound(newRound(date, now.getTime()));
+  return getBitebluffRepository().ensureRound(
+    newRound(date, guildId, now.getTime()),
+  );
 }
 
 export async function quoteBitebluffEntry(
   userId: string,
+  guildId: string,
   now: Date = new Date(),
 ): Promise<BitebluffEntryQuote> {
   const repository = getBitebluffRepository();
-  const round = await ensureBitebluffRound(now);
+  const round = await ensureBitebluffRound(guildId, now);
   const [account, existingEntry] = await Promise.all([
     repository.getAccount(userId),
     repository.getEntry(round.id, userId),
@@ -112,10 +137,11 @@ export async function quoteBitebluffEntry(
 export async function enterBitebluff(
   identity: BitebluffPlayerIdentity,
   wager: number,
+  guildId: string,
   now: Date = new Date(),
 ): Promise<BitebluffEnterResult> {
   const repository = getBitebluffRepository();
-  const round = await ensureBitebluffRound(now);
+  const round = await ensureBitebluffRound(guildId, now);
   const existing = await repository.getEntry(round.id, identity.userId);
   if (existing) {
     const account = await repository.getAccount(identity.userId);
@@ -142,7 +168,7 @@ export async function enterBitebluff(
     encryptedHand: encryptBitebluffValue(hand),
   });
   if (!result) {
-    const quote = await quoteBitebluffEntry(identity.userId, now);
+    const quote = await quoteBitebluffEntry(identity.userId, guildId, now);
     if (quote.existingEntry) {
       const account = await repository.getAccount(identity.userId);
       if (!account) throw new Error("Bitebluff account missing for an existing entry.");
@@ -161,7 +187,13 @@ export async function enterBitebluff(
 export async function recordBitebluffDestination(
   input: BitebluffDestinationInput,
 ): Promise<BitebluffDestinationRecord> {
-  return getBitebluffRepository().upsertDestination(input);
+  const repository = getBitebluffRepository();
+  const round = await repository.getRound(input.roundId);
+  if (!round) throw new Error("Bitebluff round not found for this destination.");
+  if (round.guildId !== null && round.guildId !== input.guildId) {
+    throw new Error("Bitebluff destination does not match the round’s Discord server.");
+  }
+  return repository.upsertDestination(input);
 }
 
 function committedBites(entry: { wager: number; redrawSurcharge: number }): number {
@@ -180,11 +212,12 @@ function sameBurnPositions(
 
 export async function bitebluffPrivateState(
   userId: string,
+  guildId: string,
   now: Date = new Date(),
 ): Promise<BitebluffPrivateState> {
   await settleOverdueBitebluffRounds(now);
   const repository = getBitebluffRepository();
-  const round = await ensureBitebluffRound(now);
+  const round = await ensureBitebluffRound(guildId, now);
   const [account, entry, entries] = await Promise.all([
     repository.getAccount(userId),
     repository.getEntry(round.id, userId),
@@ -225,6 +258,7 @@ export async function bitebluffPrivateState(
     round: {
       id: round.id,
       date: round.date,
+      guildId: round.guildId,
       status: round.status,
       revealAt: round.revealAt,
       secretCommitment: round.secretCommitment,
@@ -296,11 +330,12 @@ export async function bitebluffPrivateState(
 
 export async function redrawBitebluff(
   userId: string,
+  guildId: string,
   request: BitebluffRedrawRequest,
   now: Date = new Date(),
 ): Promise<BitebluffRedrawResult> {
   const repository = getBitebluffRepository();
-  const round = await ensureBitebluffRound(now);
+  const round = await ensureBitebluffRound(guildId, now);
   const redrawMode = bitebluffRedrawMode(round.date);
   let requestedPositions: number[] | null = null;
   let count: number;
@@ -400,10 +435,15 @@ function bitebluffDayNumber(date: string): number {
 
 export async function bitebluffLeaderboard(
   viewerUserId: string,
+  guildId: string,
   now: Date = new Date(),
 ): Promise<BitebluffLeaderboard> {
-  const today = bitebluffDayNumber(bitebluffDate(now));
-  const accounts = await getBitebluffRepository().leaderboardAccounts();
+  const date = bitebluffDate(now);
+  const today = bitebluffDayNumber(date);
+  const leaderboardGuildId = bitebluffUsesGuildRounds(date) ? guildId : null;
+  const accounts = await getBitebluffRepository().leaderboardAccounts(
+    leaderboardGuildId,
+  );
   const rows = accounts.map((account) => {
     const active =
       account.lastSettledDate !== null &&

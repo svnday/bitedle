@@ -1,6 +1,7 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import {
   DISCORD_USER_HEADER_NAME,
+  guildIdFromRequest,
   isBlockedDiscordId,
   SNOWFLAKE_RE,
 } from "@/lib/discord";
@@ -21,6 +22,13 @@ import type { BitebluffRedrawRequest } from "@/lib/bitebluff-types";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
+  const guildId = guildIdFromRequest(request);
+  if (!guildId) {
+    return NextResponse.json(
+      { error: "Launch Bitebluff from a Discord server channel." },
+      { status: 428 },
+    );
+  }
   const discordUserId = request.headers.get(DISCORD_USER_HEADER_NAME);
   if (
     !discordUserId ||
@@ -69,7 +77,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await redrawBitebluff(userId, redrawRequest, now);
+    const result = await redrawBitebluff(
+      userId,
+      guildId,
+      redrawRequest,
+      now,
+    );
     if (result.applied) {
       const destinations =
         await getBitebluffRepository().destinationsForRound(result.entry.roundId);
@@ -84,7 +97,7 @@ export async function POST(request: NextRequest) {
         }
       });
     }
-    return NextResponse.json(await bitebluffPrivateState(userId));
+    return NextResponse.json(await bitebluffPrivateState(userId, guildId));
   } catch (error) {
     return NextResponse.json(
       {

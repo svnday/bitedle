@@ -129,7 +129,10 @@ async function handleBitebluffCommand(body: Interaction): Promise<NextResponse> 
     const launchedAt = Date.now();
     after(async () => {
       try {
-        const round = await ensureBitebluffRound(new Date(launchedAt));
+        const round = await ensureBitebluffRound(
+          guildId,
+          new Date(launchedAt),
+        );
         const destination = await recordBitebluffDestination({
           roundId: round.id,
           guildId,
