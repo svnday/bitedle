@@ -199,6 +199,7 @@ export interface BitebluffPrivateState {
     };
   };
   results: BitebluffSettledParticipant[] | null;
+  yesterdayResults: BitebluffResultBoard | null;
   burnAndDraw: {
     mode: BitebluffRedrawMode;
     available: boolean;
@@ -233,6 +234,12 @@ export interface BitebluffSettledParticipant {
   net: number;
   wonLayers: number[];
   winner: boolean;
+}
+
+export interface BitebluffResultBoard {
+  date: string;
+  totalPool: number;
+  results: BitebluffSettledParticipant[];
 }
 
 export interface BitebluffSettlementResult {

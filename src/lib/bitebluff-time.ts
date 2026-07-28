@@ -51,6 +51,13 @@ export function bitebluffDate(now: Date = new Date()): string {
   return todayStr(now, BITEBLUFF_TIME_ZONE);
 }
 
+export function bitebluffPreviousDate(date: string): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day - 1))
+    .toISOString()
+    .slice(0, 10);
+}
+
 export function bitebluffRedrawMode(date: string): BitebluffRedrawMode {
   return date >= BITEBLUFF_SELECTED_REDRAW_FROM
     ? "selected-cards"

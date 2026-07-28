@@ -32,9 +32,11 @@ import { discordAvatarUrl, SNOWFLAKE_RE } from "./discord";
 import {
   getBitebluffRepository,
   type BitebluffDestinationInput,
+  type BitebluffRepository,
 } from "./bitebluff-store";
 import {
   bitebluffDate,
+  bitebluffPreviousDate,
   bitebluffRedrawMode,
   bitebluffRoundWindow,
   bitebluffUsesGuildRounds,
@@ -48,7 +50,9 @@ import type {
   BitebluffPrivateState,
   BitebluffRedrawRequest,
   BitebluffRedrawResult,
+  BitebluffResultBoard,
   BitebluffRoundRecord,
+  BitebluffSettledParticipant,
   BitebluffSettlementResult,
 } from "./bitebluff-types";
 
@@ -205,6 +209,65 @@ function committedBites(entry: { wager: number; redrawSurcharge: number }): numb
   return entry.wager + entry.redrawSurcharge;
 }
 
+function settledParticipantResults(
+  entries: readonly BitebluffEntryRecord[],
+  userId: string,
+): BitebluffSettledParticipant[] {
+  return sortBitebluffFinalEntries(entries)
+    .filter(
+      (
+        participant,
+      ): participant is BitebluffEntryRecord & {
+        revealedHand: BitebluffCard[];
+      } => participant.revealedHand !== null,
+    )
+    .map((participant, index) => ({
+      rank: index + 1,
+      userId: participant.userId,
+      displayName: participant.displayName,
+      avatarUrl: discordAvatarUrl(
+        participant.discordUserId,
+        participant.avatarHash,
+      ),
+      me: participant.userId === userId,
+      hand: participant.revealedHand,
+      handLabel:
+        participant.handLabel ??
+        evaluateBitebluffHand(participant.revealedHand).label,
+      wager: participant.wager,
+      committed: committedBites(participant),
+      payout: participant.payout,
+      contestedPayout: participant.contestedPayout,
+      unmatchedReturn: participant.unmatchedReturn,
+      net: participant.payout - committedBites(participant),
+      wonLayers: [...participant.wonLayers],
+      winner: bitebluffEntryIsWinner(participant),
+    }));
+}
+
+async function yesterdayBitebluffResults(
+  repository: BitebluffRepository,
+  userId: string,
+  guildId: string,
+  currentDate: string,
+): Promise<BitebluffResultBoard | null> {
+  const date = bitebluffPreviousDate(currentDate);
+  if (!bitebluffUsesGuildRounds(date)) return null;
+  const round = await repository.getRound(`${date}:guild:${guildId}`);
+  if (!round || round.status !== "settled" || round.guildId !== guildId) {
+    return null;
+  }
+  const entries = await repository.entriesForRound(round.id);
+  return {
+    date: round.date,
+    totalPool: entries.reduce(
+      (total, participant) => total + committedBites(participant),
+      0,
+    ),
+    results: settledParticipantResults(entries, userId),
+  };
+}
+
 function sameBurnPositions(
   first: readonly number[],
   second: readonly number[],
@@ -223,10 +286,11 @@ export async function bitebluffPrivateState(
   await settleOverdueBitebluffRounds(now);
   const repository = getBitebluffRepository();
   const round = await ensureBitebluffRound(guildId, now);
-  const [account, entry, entries] = await Promise.all([
+  const [account, entry, entries, yesterdayResults] = await Promise.all([
     repository.getAccount(userId),
     repository.getEntry(round.id, userId),
     repository.entriesForRound(round.id),
+    yesterdayBitebluffResults(repository, userId, guildId, round.date),
   ]);
   const hand = entry
     ? entry.revealedHand ??
@@ -247,16 +311,6 @@ export async function bitebluffPrivateState(
   const wagerBounds = entry
     ? { minimum: 0, maximum: 0 }
     : bitebluffWagerBounds(availableBalance);
-  const settledEntries =
-    round.status === "settled"
-      ? sortBitebluffFinalEntries(entries).filter(
-          (
-            participant,
-          ): participant is BitebluffEntryRecord & {
-            revealedHand: BitebluffCard[];
-          } => participant.revealedHand !== null,
-        )
-      : [];
   let redrawUnavailableReason: string | null = null;
   if (entry) {
     if (entry.redrawCount !== null) {
@@ -323,29 +377,9 @@ export async function bitebluffPrivateState(
         : null,
     results:
       round.status === "settled"
-        ? settledEntries.map((participant, index) => ({
-            rank: index + 1,
-            userId: participant.userId,
-            displayName: participant.displayName,
-            avatarUrl: discordAvatarUrl(
-              participant.discordUserId,
-              participant.avatarHash,
-            ),
-            me: participant.userId === userId,
-            hand: participant.revealedHand,
-            handLabel:
-              participant.handLabel ??
-              evaluateBitebluffHand(participant.revealedHand).label,
-            wager: participant.wager,
-            committed: committedBites(participant),
-            payout: participant.payout,
-            contestedPayout: participant.contestedPayout,
-            unmatchedReturn: participant.unmatchedReturn,
-            net: participant.payout - committedBites(participant),
-            wonLayers: [...participant.wonLayers],
-            winner: bitebluffEntryIsWinner(participant),
-          }))
+        ? settledParticipantResults(entries, userId)
         : null,
+    yesterdayResults,
     burnAndDraw: {
       mode: bitebluffRedrawMode(round.date),
       available: Boolean(entry) && redrawUnavailableReason === null,

@@ -166,6 +166,7 @@ const sealedSpectatorState = await service.bitebluffPrivateState(
 );
 assert.equal(sealedSpectatorState.entry, null);
 assert.equal(sealedSpectatorState.results, null);
+assert.equal(sealedSpectatorState.yesterdayResults, null);
 assert.equal(JSON.stringify(sealedSpectatorState).includes('"revealedHand"'), false);
 const duplicateRedraw = await service.redrawBitebluff(
   alice.userId,
@@ -411,6 +412,7 @@ assert.equal(
   settledSpectatorState.results.every((result) => result.me === false),
   true,
 );
+assert.equal(settledSpectatorState.yesterdayResults, null);
 const nextRoundSpectatorState = await service.bitebluffPrivateState(
   "spectator",
   guildOne,
@@ -419,6 +421,22 @@ const nextRoundSpectatorState = await service.bitebluffPrivateState(
 assert.equal(nextRoundSpectatorState.round.date, "2026-07-29");
 assert.equal(nextRoundSpectatorState.round.status, "open");
 assert.equal(nextRoundSpectatorState.results, null);
+assert.equal(nextRoundSpectatorState.yesterdayResults.date, "2026-07-28");
+assert.equal(nextRoundSpectatorState.yesterdayResults.totalPool, 120);
+assert.equal(nextRoundSpectatorState.yesterdayResults.results.length, 2);
+assert.equal(nextRoundSpectatorState.yesterdayResults.results[0].winner, true);
+assert.equal(
+  nextRoundSpectatorState.yesterdayResults.results.every(
+    (result) => result.hand.length === 5 && result.me === false,
+  ),
+  true,
+);
+const otherGuildArchiveState = await service.bitebluffPrivateState(
+  "spectator",
+  guildTwo,
+  new Date("2026-07-29T04:01:00.000Z"),
+);
+assert.equal(otherGuildArchiveState.yesterdayResults, null);
 
 const balancesAfterSettlement = await Promise.all([
   repository.getAccount(alice.userId),
@@ -704,5 +722,5 @@ await assert.rejects(
 );
 
 console.log(
-  "Bitebluff Discord verification passed: July 27 legacy global-round preservation, July 28 guild-specific rounds with isolated entrants, pots, leaderboard membership, and destinations, exact-card redraw cutover with untouched-card preservation, daily top-up and redraw-reserved bounds, atomic one-entry debit, redacted pot roster, encrypted pre-settlement hands, guild-wide post-settlement hand review with a midnight reset, zero-ping Play now components, rolling 13-minute preview windows, layered-pot conservation, idempotent settlement, and balance conservation.",
+  "Bitebluff Discord verification passed: July 27 legacy global-round preservation, July 28 guild-specific rounds with isolated entrants, pots, leaderboard membership, and destinations, exact-card redraw cutover with untouched-card preservation, daily top-up and redraw-reserved bounds, atomic one-entry debit, redacted pot roster, encrypted pre-settlement hands, guild-wide post-settlement hand review, isolated yesterday archives with a midnight rollover, zero-ping Play now components, rolling 13-minute preview windows, layered-pot conservation, idempotent settlement, and balance conservation.",
 );

@@ -311,6 +311,14 @@ assert.equal(bitebluffTime.bitebluffRedrawMode("2026-07-27"), "random-count");
 assert.equal(bitebluffTime.bitebluffRedrawMode("2026-07-28"), "selected-cards");
 assert.equal(bitebluffTime.bitebluffUsesGuildRounds("2026-07-27"), false);
 assert.equal(bitebluffTime.bitebluffUsesGuildRounds("2026-07-28"), true);
+assert.equal(
+  bitebluffTime.bitebluffPreviousDate("2026-01-01"),
+  "2025-12-31",
+);
+assert.equal(
+  bitebluffTime.bitebluffPreviousDate("2026-03-01"),
+  "2026-02-28",
+);
 
 const demoSource = fs.readFileSync(
   path.join(repoRoot, "src", "components", "BitebluffDemo.tsx"),
@@ -417,7 +425,18 @@ assert.equal(
   bitebluffGameSource.includes("View everyone&apos;s revealed hands"),
   true,
 );
-assert.equal(bitebluffGameSource.includes("setResultsOpen(true)"), true);
+assert.equal(
+  bitebluffGameSource.includes("setResultsView(\"current\")"),
+  true,
+);
+assert.equal(
+  bitebluffGameSource.includes("setResultsView(\"yesterday\")"),
+  true,
+);
+assert.equal(
+  bitebluffGameSource.includes("Yesterday&apos;s results"),
+  true,
+);
 const settlementResultsSource = fs.readFileSync(
   path.join(
     repoRoot,

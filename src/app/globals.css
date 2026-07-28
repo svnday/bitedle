@@ -438,7 +438,9 @@ body {
 
 .bitebluff-hero-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
+  justify-content: flex-end;
   gap: 0.7rem;
 }
 

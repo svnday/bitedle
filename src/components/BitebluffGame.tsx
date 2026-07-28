@@ -49,7 +49,9 @@ export default function BitebluffGame() {
     start: startRedrawAnimation,
   } = useBitebluffRedrawAnimation();
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
-  const [resultsOpen, setResultsOpen] = useState(false);
+  const [resultsView, setResultsView] = useState<
+    "current" | "yesterday" | null
+  >(null);
   const [leaderboard, setLeaderboard] = useState<BitebluffLeaderboard | null>(
     null,
   );
@@ -72,7 +74,11 @@ export default function BitebluffGame() {
       const next = await api.bitebluffState();
       setState(next);
       setError("");
-      if (next.round.status !== "settled") setResultsOpen(false);
+      setResultsView((current) => {
+        if (current === "current" && next.round.status !== "settled") return null;
+        if (current === "yesterday" && !next.yesterdayResults) return null;
+        return current;
+      });
       if (!next.entry) {
         setWagerInput((current) => current || String(next.wager.minimum));
       }
@@ -135,16 +141,16 @@ export default function BitebluffGame() {
   }, [phase, placedCount, revealedCount]);
 
   useEffect(() => {
-    if (!leaderboardOpen && !resultsOpen) return;
+    if (!leaderboardOpen && !resultsView) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setLeaderboardOpen(false);
-        setResultsOpen(false);
+        setResultsView(null);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [leaderboardOpen, resultsOpen]);
+  }, [leaderboardOpen, resultsView]);
 
   const entry = state?.entry ?? null;
   const selectedWager = Number(wagerInput);
@@ -178,6 +184,26 @@ export default function BitebluffGame() {
             redrawAnimation.positions.length
           }...`
     : null;
+  const visibleResults =
+    resultsView === "current" &&
+    state?.round.status === "settled" &&
+    state.results
+      ? {
+          date: state.round.date,
+          title: "Everyone’s cards are revealed",
+          note: "These revealed hands remain available until the next round opens at midnight Eastern.",
+          totalPool: state.pot,
+          results: state.results,
+        }
+      : resultsView === "yesterday" && state?.yesterdayResults
+        ? {
+            date: state.yesterdayResults.date,
+            title: "Yesterday’s hands and winners",
+            note: "This archived board remains available throughout today’s Bitebluff round.",
+            totalPool: state.yesterdayResults.totalPool,
+            results: state.yesterdayResults.results,
+          }
+        : null;
 
   async function confirmWager() {
     if (!state || !wagerIsValid || placingWager) return;
@@ -274,6 +300,15 @@ export default function BitebluffGame() {
             </p>
           </div>
           <div className="bitebluff-hero-actions">
+            {state?.yesterdayResults ? (
+              <button
+                type="button"
+                className="bitebluff-leaderboard-button"
+                onClick={() => setResultsView("yesterday")}
+              >
+                Yesterday&apos;s results
+              </button>
+            ) : null}
             <button
               type="button"
               className="bitebluff-leaderboard-button"
@@ -369,7 +404,7 @@ export default function BitebluffGame() {
                 <button
                   type="button"
                   className="bitebluff-primary-button bitebluff-results-button"
-                  onClick={() => setResultsOpen(true)}
+                  onClick={() => setResultsView("current")}
                 >
                   View everyone&apos;s revealed hands
                 </button>
@@ -640,7 +675,7 @@ export default function BitebluffGame() {
                 <button
                   type="button"
                   className="bitebluff-primary-button bitebluff-results-button"
-                  onClick={() => setResultsOpen(true)}
+                  onClick={() => setResultsView("current")}
                 >
                   View everyone&apos;s revealed hands
                 </button>
@@ -679,11 +714,14 @@ export default function BitebluffGame() {
           onClose={() => setLeaderboardOpen(false)}
         />
       ) : null}
-      {resultsOpen && state?.round.status === "settled" && state.results ? (
+      {visibleResults ? (
         <BitebluffSettlementResults
-          results={state.results}
-          totalPool={state.pot}
-          onClose={() => setResultsOpen(false)}
+          date={visibleResults.date}
+          title={visibleResults.title}
+          note={visibleResults.note}
+          results={visibleResults.results}
+          totalPool={visibleResults.totalPool}
+          onClose={() => setResultsView(null)}
         />
       ) : null}
     </main>

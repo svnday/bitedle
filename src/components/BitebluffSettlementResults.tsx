@@ -24,10 +24,16 @@ function winnerLabel(result: BitebluffSettledParticipant): string {
 }
 
 export default function BitebluffSettlementResults({
+  date,
+  title,
+  note,
   results,
   totalPool,
   onClose,
 }: {
+  date: string;
+  title: string;
+  note: string;
   results: BitebluffSettledParticipant[];
   totalPool: number;
   onClose: () => void;
@@ -49,11 +55,9 @@ export default function BitebluffSettlementResults({
         <div className="bitebluff-results-modal-heading">
           <div>
             <span className="bitebluff-private-label">
-              Settlement complete
+              Final results · {date}
             </span>
-            <h2 id="bitebluff-results-title">
-              Everyone&apos;s cards are revealed
-            </h2>
+            <h2 id="bitebluff-results-title">{title}</h2>
             <p>
               Winners first, then strongest final hand to weakest ·{" "}
               {totalPool.toLocaleString()} Bite pool
@@ -136,8 +140,7 @@ export default function BitebluffSettlementResults({
         </div>
 
         <p className="bitebluff-results-note">
-          These revealed hands remain available until the next round opens at
-          midnight Eastern.
+          {note}
         </p>
       </section>
     </div>
