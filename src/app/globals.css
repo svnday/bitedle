@@ -1558,7 +1558,8 @@ body {
   backdrop-filter: blur(6px);
 }
 
-.bitebluff-leaderboard-modal {
+.bitebluff-leaderboard-modal,
+.bitebluff-results-modal {
   width: min(36rem, 100%);
   max-height: min(42rem, calc(100vh - 2rem));
   display: flex;
@@ -1572,7 +1573,13 @@ body {
   box-shadow: 0 2rem 6rem rgb(0 0 0 / 0.5);
 }
 
-.bitebluff-leaderboard-modal-heading {
+.bitebluff-results-modal {
+  width: min(76rem, 100%);
+  max-height: calc(100vh - 2rem);
+}
+
+.bitebluff-leaderboard-modal-heading,
+.bitebluff-results-modal-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1581,12 +1588,24 @@ body {
   padding-bottom: 0.8rem;
 }
 
-.bitebluff-leaderboard-modal-heading small {
+.bitebluff-leaderboard-modal-heading small,
+.bitebluff-results-modal-heading p {
   color: #789087;
   font-size: 0.58rem;
 }
 
-.bitebluff-leaderboard-modal-heading button {
+.bitebluff-results-modal-heading h2 {
+  margin-top: 0.12rem;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.3rem;
+}
+
+.bitebluff-results-modal-heading p {
+  margin-top: 0.2rem;
+}
+
+.bitebluff-leaderboard-modal-heading button,
+.bitebluff-results-modal-heading button {
   cursor: pointer;
   border: 1px solid rgb(157 178 166 / 0.2);
   border-radius: 999px;
@@ -1602,6 +1621,25 @@ body {
   overflow-y: auto;
   scrollbar-color: #6f7f77 transparent;
   scrollbar-width: thin;
+}
+
+.bitebluff-results-scroll {
+  overflow-y: auto;
+  padding: 0.85rem 0.2rem 0.85rem 0;
+  scrollbar-color: #6f7f77 transparent;
+  scrollbar-width: thin;
+}
+
+.bitebluff-results-note {
+  border-top: 1px solid rgb(157 178 166 / 0.12);
+  padding-top: 0.75rem;
+  color: #75877e;
+  font-size: 0.6rem;
+  line-height: 1.5;
+}
+
+.bitebluff-results-button {
+  justify-self: start;
 }
 
 .bitebluff-leaderboard-row {
@@ -1671,24 +1709,6 @@ body {
 .bitebluff-settlement {
   display: grid;
   gap: 0.85rem;
-}
-
-.bitebluff-settlement-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.bitebluff-settlement-heading > div {
-  display: grid;
-  gap: 0.25rem;
-}
-
-.bitebluff-settlement-heading > strong {
-  flex: none;
-  color: #e8c773;
-  font-size: 1rem;
 }
 
 .bitebluff-reveal-grid {
@@ -1857,11 +1877,6 @@ body {
 
   .bitebluff-stats {
     grid-template-columns: repeat(2, 1fr);
-  }
-
-  .bitebluff-settlement-heading {
-    align-items: flex-start;
-    flex-direction: column;
   }
 
   .bitebluff-table {

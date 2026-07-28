@@ -413,6 +413,22 @@ assert.equal(bitebluffGameSource.includes("Final confirmation"), true);
 assert.equal(bitebluffGameSource.includes("Current bankroll"), true);
 assert.equal(bitebluffGameSource.includes("BitebluffPotRoster"), true);
 assert.equal(bitebluffGameSource.includes("BitebluffHandStrength"), true);
+assert.equal(
+  bitebluffGameSource.includes("View everyone&apos;s revealed hands"),
+  true,
+);
+assert.equal(bitebluffGameSource.includes("setResultsOpen(true)"), true);
+const settlementResultsSource = fs.readFileSync(
+  path.join(
+    repoRoot,
+    "src",
+    "components",
+    "BitebluffSettlementResults.tsx",
+  ),
+  "utf8",
+);
+assert.equal(settlementResultsSource.includes('aria-modal="true"'), true);
+assert.equal(settlementResultsSource.includes("bitebluff-results-scroll"), true);
 const handStrengthSource = fs.readFileSync(
   path.join(repoRoot, "src", "components", "BitebluffHandStrength.tsx"),
   "utf8",

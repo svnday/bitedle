@@ -49,6 +49,7 @@ export default function BitebluffGame() {
     start: startRedrawAnimation,
   } = useBitebluffRedrawAnimation();
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
+  const [resultsOpen, setResultsOpen] = useState(false);
   const [leaderboard, setLeaderboard] = useState<BitebluffLeaderboard | null>(
     null,
   );
@@ -71,6 +72,7 @@ export default function BitebluffGame() {
       const next = await api.bitebluffState();
       setState(next);
       setError("");
+      if (next.round.status !== "settled") setResultsOpen(false);
       if (!next.entry) {
         setWagerInput((current) => current || String(next.wager.minimum));
       }
@@ -133,13 +135,16 @@ export default function BitebluffGame() {
   }, [phase, placedCount, revealedCount]);
 
   useEffect(() => {
-    if (!leaderboardOpen) return;
+    if (!leaderboardOpen && !resultsOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setLeaderboardOpen(false);
+      if (event.key === "Escape") {
+        setLeaderboardOpen(false);
+        setResultsOpen(false);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [leaderboardOpen]);
+  }, [leaderboardOpen, resultsOpen]);
 
   const entry = state?.entry ?? null;
   const selectedWager = Number(wagerInput);
@@ -317,12 +322,7 @@ export default function BitebluffGame() {
           </div>
         ) : null}
 
-        {state?.round.status === "settled" && state.results ? (
-          <BitebluffSettlementResults
-            results={state.results}
-            totalPool={state.pot}
-          />
-        ) : entry ? (
+        {entry ? (
           <>
             <div className="bitebluff-private-layout">
               <BitebluffTable
@@ -364,6 +364,16 @@ export default function BitebluffGame() {
                     }${(entry.net ?? 0).toLocaleString()}`
                   : "Other players can see who entered and each original locked wager. Every hand stays encrypted until settlement."}
               </p>
+
+              {state?.round.status === "settled" && state.results ? (
+                <button
+                  type="button"
+                  className="bitebluff-primary-button bitebluff-results-button"
+                  onClick={() => setResultsOpen(true)}
+                >
+                  View everyone&apos;s revealed hands
+                </button>
+              ) : null}
 
               {state?.round.status !== "settled" &&
               (phase !== "done" || redrawAnimationStatus) ? (
@@ -617,6 +627,24 @@ export default function BitebluffGame() {
                   </button>
                 </>
               )
+            ) : state.round.status === "settled" && state.results ? (
+              <>
+                <span className="bitebluff-private-label">
+                  Settlement complete
+                </span>
+                <h2>Today&apos;s hands have been revealed</h2>
+                <p>
+                  You did not enter this round, but the completed guild results
+                  are public until the next game opens at midnight Eastern.
+                </p>
+                <button
+                  type="button"
+                  className="bitebluff-primary-button bitebluff-results-button"
+                  onClick={() => setResultsOpen(true)}
+                >
+                  View everyone&apos;s revealed hands
+                </button>
+              </>
             ) : (
               <>
                 <h2>Today&apos;s entry window is closed</h2>
@@ -649,6 +677,13 @@ export default function BitebluffGame() {
           loading={leaderboardLoading}
           error={leaderboardError}
           onClose={() => setLeaderboardOpen(false)}
+        />
+      ) : null}
+      {resultsOpen && state?.round.status === "settled" && state.results ? (
+        <BitebluffSettlementResults
+          results={state.results}
+          totalPool={state.pot}
+          onClose={() => setResultsOpen(false)}
         />
       ) : null}
     </main>

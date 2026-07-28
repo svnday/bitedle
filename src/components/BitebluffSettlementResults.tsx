@@ -26,92 +26,120 @@ function winnerLabel(result: BitebluffSettledParticipant): string {
 export default function BitebluffSettlementResults({
   results,
   totalPool,
+  onClose,
 }: {
   results: BitebluffSettledParticipant[];
   totalPool: number;
+  onClose: () => void;
 }) {
   return (
-    <section
-      className="bitebluff-action-panel bitebluff-settlement bitebluff-settled-results"
-      aria-label="Final Bitebluff hands"
+    <div
+      className="bitebluff-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
-      <div className="bitebluff-settlement-heading">
-        <div>
-          <span className="bitebluff-private-label">Settlement complete</span>
-          <h2>Everyone&apos;s cards are revealed</h2>
-          <p>
-            Winners appear first, followed by the strongest final hand down to
-            the weakest. These results remain public until the next round opens
-            at midnight Eastern.
-          </p>
-        </div>
-        <strong>{totalPool.toLocaleString()} Bite pool</strong>
-      </div>
-
-      <div className="bitebluff-reveal-grid">
-        {results.map((result) => (
-          <article
-            key={result.userId}
-            className={`${result.winner ? "bitebluff-result-winner" : ""} ${
-              result.me ? "bitebluff-result-me" : ""
-            }`}
+      <section
+        className="bitebluff-results-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bitebluff-results-title"
+      >
+        <div className="bitebluff-results-modal-heading">
+          <div>
+            <span className="bitebluff-private-label">
+              Settlement complete
+            </span>
+            <h2 id="bitebluff-results-title">
+              Everyone&apos;s cards are revealed
+            </h2>
+            <p>
+              Winners first, then strongest final hand to weakest ·{" "}
+              {totalPool.toLocaleString()} Bite pool
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close revealed hands"
           >
-            <header>
-              <span className="bitebluff-result-rank">{result.rank}</span>
-              {result.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  className="bitebluff-result-avatar"
-                  src={result.avatarUrl}
-                  alt=""
-                />
-              ) : (
-                <span
-                  className="bitebluff-player-fallback bitebluff-result-avatar"
-                  aria-hidden="true"
-                >
-                  {result.displayName.charAt(0).toUpperCase()}
-                </span>
-              )}
-              <div>
-                <strong>
-                  {result.displayName}
-                  {result.me ? " · You" : ""}
-                </strong>
-                <small>{winnerLabel(result)}</small>
-              </div>
-              <b
-                className={
-                  result.net > 0
-                    ? "bitebluff-result-positive"
-                    : result.net < 0
-                      ? "bitebluff-result-negative"
-                      : ""
-                }
+            ×
+          </button>
+        </div>
+
+        <div className="bitebluff-results-scroll">
+          <div className="bitebluff-reveal-grid">
+            {results.map((result) => (
+              <article
+                key={result.userId}
+                className={`${result.winner ? "bitebluff-result-winner" : ""} ${
+                  result.me ? "bitebluff-result-me" : ""
+                }`}
               >
-                {outcome(result)}
-              </b>
-            </header>
+                <header>
+                  <span className="bitebluff-result-rank">{result.rank}</span>
+                  {result.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      className="bitebluff-result-avatar"
+                      src={result.avatarUrl}
+                      alt=""
+                    />
+                  ) : (
+                    <span
+                      className="bitebluff-player-fallback bitebluff-result-avatar"
+                      aria-hidden="true"
+                    >
+                      {result.displayName.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                  <div>
+                    <strong>
+                      {result.displayName}
+                      {result.me ? " · You" : ""}
+                    </strong>
+                    <small>{winnerLabel(result)}</small>
+                  </div>
+                  <b
+                    className={
+                      result.net > 0
+                        ? "bitebluff-result-positive"
+                        : result.net < 0
+                          ? "bitebluff-result-negative"
+                          : ""
+                    }
+                  >
+                    {outcome(result)}
+                  </b>
+                </header>
 
-            <div className="bitebluff-mini-hand">
-              {result.hand.map((card, index) => (
-                <BitebluffCard
-                  key={`${result.userId}:${card.rank}:${card.suit}:${index}`}
-                  card={card}
-                />
-              ))}
-            </div>
+                <div className="bitebluff-mini-hand">
+                  {result.hand.map((card, index) => (
+                    <BitebluffCard
+                      key={`${result.userId}:${card.rank}:${card.suit}:${index}`}
+                      card={card}
+                    />
+                  ))}
+                </div>
 
-            <footer>
-              <strong>{result.handLabel}</strong>
-              <span>
-                {result.committed.toLocaleString()} wagered ·{" "}
-                {result.payout.toLocaleString()} returned
-              </span>
-            </footer>
-          </article>
-        ))}
-      </div>
-    </section>
+                <footer>
+                  <strong>{result.handLabel}</strong>
+                  <span>
+                    {result.committed.toLocaleString()} wagered ·{" "}
+                    {result.payout.toLocaleString()} returned
+                  </span>
+                </footer>
+              </article>
+            ))}
+          </div>
+        </div>
+
+        <p className="bitebluff-results-note">
+          These revealed hands remain available until the next round opens at
+          midnight Eastern.
+        </p>
+      </section>
+    </div>
   );
 }
