@@ -51,3 +51,5 @@ next-env.d.ts
 
 # local planning notes, kept out of git
 .bitedle-plans/
+
+.env*
