@@ -12,7 +12,6 @@ import {
 } from "@/lib/bitebluff-service";
 import {
   deliverBitebluffFinalResults,
-  retryPendingBitebluffFinalResults,
 } from "@/lib/bitebluff-discord-preview";
 
 export const runtime = "nodejs";
@@ -57,9 +56,6 @@ export async function GET(request: NextRequest) {
         });
       }
     }
-    await retryPendingBitebluffFinalResults().catch((error) => {
-      console.error("bitebluff/state: pending final delivery retry failed", error);
-    });
   });
   return NextResponse.json(await bitebluffPrivateState(userId, guildId));
 }

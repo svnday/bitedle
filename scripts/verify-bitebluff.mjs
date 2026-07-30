@@ -382,6 +382,17 @@ assert.equal(interactionSource.includes('recordIntent(body, "bitebluff", false)'
 assert.equal(interactionSource.includes("ensureBitebluffRound("), true);
 assert.equal(interactionSource.includes("guildId,"), true);
 assert.equal(
+  interactionSource.indexOf("settleOverdueBitebluffRounds(") <
+    interactionSource.indexOf("ensureBitebluffRound("),
+  true,
+);
+assert.equal(
+  interactionSource.includes(
+    "deliverPendingBitebluffFinalResultsFromInteraction({",
+  ),
+  true,
+);
+assert.equal(
   interactionSource.indexOf("recordBitebluffDestination({") <
     interactionSource.indexOf("getUserIdByDiscordId(discordUserId)"),
   true,
@@ -394,6 +405,14 @@ assert.equal(
   true,
 );
 assert.equal(interactionSource.includes("allowed_mentions: { parse: [] }"), true);
+const bitebluffStateRouteSource = fs.readFileSync(
+  path.join(repoRoot, "src", "app", "api", "bitebluff", "state", "route.ts"),
+  "utf8",
+);
+assert.equal(
+  bitebluffStateRouteSource.includes("retryPendingBitebluffFinalResults"),
+  false,
+);
 const registrationSource = fs.readFileSync(
   path.join(repoRoot, "scripts", "register-discord-commands.mjs"),
   "utf8",

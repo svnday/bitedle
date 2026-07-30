@@ -707,6 +707,72 @@ export async function deliverBitebluffFinalResults(roundId: string): Promise<voi
   }
 }
 
+export async function deliverPendingBitebluffFinalResultsFromInteraction(input: {
+  guildId: string;
+  channelId: string;
+  applicationId: string;
+  webhookToken: string;
+  now?: number;
+}): Promise<string[]> {
+  const repository = getBitebluffRepository();
+  const deliveredRoundIds: string[] = [];
+  const now = input.now ?? Date.now();
+
+  while (true) {
+    const claimedDestinations =
+      await repository.claimPendingFinalDeliveryForGuild(input.guildId, now);
+    if (claimedDestinations.length === 0) return deliveredRoundIds;
+    const roundId = claimedDestinations[0].roundId;
+    try {
+      const [round, entries] = await Promise.all([
+        repository.getRound(roundId),
+        repository.entriesForRound(roundId),
+      ]);
+      if (!round || round.status !== "settled") {
+        throw new Error("Pending Bitebluff round is not settled.");
+      }
+      const totalPool = entries.reduce(
+        (total, entry) => total + entry.wager + entry.redrawSurcharge,
+        0,
+      );
+      const pngBuffer = await renderBitebluffFinalImage(
+        round,
+        entries,
+        totalPool,
+      ).arrayBuffer();
+      const result = await postImageWebhookFollowup({
+        applicationId: input.applicationId,
+        webhookToken: input.webhookToken,
+        pngBuffer,
+        content: `ðŸ† **Bitebluff ${round.date} â€” final results**`,
+        filename: "bitebluff-final.png",
+        components: BITEBLUFF_LAUNCH_COMPONENTS,
+      });
+      if (!result.ok || !result.messageId) {
+        throw new Error(
+          `Discord interaction final post failed (${result.status}): ${result.body}`,
+        );
+      }
+      for (const destination of claimedDestinations) {
+        await repository.recordFinalPage(destination.id, result.messageId, now);
+        await repository.completeFinalDelivery(
+          destination.id,
+          [result.messageId],
+          now,
+        );
+      }
+      deliveredRoundIds.push(roundId);
+    } catch (error) {
+      await Promise.all(
+        claimedDestinations.map((destination) =>
+          repository.releaseFinalDelivery(destination.id),
+        ),
+      );
+      throw error;
+    }
+  }
+}
+
 export async function retryPendingBitebluffFinalResults(): Promise<void> {
   const repository = getBitebluffRepository();
   const errors: Error[] = [];

@@ -51,10 +51,11 @@ import {
 import {
   ensureBitebluffRound,
   recordBitebluffDestination,
+  settleOverdueBitebluffRounds,
 } from "@/lib/bitebluff-service";
 import {
   BITEBLUFF_LAUNCH_BUTTON_ID,
-  deliverBitebluffFinalResults,
+  deliverPendingBitebluffFinalResultsFromInteraction,
   updateBitebluffPublicPreview,
 } from "@/lib/bitebluff-discord-preview";
 
@@ -130,6 +131,7 @@ async function handleBitebluffCommand(body: Interaction): Promise<NextResponse> 
     const launchedAt = Date.now();
     after(async () => {
       try {
+        await settleOverdueBitebluffRounds(new Date(launchedAt));
         const round = await ensureBitebluffRound(
           guildId,
           new Date(launchedAt),
@@ -143,15 +145,25 @@ async function handleBitebluffCommand(body: Interaction): Promise<NextResponse> 
           tokenCreatedAt: launchedAt,
           now: launchedAt,
         });
+        await deliverPendingBitebluffFinalResultsFromInteraction({
+          guildId,
+          channelId,
+          applicationId,
+          webhookToken,
+          now: launchedAt,
+        }).catch((error) => {
+          console.error(
+            "interactions: Bitebluff pending settlement delivery failed",
+            error,
+          );
+        });
         const store = getStore();
         const userId = await store.getUserIdByDiscordId(discordUserId);
         if (!userId) return;
         const repository = getBitebluffRepository();
         const entry = await repository.getEntry(round.id, userId);
         if (!entry) return;
-        if (round.status === "settled") {
-          await deliverBitebluffFinalResults(round.id);
-        } else {
+        if (round.status !== "settled") {
           await updateBitebluffPublicPreview(destination.id);
         }
       } catch (error) {

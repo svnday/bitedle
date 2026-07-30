@@ -89,16 +89,18 @@ hand is revealed, balances are credited idempotently, and paginated result
 images are posted with winners, payouts, losses, and unmatched returns. The
 pre-settlement preview path never reads decrypted hands.
 
-Production Bitebluff additionally requires `BITEBLUFF_ENCRYPTION_KEY`,
-`CRON_SECRET`, and `DISCORD_BOT_TOKEN`. The bot needs View Channel, Send
-Messages, and Attach Files in participating channels. `vercel.json` invokes
-the protected settlement route at 03:00 and 04:00 UTC; this covers 11 PM
-Eastern on both sides of daylight-saving time, and the extra call is an
-idempotent no-op. A Vercel Pro deployment is recommended for a timely reveal;
-Hobby cron invocations can occur at any point in the scheduled hour. Activity
-reads provide a second overdue-settlement fallback. Do not run the registration
-script until the production secrets, database, bot permissions, and deployment
-are ready.
+Production Bitebluff additionally requires `BITEBLUFF_ENCRYPTION_KEY` and
+`CRON_SECRET`. `vercel.json` invokes the protected settlement route at 03:00
+and 04:00 UTC; this covers 11 PM Eastern on both sides of daylight-saving time,
+and the extra call is an idempotent no-op. If `DISCORD_BOT_TOKEN` has access to
+the participating channel, that scheduled request can publish the result at
+settlement. Without a guild bot install, the round still settles at 11 PM and
+the first later `/bitebluff` interaction publishes each pending server result
+through its fresh interaction webhook, exactly like the daily Classic recap.
+A failed interaction post releases its claim so the next interaction retries.
+A Vercel Pro deployment is recommended for a timely reveal; Hobby cron
+invocations can occur at any point in the scheduled hour. Activity reads
+provide a second overdue-settlement fallback.
 
 ## Running it
 
@@ -349,11 +351,12 @@ Discord has two independent install models, and Bitedle supports both:
   app.
 
 The Activity, avatars, per-server leaderboards, `/share`, `/results`, the
-ordinary live previews, and the [daily recap](#daily-results-recap) work in
-both models through interaction webhooks. Bitebluff is deliberately
-guild-install-only: its immediate wager preview also uses the fresh interaction
-webhook, but the scheduled 11 PM result needs the bot member installed by the
-guild URL above.
+ordinary live previews, the [daily recap](#daily-results-recap), and
+Bitebluff's first-interaction settlement fallback work in both models through
+interaction webhooks. A guild-installed bot with channel access is optional:
+it lets Bitebluff publish at the scheduled settlement time even when nobody
+interacts, while a user-installed app publishes the pending result on the
+first later `/bitebluff` interaction.
 
 If the app only supports guild install, opening it from the Activities
 button in a server that hasn't added it fails with *"Your app has enabled

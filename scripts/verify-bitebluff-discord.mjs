@@ -249,6 +249,7 @@ process.env.DISCORD_BOT_TOKEN = "configured-but-webhook-must-win";
 const {
   BITEBLUFF_PREVIEW_WINDOW_MS,
   deliverBitebluffFinalResults,
+  deliverPendingBitebluffFinalResultsFromInteraction,
   updateBitebluffPublicPreview,
 } = require(
   path.join(repoRoot, "src", "lib", "bitebluff-discord-preview.tsx"),
@@ -491,6 +492,83 @@ assert.equal(
   false,
 );
 
+const interactionFinalRequests = [];
+const interactionFinalServer = http.createServer((request, response) => {
+  const chunks = [];
+  request.on("data", (chunk) => chunks.push(chunk));
+  request.on("end", () => {
+    interactionFinalRequests.push({
+      method: request.method,
+      url: request.url,
+      body: Buffer.concat(chunks).toString("utf8"),
+    });
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ id: "interaction-final-message" }));
+  });
+});
+await new Promise((resolve) =>
+  interactionFinalServer.listen(0, "127.0.0.1", resolve),
+);
+const interactionFinalAddress = interactionFinalServer.address();
+process.env.BITEDLE_DISCORD_API_BASE_URL =
+  `http://127.0.0.1:${interactionFinalAddress.port}`;
+const postMidnightInteractionAt = new Date("2026-07-29T04:01:00.000Z").getTime();
+let interactionDeliveredRoundIds;
+try {
+  interactionDeliveredRoundIds =
+    await deliverPendingBitebluffFinalResultsFromInteraction({
+      guildId: guildOne,
+      channelId: "400000000000000077",
+      applicationId: destination.applicationId,
+      webhookToken: "fresh-post-midnight-token",
+      now: postMidnightInteractionAt,
+    });
+  assert.deepEqual(
+    await deliverPendingBitebluffFinalResultsFromInteraction({
+      guildId: guildOne,
+      channelId: "400000000000000077",
+      applicationId: destination.applicationId,
+      webhookToken: "fresh-post-midnight-token",
+      now: postMidnightInteractionAt + 1,
+    }),
+    [],
+  );
+} finally {
+  await new Promise((resolve, reject) =>
+    interactionFinalServer.close((error) =>
+      error ? reject(error) : resolve(),
+    ),
+  );
+}
+assert.deepEqual(interactionDeliveredRoundIds, [quote.round.id]);
+assert.equal(interactionFinalRequests.length, 1);
+assert.equal(interactionFinalRequests[0].method, "POST");
+assert.equal(
+  interactionFinalRequests[0].url,
+  `/webhooks/${destination.applicationId}/fresh-post-midnight-token`,
+);
+assert.equal(
+  interactionFinalRequests[0].body.includes('"allowed_mentions"'),
+  true,
+);
+assert.equal(interactionFinalRequests[0].body.includes('"parse":[]'), true);
+assert.equal(
+  interactionFinalRequests[0].body.includes('"custom_id":"bitebluff-launch"'),
+  true,
+);
+const interactionDeliveredDestination = await repository.getDestination(
+  destination.id,
+);
+assert.deepEqual(
+  interactionDeliveredDestination.finalMessageIds,
+  ["interaction-final-message"],
+);
+assert.notEqual(
+  interactionDeliveredDestination.finalMessageIds[0],
+  interactionDeliveredDestination.previewMessageId,
+);
+assert.deepEqual(await repository.roundsNeedingFinalDelivery(), []);
+
 const inaccessibleDestination = await service.recordBitebluffDestination({
   roundId: quote.round.id,
   guildId: guildOne,
@@ -542,40 +620,13 @@ try {
 }
 assert.equal(finalDeliveryError instanceof AggregateError, true);
 assert.equal(finalDeliveryError.errors.length, 1);
-assert.equal(discordRequests.length, 5);
-assert.equal(discordRequests[0].method, "PATCH");
+assert.equal(discordRequests.length, 1);
+assert.equal(discordRequests[0].method, "POST");
 assert.equal(
   discordRequests[0].url,
-  `/channels/${destination.channelId}/messages/live-preview-message`,
-);
-assert.equal(discordRequests[1].method, "POST");
-assert.equal(
-  discordRequests[1].url,
-  `/channels/${destination.channelId}/messages`,
-);
-assert.equal(discordRequests[2].method, "PATCH");
-assert.equal(
-  discordRequests[2].url,
-  `/webhooks/${destination.applicationId}/${destination.webhookToken}/messages/live-preview-message`,
-);
-assert.equal(discordRequests[3].method, "POST");
-assert.equal(
-  discordRequests[3].url,
-  `/webhooks/${destination.applicationId}/${destination.webhookToken}`,
-);
-assert.equal(discordRequests[3].body.includes('"allowed_mentions"'), true);
-assert.equal(discordRequests[3].body.includes('"parse":[]'), true);
-assert.equal(discordRequests[3].body.includes('"label":"Play now!"'), true);
-assert.equal(discordRequests[3].body.includes('"custom_id":"bitebluff-launch"'), true);
-assert.equal(discordRequests[4].method, "POST");
-assert.equal(
-  discordRequests[4].url,
   `/channels/${inaccessibleDestination.channelId}/messages`,
 );
 assert.deepEqual(await repository.roundsNeedingFinalDelivery(), [quote.round.id]);
-const deliveredDestination = await repository.getDestination(destination.id);
-assert.deepEqual(deliveredDestination.finalMessageIds, ["final-message"]);
-assert.equal(deliveredDestination.finalPostedAt > 0, true);
 const stillPendingDestination = await repository.getDestination(
   inaccessibleDestination.id,
 );
@@ -766,5 +817,5 @@ await assert.rejects(
 );
 
 console.log(
-  "Bitebluff Discord verification passed: July 27 legacy global-round preservation, July 28 guild-specific rounds with isolated entrants, pots, leaderboard membership, and destinations, exact-card redraw cutover with untouched-card preservation, daily top-up and redraw-reserved bounds, atomic one-entry debit, redacted pot roster, encrypted pre-settlement hands, guild-wide post-settlement hand review, isolated yesterday archives with a midnight rollover, zero-ping Play now components, rolling 13-minute preview windows, layered-pot conservation, idempotent settlement, and balance conservation.",
+  "Bitebluff Discord verification passed: July 27 legacy global-round preservation, July 28 guild-specific rounds with isolated entrants, pots, leaderboard membership, and destinations, exact-card redraw cutover with untouched-card preservation, daily top-up and redraw-reserved bounds, atomic one-entry debit, redacted pot roster, encrypted pre-settlement hands, guild-wide post-settlement hand review, isolated yesterday archives with a midnight rollover, exactly-once post-midnight interaction settlement delivery, zero-ping Play now components, rolling 13-minute preview windows, layered-pot conservation, idempotent settlement, and balance conservation.",
 );

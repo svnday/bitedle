@@ -44,6 +44,10 @@ export interface BitebluffRepository {
   getDestination(destinationId: string): Promise<BitebluffDestinationRecord | null>;
   destinationsForRound(roundId: string): Promise<BitebluffDestinationRecord[]>;
   roundsNeedingFinalDelivery(): Promise<string[]>;
+  claimPendingFinalDeliveryForGuild(
+    guildId: string,
+    now: number,
+  ): Promise<BitebluffDestinationRecord[]>;
   claimPreview(destinationId: string): Promise<boolean>;
   completePreview(destinationId: string, messageId: string, now: number): Promise<void>;
   releasePreview(destinationId: string): Promise<void>;
@@ -455,6 +459,47 @@ class BitebluffFileRepository implements BitebluffRepository {
           .map((destination) => destination.roundId),
       ),
     ];
+  }
+
+  async claimPendingFinalDeliveryForGuild(
+    guildId: string,
+    now: number,
+  ): Promise<BitebluffDestinationRecord[]> {
+    const staleClaimAt = now - 5 * 60_000;
+    const roundId = Object.values(this.db.destinations)
+      .filter((destination) => {
+        const round = this.db.rounds[destination.roundId];
+        return (
+          destination.guildId === guildId &&
+          round?.status === "settled" &&
+          (destination.finalPostedAt === null ||
+            (destination.finalPostedAt === -1 &&
+              destination.updatedAt <= staleClaimAt))
+        );
+      })
+      .sort((first, second) => {
+        const firstRound = this.db.rounds[first.roundId];
+        const secondRound = this.db.rounds[second.roundId];
+        return (
+          firstRound.date.localeCompare(secondRound.date) ||
+          first.roundId.localeCompare(second.roundId)
+        );
+      })[0]?.roundId;
+    if (!roundId) return [];
+    const claimed = Object.values(this.db.destinations).filter(
+      (destination) =>
+        destination.roundId === roundId &&
+        destination.guildId === guildId &&
+        (destination.finalPostedAt === null ||
+          (destination.finalPostedAt === -1 &&
+            destination.updatedAt <= staleClaimAt)),
+    );
+    for (const destination of claimed) {
+      destination.finalPostedAt = -1;
+      destination.updatedAt = now;
+    }
+    this.persist();
+    return claimed.map((destination) => structuredClone(destination));
   }
 
   async claimPreview(destinationId: string): Promise<boolean> {
@@ -1153,6 +1198,43 @@ class BitebluffNeonRepository implements BitebluffRepository {
       WHERE round.status = 'settled' AND destination.final_posted_at IS NULL
       ORDER BY destination.round_id`;
     return rows.map((row) => row.round_id as string);
+  }
+
+  async claimPendingFinalDeliveryForGuild(
+    guildId: string,
+    now: number,
+  ): Promise<BitebluffDestinationRecord[]> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      WITH candidate AS (
+        SELECT destination.round_id
+        FROM bitebluff_destinations destination
+        JOIN bitebluff_rounds round ON round.id = destination.round_id
+        WHERE destination.guild_id = ${guildId}
+          AND round.status = 'settled'
+          AND (
+            destination.final_posted_at IS NULL
+            OR (
+              destination.final_posted_at = -1
+              AND destination.updated_at <= ${now - 5 * 60_000}
+            )
+          )
+        ORDER BY round.date, destination.round_id
+        LIMIT 1
+      )
+      UPDATE bitebluff_destinations destination
+      SET final_posted_at = -1, updated_at = ${now}
+      WHERE destination.round_id = (SELECT round_id FROM candidate)
+        AND destination.guild_id = ${guildId}
+        AND (
+          destination.final_posted_at IS NULL
+          OR (
+            destination.final_posted_at = -1
+            AND destination.updated_at <= ${now - 5 * 60_000}
+          )
+        )
+      RETURNING destination.*`;
+    return rows.map((row) => destinationFromRow(row as Record<string, unknown>));
   }
 
   async claimPreview(destinationId: string): Promise<boolean> {
