@@ -376,33 +376,22 @@ const interactionSource = fs.readFileSync(
   path.join(repoRoot, "src", "app", "api", "discord", "interactions", "route.ts"),
   "utf8",
 );
-assert.equal(interactionSource.includes('body?.data?.name === "bitebluff"'), true);
+assert.equal(interactionSource.includes('body?.data?.name === "bitebluff"'), false);
 assert.equal(interactionSource.includes("BITEBLUFF_CONFIRM_PREFIX"), false);
-assert.equal(interactionSource.includes('recordIntent(body, "bitebluff", false)'), true);
-assert.equal(interactionSource.includes("ensureBitebluffRound("), true);
-assert.equal(interactionSource.includes("guildId,"), true);
-assert.equal(
-  interactionSource.indexOf("settleOverdueBitebluffRounds(") <
-    interactionSource.indexOf("ensureBitebluffRound("),
-  true,
-);
+assert.equal(interactionSource.includes('recordIntent(body, "bitebluff", false)'), false);
+assert.equal(interactionSource.includes("ensureBitebluffRound("), false);
 assert.equal(
   interactionSource.includes(
     "deliverPendingBitebluffFinalResultsFromInteraction({",
   ),
-  true,
+  false,
 );
-assert.equal(
-  interactionSource.indexOf("recordBitebluffDestination({") <
-    interactionSource.indexOf("getUserIdByDiscordId(discordUserId)"),
-  true,
-);
-assert.equal(interactionSource.includes("updateBitebluffPublicPreview(destination.id)"), true);
+assert.equal(interactionSource.includes("updateBitebluffPublicPreview(destination.id)"), false);
 assert.equal(
   interactionSource.includes(
     "body?.data?.custom_id === BITEBLUFF_LAUNCH_BUTTON_ID",
   ),
-  true,
+  false,
 );
 assert.equal(interactionSource.includes("allowed_mentions: { parse: [] }"), true);
 const bitebluffStateRouteSource = fs.readFileSync(
@@ -417,13 +406,33 @@ const registrationSource = fs.readFileSync(
   path.join(repoRoot, "scripts", "register-discord-commands.mjs"),
   "utf8",
 );
-assert.equal(registrationSource.includes('name: "bitebluff"'), true);
-assert.equal(registrationSource.includes('name: "wager"'), false);
+assert.equal(registrationSource.includes('name: "bitebluff"'), false);
 assert.equal(
-  registrationSource.includes('const scope = "applications.commands bot"'),
+  registrationSource.includes('["play", "bitebluff"]'),
   true,
 );
-assert.equal(registrationSource.includes('permissions: "35840"'), true);
+assert.equal(registrationSource.includes('name: "wager"'), false);
+assert.equal(
+  registrationSource.includes('const scope = "applications.commands"'),
+  true,
+);
+assert.equal(registrationSource.includes('permissions: "35840"'), false);
+const gameTabsSource = fs.readFileSync(
+  path.join(repoRoot, "src", "components", "GameTabs.tsx"),
+  "utf8",
+);
+assert.equal(gameTabsSource.includes('import BitebluffDemo from "./BitebluffDemo"'), true);
+assert.equal(gameTabsSource.includes('import BitebluffGame from "./BitebluffGame"'), false);
+assert.equal(gameTabsSource.includes('runtime.mode === "bitebluff"'), true);
+assert.equal(
+  gameTabsSource.includes('if (runtime.embedded && runtime.mode === "bitebluff")'),
+  false,
+);
+const discordBootstrapSource = fs.readFileSync(
+  path.join(repoRoot, "src", "components", "DiscordBootstrap.tsx"),
+  "utf8",
+);
+assert.equal(discordBootstrapSource.includes('mode === "bitebluff"'), false);
 const bitebluffGameSource = fs.readFileSync(
   path.join(repoRoot, "src", "components", "BitebluffGame.tsx"),
   "utf8",
@@ -586,9 +595,9 @@ assert.equal(
   discordPreviewSource.includes(
     'export const BITEBLUFF_LAUNCH_BUTTON_ID = "bitebluff-launch"',
   ),
-  true,
+  false,
 );
-assert.equal(discordPreviewSource.includes('label: "Play now!"'), true);
+assert.equal(discordPreviewSource.includes('label: "Play now!"'), false);
 assert.deepEqual(
   cronConfig.crons.map((cron) => cron.path),
   ["/api/bitebluff/settle", "/api/bitebluff/settle-est"],
@@ -596,5 +605,5 @@ assert.deepEqual(
 
 console.log(
   "Bitebluff verification passed: poker categories and kickers, private percentile hand insights, exclusive seeded decks, exact-card Burn & Draw with untouched-card preservation, safety-net economy, active eligibility, layered pots, tied remainders, unmatched returns, and redacted public preview.",
-  " Bitebluff final preview includes every hand, layer winners, payouts, and loser wager/loss amounts. The private deal places five face-down cards before the separate sequential flip pass. Discord production checks cover committed encrypted hands, DST-safe 11 PM ET settlement, launch-only command routing, in-Activity blind-wager confirmation, zero-ping payloads, and both UTC scheduler slots.",
+  " Bitebluff final preview includes every hand, layer winners, payouts, and loser wager/loss amounts. The private deal places five face-down cards before the separate sequential flip pass. Retirement checks keep the website lab available while removing the Discord command, embedded launch route, and bot install scope.",
 );

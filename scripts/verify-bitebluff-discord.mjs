@@ -292,8 +292,8 @@ assert.equal(
 );
 assert.equal(livePreviewRequests[1].body.includes('"allowed_mentions"'), true);
 assert.equal(livePreviewRequests[1].body.includes('"parse":[]'), true);
-assert.equal(livePreviewRequests[1].body.includes('"label":"Play now!"'), true);
-assert.equal(livePreviewRequests[1].body.includes('"custom_id":"bitebluff-launch"'), true);
+assert.equal(livePreviewRequests[1].body.includes('"label":"Play now!"'), false);
+assert.equal(livePreviewRequests[1].body.includes('"custom_id":"bitebluff-launch"'), false);
 assert.equal(typeof firstPreviewCreatedAt, "number");
 assert.equal(refreshedPreviewCreatedAt, firstPreviewCreatedAt);
 assert.equal(livePreviewRequests[2].method, "PATCH");
@@ -554,7 +554,7 @@ assert.equal(
 assert.equal(interactionFinalRequests[0].body.includes('"parse":[]'), true);
 assert.equal(
   interactionFinalRequests[0].body.includes('"custom_id":"bitebluff-launch"'),
-  true,
+  false,
 );
 const interactionDeliveredDestination = await repository.getDestination(
   destination.id,
@@ -817,5 +817,5 @@ await assert.rejects(
 );
 
 console.log(
-  "Bitebluff Discord verification passed: July 27 legacy global-round preservation, July 28 guild-specific rounds with isolated entrants, pots, leaderboard membership, and destinations, exact-card redraw cutover with untouched-card preservation, daily top-up and redraw-reserved bounds, atomic one-entry debit, redacted pot roster, encrypted pre-settlement hands, guild-wide post-settlement hand review, isolated yesterday archives with a midnight rollover, exactly-once post-midnight interaction settlement delivery, zero-ping Play now components, rolling 13-minute preview windows, layered-pot conservation, idempotent settlement, and balance conservation.",
+  "Bitebluff legacy Discord verification passed: July 27 legacy global-round preservation, July 28 guild-specific rounds with isolated entrants, pots, leaderboard membership, and destinations, exact-card redraw cutover with untouched-card preservation, daily top-up and redraw-reserved bounds, atomic one-entry debit, redacted pot roster, encrypted pre-settlement hands, guild-wide post-settlement hand review, isolated yesterday archives with a midnight rollover, exactly-once post-midnight interaction settlement delivery, retired launch components, rolling 13-minute preview windows, layered-pot conservation, idempotent settlement, and balance conservation.",
 );

@@ -88,8 +88,7 @@ export default function DiscordBootstrap() {
             mode === "mega" ||
             mode === "biteracer" ||
             mode === "bitefight" ||
-            mode === "biteshooter" ||
-            mode === "bitebluff"
+            mode === "biteshooter"
               ? mode
               : "classic",
           );

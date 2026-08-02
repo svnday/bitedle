@@ -64,10 +64,7 @@ async function discordFetch(url, options, action) {
 // [0, 1, 2] = server, app DM, group DM. This lets /bitedle and /share work
 // both where a server has added the app and where an individual has
 // user-installed it. Requires User Install to be enabled for the app in the
-// Developer Portal -> Installation tab first (see README). Most ordinary
-// commands below support server, app-DM, and group-DM contexts; Bitebluff is
-// deliberately Guild Install + server context only because it posts a shared
-// daily pool and needs bot-authenticated scheduled results.
+// Developer Portal -> Installation tab first (see README).
 const commands = [
   {
     name: "bitedle",
@@ -152,16 +149,6 @@ const commands = [
       },
     ],
   },
-  {
-    name: "bitebluff",
-    description: "Open the daily blind-card pool",
-    type: 1,
-    default_member_permissions: null,
-    // The pool and scheduled results belong to a server channel. Guild
-    // Install also provides the bot membership needed for the final post.
-    integration_types: [0],
-    contexts: [0],
-  },
 ];
 
 function commandsUrl() {
@@ -179,14 +166,10 @@ function commandUrl(id) {
 }
 
 function installUrl() {
-  const scope = "applications.commands bot";
+  const scope = "applications.commands";
   const params = new URLSearchParams({
     client_id: clientId,
     scope,
-    // VIEW_CHANNEL | SEND_MESSAGES | ATTACH_FILES. Bitebluff's immediate
-    // preview uses the interaction webhook, but its scheduled 11 PM reveal
-    // needs a persistent bot member that can post the generated PNG.
-    permissions: "35840",
     // Force GUILD_INSTALL. Without this, an app that supports both install
     // types can be added only to the administrator's account, making its
     // commands visible to them but not to the rest of the server.
@@ -209,22 +192,25 @@ async function main() {
   const existing = await listRes.json();
 
   // Clean up the ordinary CHAT_INPUT "/play" command from an earlier setup —
-  // that name now belongs to the PRIMARY_ENTRY_POINT command instead (see
-  // set-entry-point-command.mjs), and Discord won't allow both at once.
-  const stalePlay = existing.find((c) => c.type === 1 && c.name === "play");
-  if (stalePlay) {
+  // /play now belongs to the PRIMARY_ENTRY_POINT command instead (see
+  // set-entry-point-command.mjs); Bitebluff remains website-only.
+  for (const retiredName of ["play", "bitebluff"]) {
+    const retiredCommand = existing.find(
+      (command) => command.type === 1 && command.name === retiredName,
+    );
+    if (!retiredCommand) continue;
     const deleteRes = await discordFetch(
-      commandUrl(stalePlay.id),
+      commandUrl(retiredCommand.id),
       { method: "DELETE", headers },
-      "removing stale /play",
+      `removing retired /${retiredName}`,
     );
     if (!deleteRes.ok) {
       console.error(
-        `Failed to remove the stale /play command (${deleteRes.status}): ${await deleteRes.text()}`,
+        `Failed to remove retired /${retiredName} (${deleteRes.status}): ${await deleteRes.text()}`,
       );
       process.exit(1);
     }
-    console.log("Removed the stale ordinary /play command.");
+    console.log(`Removed retired /${retiredName} command.`);
   }
 
   for (const command of commands) {

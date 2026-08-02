@@ -66,41 +66,17 @@ notification; later preview updates never ping.
 Website practice does not create multiplayer records or affect the Discord
 leaderboard.
 
-## Bitebluff
+## Bitebluff website lab
 
-`/bitebluff` opens one server-wide daily sealed-hand poker pool. The command
-does not accept a wager or expose a balance. Inside the private Activity, the
-player sees their available Bites, chooses a whole-number wager, reviews the
-remaining balance and irreversible terms, then confirms before any cards are
-dealt. Each entrant receives an exclusive independently derived deck, so entry
-order never changes anyone's odds. The public channel preview shows only
-profiles and wagers until the 11:00 PM Eastern settlement.
+Bitebluff remains available as a browser-only poker lab from the website's
+game navigation or `?mode=bitebluff`. It uses local demonstration players and
+does not create Discord rounds, wagers, balances, previews, or settlement
+posts. The `/bitebluff` Discord command and its old message-button launch path
+are retired.
 
-Bitebluff balances persist between days. A player below 100 Bites is topped up
-to exactly 100 at most once per Eastern day; balances already at or above 100
-receive no grant. The wager minimum is the greater of 10 or 5% of the topped-up
-balance. The current maximum deliberately reserves the approved 50% redraw
-surcharge, although Burn & Draw itself remains disabled in Discord pending a
-separate product approval. Payouts use layered poker pots, so a small wager
-cannot win wager layers it did not cover.
-
-At settlement, the committed round secret is verified and published, every
-hand is revealed, balances are credited idempotently, and paginated result
-images are posted with winners, payouts, losses, and unmatched returns. The
-pre-settlement preview path never reads decrypted hands.
-
-Production Bitebluff additionally requires `BITEBLUFF_ENCRYPTION_KEY` and
-`CRON_SECRET`. `vercel.json` invokes the protected settlement route at 03:00
-and 04:00 UTC; this covers 11 PM Eastern on both sides of daylight-saving time,
-and the extra call is an idempotent no-op. If `DISCORD_BOT_TOKEN` has access to
-the participating channel, that scheduled request can publish the result at
-settlement. Without a guild bot install, the round still settles at 11 PM and
-the first later `/bitebluff` interaction publishes each pending server result
-through its fresh interaction webhook, exactly like the daily Classic recap.
-A failed interaction post releases its claim so the next interaction retries.
-A Vercel Pro deployment is recommended for a timely reveal; Hobby cron
-invocations can occur at any point in the scheduled hour. Activity reads
-provide a second overdue-settlement fallback.
+The lab still demonstrates blind wager confirmation, exclusive independently
+derived decks, Burn & Draw, layered poker pots, bankroll limits, and the full
+settlement-results presentation without affecting production game data.
 
 ## Running it
 
@@ -300,8 +276,8 @@ After the live smoke test passes, run the registration script again without
 `DISCORD_GUILD_ID` to create/update the global commands.
 
 (Order doesn't matter — `register-discord-commands.mjs` also cleans up a
-stray ordinary `/play` command left over from before `/play` became the
-entry point command's name.)
+retired `/bitebluff` command and a stray ordinary `/play` command left
+over from before `/play` became the entry point command's name.)
 
 - `DISCORD_CLIENT_ID` is the same value as `NEXT_PUBLIC_DISCORD_CLIENT_ID`.
 - `DISCORD_BOT_TOKEN` comes from the Developer Portal's **Bot** tab (Reset
@@ -310,15 +286,11 @@ entry point command's name.)
   environment variable in your own terminal.
 
 `register-discord-commands.mjs` also prints a **guild install URL** using
-Discord's `applications.commands` and `bot` scopes with `integration_type=0`.
-It requests only View Channel, Send Messages, and Attach Files. A server
+Discord's `applications.commands` scope with `integration_type=0`. A server
 administrator must open that URL and add the app to the server so the slash
-commands are exposed to every eligible member and Bitebluff can publish its
-scheduled final image. Installing Bitedle only to your own account makes the
-user-installed commands available to you, not to everyone else in the guild.
-A `bot`-scope-only invite is not enough; **no slash command (including `/play`)
-shows up in a server unless the app was also added with the
-`applications.commands` scope**.
+commands are exposed to every eligible member. Installing Bitedle only to your
+own account makes the user-installed commands available to you, not to
+everyone else in the guild.
 
 The registration payload also sets `default_member_permissions` to `null`,
 which clears any stale developer-defined permission requirement. Server owners
@@ -351,12 +323,8 @@ Discord has two independent install models, and Bitedle supports both:
   app.
 
 The Activity, avatars, per-server leaderboards, `/share`, `/results`, the
-ordinary live previews, the [daily recap](#daily-results-recap), and
-Bitebluff's first-interaction settlement fallback work in both models through
-interaction webhooks. A guild-installed bot with channel access is optional:
-it lets Bitebluff publish at the scheduled settlement time even when nobody
-interacts, while a user-installed app publishes the pending result on the
-first later `/bitebluff` interaction.
+ordinary live previews, and the [daily recap](#daily-results-recap) work in
+both models through interaction webhooks. Bitebluff is website-only.
 
 If the app only supports guild install, opening it from the Activities
 button in a server that hasn't added it fails with *"Your app has enabled

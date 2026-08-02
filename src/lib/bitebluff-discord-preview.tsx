@@ -19,21 +19,6 @@ import {
 const PREVIEW_MAX_PARTICIPANTS = 24;
 const BITEBLUFF_WEBHOOK_TOKEN_TTL_MS = 13 * 60 * 1000;
 export const BITEBLUFF_PREVIEW_WINDOW_MS = 13 * 60 * 1000;
-export const BITEBLUFF_LAUNCH_BUTTON_ID = "bitebluff-launch";
-
-const BITEBLUFF_LAUNCH_COMPONENTS = [
-  {
-    type: 1,
-    components: [
-      {
-        type: 2,
-        style: 1,
-        label: "Play now!",
-        custom_id: BITEBLUFF_LAUNCH_BUTTON_ID,
-      },
-    ],
-  },
-];
 
 function abbreviatedName(name: string): string {
   return name.length <= 22 ? name : `${name.slice(0, 21)}…`;
@@ -548,7 +533,6 @@ export async function updateBitebluffPublicPreview(
       pngBuffer,
       content,
       filename: "bitebluff-preview.png",
-      components: BITEBLUFF_LAUNCH_COMPONENTS,
     });
     if (!result.ok && result.status === 404 && editablePreviewMessageId) {
       result = await botImageRequest({
@@ -556,7 +540,6 @@ export async function updateBitebluffPublicPreview(
         pngBuffer,
         content,
         filename: "bitebluff-preview.png",
-        components: BITEBLUFF_LAUNCH_COMPONENTS,
       });
     }
     if ((!result.ok || !result.messageId) && webhookIsFresh) {
@@ -568,7 +551,6 @@ export async function updateBitebluffPublicPreview(
           pngBuffer,
           content,
           filename: "bitebluff-preview.png",
-          components: BITEBLUFF_LAUNCH_COMPONENTS,
         });
         result = { ...patched, messageId: editablePreviewMessageId };
         if (!patched.ok && patched.status === 404) {
@@ -578,7 +560,6 @@ export async function updateBitebluffPublicPreview(
             pngBuffer,
             content,
             filename: "bitebluff-preview.png",
-            components: BITEBLUFF_LAUNCH_COMPONENTS,
           });
         }
       } else {
@@ -588,7 +569,6 @@ export async function updateBitebluffPublicPreview(
           pngBuffer,
           content,
           filename: "bitebluff-preview.png",
-          components: BITEBLUFF_LAUNCH_COMPONENTS,
         });
       }
     }
@@ -637,7 +617,6 @@ export async function deliverBitebluffFinalResults(roundId: string): Promise<voi
         pngBuffer,
         content,
         filename,
-        components: BITEBLUFF_LAUNCH_COMPONENTS,
       });
       if (
         !result.ok &&
@@ -649,7 +628,6 @@ export async function deliverBitebluffFinalResults(roundId: string): Promise<voi
           pngBuffer,
           content,
           filename,
-          components: BITEBLUFF_LAUNCH_COMPONENTS,
         });
       }
       const webhookIsFresh =
@@ -668,7 +646,6 @@ export async function deliverBitebluffFinalResults(roundId: string): Promise<voi
             pngBuffer,
             content,
             filename,
-            components: BITEBLUFF_LAUNCH_COMPONENTS,
           });
           result = { ...patched, messageId: targetMessageId };
         }
@@ -679,7 +656,6 @@ export async function deliverBitebluffFinalResults(roundId: string): Promise<voi
             pngBuffer,
             content,
             filename,
-            components: BITEBLUFF_LAUNCH_COMPONENTS,
           });
         }
       }
@@ -746,7 +722,6 @@ export async function deliverPendingBitebluffFinalResultsFromInteraction(input: 
         pngBuffer,
         content: `ðŸ† **Bitebluff ${round.date} â€” final results**`,
         filename: "bitebluff-final.png",
-        components: BITEBLUFF_LAUNCH_COMPONENTS,
       });
       if (!result.ok || !result.messageId) {
         throw new Error(

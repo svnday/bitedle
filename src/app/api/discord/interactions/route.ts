@@ -45,19 +45,6 @@ import {
   BITESWEEPER_WEBHOOK_TOKEN_TTL_MS,
   type BitesweeperPreviewPlayer,
 } from "@/lib/bitesweeper-discord-preview";
-import {
-  getBitebluffRepository,
-} from "@/lib/bitebluff-store";
-import {
-  ensureBitebluffRound,
-  recordBitebluffDestination,
-  settleOverdueBitebluffRounds,
-} from "@/lib/bitebluff-service";
-import {
-  BITEBLUFF_LAUNCH_BUTTON_ID,
-  deliverPendingBitebluffFinalResultsFromInteraction,
-  updateBitebluffPublicPreview,
-} from "@/lib/bitebluff-discord-preview";
 
 // Imports next/og (via discord-summary) for the preview image — needs Node.
 export const runtime = "nodejs";
@@ -113,65 +100,6 @@ const BITESHOOTER_DECLINE_PREFIX = "biteshooter-decline:";
 
 function interactionName(user: InteractionUser | undefined): string {
   return user?.global_name ?? user?.username ?? "Player";
-}
-
-async function handleBitebluffCommand(body: Interaction): Promise<NextResponse> {
-  const discordUser = body.member?.user ?? body.user;
-  if (!discordUser?.id) return reply("Couldn't identify your Discord account.", true);
-  if (!body.guild_id) {
-    return reply("Bitebluff is a server-wide daily game. Run it in a server channel.", true);
-  }
-  const discordUserId = discordUser.id;
-  await recordIntent(body, "bitebluff", false);
-  if (body.channel_id && body.application_id && body.token) {
-    const channelId = body.channel_id;
-    const applicationId = body.application_id;
-    const webhookToken = body.token;
-    const guildId = body.guild_id;
-    const launchedAt = Date.now();
-    after(async () => {
-      try {
-        await settleOverdueBitebluffRounds(new Date(launchedAt));
-        const round = await ensureBitebluffRound(
-          guildId,
-          new Date(launchedAt),
-        );
-        const destination = await recordBitebluffDestination({
-          roundId: round.id,
-          guildId,
-          channelId,
-          applicationId,
-          webhookToken,
-          tokenCreatedAt: launchedAt,
-          now: launchedAt,
-        });
-        await deliverPendingBitebluffFinalResultsFromInteraction({
-          guildId,
-          channelId,
-          applicationId,
-          webhookToken,
-          now: launchedAt,
-        }).catch((error) => {
-          console.error(
-            "interactions: Bitebluff pending settlement delivery failed",
-            error,
-          );
-        });
-        const store = getStore();
-        const userId = await store.getUserIdByDiscordId(discordUserId);
-        if (!userId) return;
-        const repository = getBitebluffRepository();
-        const entry = await repository.getEntry(round.id, userId);
-        if (!entry) return;
-        if (round.status !== "settled") {
-          await updateBitebluffPublicPreview(destination.id);
-        }
-      } catch (error) {
-        console.error("interactions: Bitebluff preview refresh failed", error);
-      }
-    });
-  }
-  return NextResponse.json({ type: 12 });
 }
 
 async function handleBiteracerChallenge(body: Interaction): Promise<NextResponse> {
@@ -899,14 +827,6 @@ export async function POST(request: NextRequest) {
       body?.data?.custom_id?.startsWith(BITESHOOTER_DECLINE_PREFIX))
   ) {
     return handleBiteshooterButton(body);
-  }
-
-  if (body?.type === 2 && body?.data?.name === "bitebluff") {
-    return handleBitebluffCommand(body);
-  }
-
-  if (body?.type === 3 && body?.data?.custom_id === BITEBLUFF_LAUNCH_BUTTON_ID) {
-    return handleBitebluffCommand(body);
   }
 
   if (body?.type === 2 && body?.data?.name === "bitesweeper") {
