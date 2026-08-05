@@ -45,9 +45,12 @@ import {
   BITESWEEPER_WEBHOOK_TOKEN_TTL_MS,
   type BitesweeperPreviewPlayer,
 } from "@/lib/bitesweeper-discord-preview";
+import { BITEBALL_MAX_QUESTION_LENGTH, selectBiteballAnswer } from "@/lib/biteball";
+import { deliverBiteballResponse } from "@/lib/biteball-discord";
 
 // Imports next/og (via discord-summary) for the preview image — needs Node.
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 function siteUrl(): string {
   // VERCEL_URL is the unique URL of *this* deployment, not the stable
@@ -89,6 +92,7 @@ interface Interaction {
   /** Present on all interactions — needed for interaction-webhook posts/edits. */
   application_id?: string;
   token?: string;
+  attachment_size_limit?: number;
 }
 
 const BITERACER_JOIN_PREFIX = "biteracer-join:";
@@ -737,6 +741,45 @@ function handleResults(body: Interaction): NextResponse {
   return NextResponse.json({ type: 5 }); // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
 }
 
+function handleBiteball(body: Interaction): NextResponse {
+  const questionValue = body.data?.options?.find(
+    (option) => option.name === "question",
+  )?.value;
+  const question = typeof questionValue === "string" ? questionValue.trim() : "";
+
+  if (!question) {
+    return reply("Give Biteball a question to answer.", true);
+  }
+  if (question.length > BITEBALL_MAX_QUESTION_LENGTH) {
+    return reply(
+      `Keep your Biteball question to ${BITEBALL_MAX_QUESTION_LENGTH} characters or fewer.`,
+      true,
+    );
+  }
+  if (!body.application_id || !body.token) {
+    return reply("Biteball couldn't consult the oracle just now — try again.", true);
+  }
+
+  // Pick once before background delivery so the animation, still, message
+  // text, and any fallback all receive the same answer.
+  const answer = selectBiteballAnswer();
+  const delivery = {
+    applicationId: body.application_id,
+    token: body.token,
+    question,
+    answer,
+    attachmentSizeLimit: body.attachment_size_limit,
+  };
+  after(() =>
+    deliverBiteballResponse(delivery).catch((error) => {
+      console.error("biteball: deferred response delivery failed", error);
+    }),
+  );
+
+  // A normal deferred message, never a LAUNCH_ACTIVITY response.
+  return NextResponse.json({ type: 5 });
+}
+
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("X-Signature-Ed25519");
   const timestamp = request.headers.get("X-Signature-Timestamp");
@@ -770,7 +813,12 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  if ((body?.type === 2 || body?.type === 3) && body.guild_id && body.channel_id) {
+  if (
+    (body?.type === 2 || body?.type === 3) &&
+    body.data?.name !== "biteball" &&
+    body.guild_id &&
+    body.channel_id
+  ) {
     // Records the guild's most recent command channel and — load-bearing —
     // guarantees the guild_channels row exists before the preview/recap
     // upserts touch it. Must be awaited (not fire-and-forget): a serverless
@@ -781,6 +829,10 @@ export async function POST(request: NextRequest) {
     } catch (e) {
       console.warn("interactions: failed to record guild channel", e);
     }
+  }
+
+  if (body?.type === 2 && body?.data?.name === "biteball") {
+    return handleBiteball(body);
   }
 
   if (body?.type === 2 && (body?.data?.name === "play" || body?.data?.name === "bitedle")) {

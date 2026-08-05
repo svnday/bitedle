@@ -45,7 +45,7 @@ async function list(label, url) {
         `handler=${c.handler ?? "-"}  integration_types=${JSON.stringify(c.integration_types ?? [])}  ` +
         `contexts=${JSON.stringify(c.contexts ?? [])}  ` +
         `default_member_permissions=${c.default_member_permissions ?? "none"}  ` +
-        `description="${c.description}"`,
+        `description="${c.description}"  options=${JSON.stringify(c.options ?? [])}`,
     );
   }
 }

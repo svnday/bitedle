@@ -78,15 +78,19 @@ The lab still demonstrates blind wager confirmation, exclusive independently
 derived decks, Burn & Draw, layered poker pots, bankroll limits, and the full
 settlement-results presentation without affecting production game data.
 
-## Biteball website lab
+## Biteball
 
-Biteball is a browser-only Magic 8 Ball experience available from the website
+Biteball is a Magic 8 Ball experience available from the website
 navigation or directly at `/?mode=biteball`. Ask a question and the ball will
 shake before revealing one uniformly random answer from the 20 classic Magic 8
-Ball responses. Questions and answers are not saved or sent to an API.
+Ball responses. The website lab does not save its questions or answers or send
+them to an API.
 
-The `/biteball` Discord command is intentionally unavailable until the website
-visuals, animation, and pacing have been tested and approved.
+Discord users can run `/biteball question`. This is a message-only command: it
+does not launch the Activity or show a Play button. The original deferred reply
+is edited with a generated, one-shot shaking GIF and then edited again to
+replace that GIF with its final still PNG. The selected answer stays identical
+across the animation, final image, accessible message text, and text fallback.
 
 ## Running it
 
@@ -116,6 +120,8 @@ npm run verify:bitefight
 npm run verify:biteshooter
 npm run verify:bitebluff
 npm run verify:bitebluff-discord
+npm run verify:biteball
+npm run verify:biteball-discord
 ```
 
 or for production:

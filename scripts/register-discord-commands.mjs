@@ -78,6 +78,24 @@ const commands = [
     contexts: [0, 1, 2],
   },
   {
+    name: "biteball",
+    description: "Ask Biteball a question",
+    type: 1,
+    default_member_permissions: null,
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+    options: [
+      {
+        type: 3,
+        name: "question",
+        description: "The question you want Biteball to answer",
+        required: true,
+        min_length: 1,
+        max_length: 200,
+      },
+    ],
+  },
+  {
     name: "share",
     description: "Share Bitedle from Discord",
     type: 1,
