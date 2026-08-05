@@ -78,6 +78,16 @@ The lab still demonstrates blind wager confirmation, exclusive independently
 derived decks, Burn & Draw, layered poker pots, bankroll limits, and the full
 settlement-results presentation without affecting production game data.
 
+## Biteball website lab
+
+Biteball is a browser-only Magic 8 Ball experience available from the website
+navigation or directly at `/?mode=biteball`. Ask a question and the ball will
+shake before revealing one uniformly random answer from the 20 classic Magic 8
+Ball responses. Questions and answers are not saved or sent to an API.
+
+The `/biteball` Discord command is intentionally unavailable until the website
+visuals, animation, and pacing have been tested and approved.
+
 ## Running it
 
 ```bash
