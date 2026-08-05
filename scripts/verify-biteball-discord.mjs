@@ -47,6 +47,7 @@ const assets = await renderer.renderBiteballDiscordAssets(question, answer);
 assert.equal(assets.animation.subarray(0, 6).toString("ascii"), "GIF89a");
 assert.deepEqual([...assets.still.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 assert.equal(assets.durationMs, renderer.BITEBALL_DISCORD_ANIMATION_MS);
+assert.ok(assets.durationMs >= 4_000, "Biteball reveal should run for at least four seconds");
 
 const gifMetadata = await sharp(assets.animation, { animated: true }).metadata();
 assert.ok((gifMetadata.pages ?? 0) > 1, "Biteball GIF must contain multiple frames");
@@ -69,9 +70,24 @@ assert.deepEqual(
 const gifPath = path.join(outputDir, renderer.BITEBALL_DISCORD_GIF_FILENAME);
 const pngPath = path.join(outputDir, renderer.BITEBALL_DISCORD_PNG_FILENAME);
 const firstFramePath = path.join(outputDir, "biteball-first-frame.png");
+const clippingCheckPath = path.join(outputDir, "biteball-clipping-check.png");
 fs.writeFileSync(gifPath, assets.animation);
 fs.writeFileSync(pngPath, assets.still);
 await sharp(assets.animation, { page: 0 }).png().toFile(firstFramePath);
+const clippingCheckAnswer = BITEBALL_ANSWERS.find(
+  (candidate) => candidate.text === "Outlook not so good",
+);
+assert.ok(clippingCheckAnswer);
+const clippingCheck = await renderer.renderBiteballDiscordStill(
+  "Is it going to rain in NYC tonight?",
+  clippingCheckAnswer,
+);
+fs.writeFileSync(clippingCheckPath, clippingCheck);
+const clippingCheckMetadata = await sharp(clippingCheck).metadata();
+assert.deepEqual(
+  { width: clippingCheckMetadata.width, height: clippingCheckMetadata.height },
+  { width: renderer.BITEBALL_DISCORD_WIDTH, height: renderer.BITEBALL_DISCORD_HEIGHT },
+);
 
 const requests = [];
 const server = http.createServer((request, response) => {
@@ -199,3 +215,4 @@ console.log("Biteball Discord verification passed.");
 console.log(`Rendered GIF: ${gifPath}`);
 console.log(`Rendered first frame: ${firstFramePath}`);
 console.log(`Rendered final still: ${pngPath}`);
+console.log(`Rendered clipping check: ${clippingCheckPath}`);
