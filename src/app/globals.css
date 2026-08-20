@@ -521,6 +521,15 @@ body {
 .rngdle-tier--anomaly { --tier: #db2777; --tier-light: #f9a8d4; }
 .rngdle-tier--mythic { --tier: #f472b6; --tier-light: #67e8f9; }
 
+.rngdle-number-card--reeling {
+  animation: none;
+  box-shadow: inset 0 0 3.5rem rgba(0, 0, 0, 0.42), 0 0 1.5rem rgba(148, 163, 184, 0.3);
+}
+
+.rngdle-number-card--finale {
+  animation: rngdle-finale-pulse 700ms ease-out;
+}
+
 .rngdle-card-gloss {
   position: absolute;
   z-index: -1;
@@ -537,22 +546,41 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.rngdle-digit {
+.rngdle-digit-window {
   display: inline-grid;
   place-items: center;
+  width: 0.72em;
   min-width: 0.72em;
-  color: var(--tier-light);
-  text-shadow: 0 0 1.6rem color-mix(in srgb, var(--tier) 70%, transparent);
+  height: 0.95em;
+  overflow: hidden;
   font-size: clamp(3.4rem, 13vw, 7.5rem);
   font-weight: 950;
   letter-spacing: -0.09em;
   line-height: 0.9;
-  animation: rngdle-digit-settle 460ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  transition: width 500ms ease, min-width 500ms ease, opacity 500ms ease;
 }
 
-.rngdle-digit--rolling {
-  filter: blur(1px);
-  animation: rngdle-digit-roll 180ms linear infinite;
+.rngdle-digit-window--blank { opacity: 0; }
+.rngdle-digit-window--collapsed { width: 0; min-width: 0; }
+
+.rngdle-digit {
+  display: inline-grid;
+  place-items: center;
+  color: var(--tier-light);
+  text-shadow: 0 0 1.6rem color-mix(in srgb, var(--tier) 70%, transparent);
+  font-size: 1em;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+}
+
+.rngdle-digit--spinning {
+  color: color-mix(in srgb, var(--tier-light) 55%, #66706b);
+  animation: rngdle-digit-scroll 100ms linear infinite;
+}
+
+.rngdle-digit--settling {
+  animation: rngdle-digit-settle 500ms ease-out forwards;
 }
 
 .rngdle-rarity-line {
@@ -760,12 +788,19 @@ body {
   letter-spacing: 0.05em;
 }
 
-@keyframes rngdle-digit-roll {
-  0% { transform: translateY(-0.12em); opacity: 0.45; }
-  50% { transform: translateY(0.1em); opacity: 1; }
-  100% { transform: translateY(-0.12em); opacity: 0.45; }
+@keyframes rngdle-digit-scroll {
+  0% { transform: translateY(-55%); opacity: 0.25; filter: blur(2px); }
+  45% { transform: translateY(0); opacity: 1; filter: blur(0); }
+  100% { transform: translateY(55%); opacity: 0.25; filter: blur(2px); }
 }
-@keyframes rngdle-digit-settle { from { transform: translateY(-0.45em) scale(0.85); opacity: 0; filter: blur(9px); } to { transform: none; opacity: 1; filter: none; } }
+@keyframes rngdle-digit-settle { from { transform: scale(1.5); text-shadow: 0 0 0.5rem var(--tier-light); } to { transform: scale(1); text-shadow: 0 0 1.6rem color-mix(in srgb, var(--tier) 70%, transparent); } }
+@keyframes rngdle-finale-pulse {
+  0% { filter: brightness(1); transform: scale(1); }
+  15% { filter: brightness(1.15); transform: scale(1.25); }
+  40% { filter: brightness(1.05); transform: scale(0.98); }
+  60% { filter: brightness(1); transform: scale(1.03); }
+  100% { filter: brightness(1); transform: scale(1); }
+}
 @keyframes rngdle-breathe { 50% { transform: scale(1.015); } }
 @keyframes rngdle-shimmer { 0%, 35% { transform: translateX(-45%) rotate(20deg); } 70%, 100% { transform: translateX(45%) rotate(20deg); } }
 @keyframes rngdle-badge-in { to { transform: none; opacity: 1; } }
@@ -787,7 +822,7 @@ body {
   .rngdle-number-card,
   .rngdle-card-gloss,
   .rngdle-digit,
-  .rngdle-digit--rolling,
+  .rngdle-digit--spinning,
   .rngdle-badge-list--visible .rngdle-badge { animation: none; }
   .rngdle-badge-list--visible .rngdle-badge { transform: none; opacity: 1; }
   .rngdle-rarity-line,

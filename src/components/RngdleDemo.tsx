@@ -13,6 +13,7 @@ import {
   rngdleNextResetAt,
   rngdleRerollDeadline,
 } from "@/lib/rngdle/time";
+import { rngdleNumberRevealTimeline } from "@/lib/rngdle/reveal";
 import type { RngdleDayState, RngdleRevealState } from "@/lib/rngdle/types";
 import type { GameMode } from "@/lib/types";
 import GameNav from "./GameNav";
@@ -20,8 +21,6 @@ import RngdleBadgeBreakdown from "./RngdleBadgeBreakdown";
 import RngdleRoll from "./RngdleRoll";
 
 const STORAGE_KEY = "bitedle:rngdle:website-lab:v1";
-const ROLL_MS = 1_500;
-const NUMBER_REVEAL_MS = 500;
 const RARITY_REVEAL_MS = 650;
 const BADGE_REVEAL_MS = 1_100;
 const PENALTY_REVEAL_MS = 900;
@@ -124,10 +123,10 @@ export default function RngdleDemo({
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   };
 
-  const queueInitialReveal = () => {
+  const queueInitialReveal = (number: number) => {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const rollMs = reducedMotion ? 120 : ROLL_MS;
-    const numberMs = reducedMotion ? 120 : NUMBER_REVEAL_MS;
+    const { spinMs: rollMs, numberRevealMs: numberMs } =
+      rngdleNumberRevealTimeline(number, reducedMotion);
     const rarityMs = reducedMotion ? 140 : RARITY_REVEAL_MS;
     const badgeMs = reducedMotion ? 180 : BADGE_REVEAL_MS;
     setRevealState("rolling");
@@ -145,10 +144,10 @@ export default function RngdleDemo({
     );
   };
 
-  const queueRerollReveal = () => {
+  const queueRerollReveal = (number: number) => {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const rollMs = reducedMotion ? 120 : ROLL_MS;
-    const numberMs = reducedMotion ? 120 : NUMBER_REVEAL_MS;
+    const { spinMs: rollMs, numberRevealMs: numberMs } =
+      rngdleNumberRevealTimeline(number, reducedMotion);
     const rarityMs = reducedMotion ? 140 : RARITY_REVEAL_MS;
     const badgeMs = reducedMotion ? 180 : BADGE_REVEAL_MS;
     const penaltyMs = reducedMotion ? 180 : PENALTY_REVEAL_MS;
@@ -184,7 +183,7 @@ export default function RngdleDemo({
       reroll: null,
       rerolledAt: null,
     });
-    queueInitialReveal();
+    queueInitialReveal(result.number);
   };
 
   const confirmReroll = () => {
@@ -202,7 +201,7 @@ export default function RngdleDemo({
     const penalty = forcedPenalty ?? selectRngdlePenalty();
     const result = scoreRngdleNumber(forcedNumber ?? selectRngdleNumber(), penalty);
     persist({ ...dayState, reroll: result, rerolledAt });
-    queueRerollReveal();
+    queueRerollReveal(result.number);
   };
 
   const resetLab = () => {
@@ -348,7 +347,7 @@ export default function RngdleDemo({
             ) : null}
           </section>
 
-          {result && revealState !== "rolling" && revealState !== "rerolling" ? (
+          {result && ["revealing-badges", "initial-complete", "revealing-penalty", "final-complete"].includes(revealState) ? (
             <RngdleBadgeBreakdown badges={result.badges} state={revealState} />
           ) : null}
 

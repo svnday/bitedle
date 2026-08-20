@@ -33,6 +33,7 @@ fs.writeFileSync(
       path.join(repoRoot, "src", "lib", "rngdle", "probabilities.gen.js"),
       path.join(repoRoot, "src", "lib", "rngdle", "reference-engine.js"),
       path.join(repoRoot, "src", "lib", "rngdle", "scoring.ts"),
+      path.join(repoRoot, "src", "lib", "rngdle", "reveal.ts"),
       path.join(repoRoot, "src", "lib", "rngdle", "time.ts"),
     ],
   }),
@@ -47,6 +48,7 @@ assert.equal(compile.status, 0, `${compile.stdout}\n${compile.stderr}`);
 
 const require = createRequire(import.meta.url);
 const scoring = require(path.join(compileDir, "rngdle", "scoring.js"));
+const reveal = require(path.join(compileDir, "rngdle", "reveal.js"));
 const time = require(path.join(compileDir, "rngdle", "time.js"));
 const engine = require(path.join(compileDir, "rngdle", "reference-engine.js"));
 
@@ -99,10 +101,18 @@ assert.equal(time.canRerollRngdle(1_000, null, 600_999), true);
 assert.equal(time.canRerollRngdle(1_000, null, 601_000), false);
 assert.equal(time.canRerollRngdle(1_000, 2_000, 3_000), false);
 
+assert.deepEqual(reveal.rngdleDigitRevealOffsets(69), [0, 1_000, 2_040, 3_200, 4_560, 6_200]);
+assert.equal(reveal.rngdleNumberRevealTimeline(69, false).spinMs, 2_000);
+assert.equal(reveal.rngdleNumberRevealTimeline(69, false).numberRevealMs, 7_200);
+assert.equal(reveal.rngdleNumberRevealTimeline(1_000_000, false).slotCount, 7);
+assert.deepEqual(reveal.rngdleNumberRevealTimeline(69, true).digitOffsetsMs, [0, 60, 120, 180, 240, 300]);
+
 const types = fs.readFileSync(path.join(repoRoot, "src", "lib", "types.ts"), "utf8");
 const tabs = fs.readFileSync(path.join(repoRoot, "src", "components", "GameTabs.tsx"), "utf8");
 const nav = fs.readFileSync(path.join(repoRoot, "src", "components", "GameNav.tsx"), "utf8");
 const demo = fs.readFileSync(path.join(repoRoot, "src", "components", "RngdleDemo.tsx"), "utf8");
+const roll = fs.readFileSync(path.join(repoRoot, "src", "components", "RngdleRoll.tsx"), "utf8");
+const styles = fs.readFileSync(path.join(repoRoot, "src", "app", "globals.css"), "utf8");
 
 assert.match(types, /\| "rngdle";/);
 assert.match(nav, /\["rngdle", "RNGDLE"\]/);
@@ -112,5 +122,12 @@ assert.doesNotMatch(tabs, /\n\s*if \(runtime\.embedded && runtime\.mode === "rng
 assert.doesNotMatch(demo, /fetch\(/);
 assert.match(demo, /bitedle:rngdle:website-lab:v1/);
 assert.match(demo, /rngdleGameDay/);
+assert.match(demo, /rngdleNumberRevealTimeline/);
+assert.match(roll, /RNGDLE_REEL_TICK_MS/);
+assert.match(roll, /rngdle-digit--spinning/);
+assert.match(roll, /rngdle-number-card--finale/);
+assert.match(styles, /@keyframes rngdle-digit-scroll/);
+assert.match(styles, /@keyframes rngdle-finale-pulse/);
+assert.doesNotMatch(styles, /@keyframes rngdle-digit-roll/);
 
 console.log("RNGDLE verification passed.");
