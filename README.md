@@ -92,6 +92,24 @@ is edited with a generated, one-shot shaking GIF and then edited again to
 replace that GIF with its final still PNG. The selected answer stays identical
 across the animation, final image, accessible message text, and text fallback.
 
+## RNGDLE website lab
+
+RNGDLE is available for local website testing from the game navigation or at
+`/?mode=rngdle`. It rolls an integer from 0 through 1,000,000, evaluates the
+pinned 230-badge compatibility catalog, reveals the resulting entropy points,
+and allows one replacement reroll for ten minutes. A reroll receives a random
+1–99% EP penalty and cannot be undone.
+
+The compatibility engine is pinned to `CubityFirst/rngdle-ep-calculator` commit
+`8d330f5dcf674b80d5badb7d1e58ba1cc74d8fab`. Permission to use and adapt that
+implementation was confirmed by the Bitedle maintainer on 2026-08-19.
+
+The lab stores only the current practice day in browser local storage and
+unlocks a new practice roll at precisely 7 PM in `America/New_York`. It does
+not create server records, guild leaderboards, Discord commands, webhooks, or
+Activity launches. `/rngdle roll` and `/rngdle leaderboard` remain deferred
+until the website experience is explicitly approved.
+
 ## Running it
 
 ```bash
@@ -122,6 +140,7 @@ npm run verify:bitebluff
 npm run verify:bitebluff-discord
 npm run verify:biteball
 npm run verify:biteball-discord
+npm run verify:rngdle
 ```
 
 or for production:

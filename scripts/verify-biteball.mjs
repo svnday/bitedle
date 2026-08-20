@@ -97,7 +97,7 @@ const nav = fs.readFileSync(path.join(repoRoot, "src", "components", "GameNav.ts
 const demo = fs.readFileSync(path.join(repoRoot, "src", "components", "BiteballDemo.tsx"), "utf8");
 const styles = fs.readFileSync(path.join(repoRoot, "src", "app", "globals.css"), "utf8");
 
-assert.match(types, /\| "biteball";/);
+assert.match(types, /\| "biteball"/);
 assert.match(nav, /\["biteball", "Biteball"\]/);
 assert.match(tabs, /requestedMode === "biteball"/);
 assert.match(tabs, /!runtime\.embedded && runtime\.mode === "biteball"/);

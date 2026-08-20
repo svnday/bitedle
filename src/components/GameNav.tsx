@@ -16,6 +16,7 @@ const TABS: readonly [GameMode, string][] = [
   ["biteshooter", "Biteshooter"],
   ["bitebluff", "Bitebluff"],
   ["biteball", "Biteball"],
+  ["rngdle", "RNGDLE"],
 ];
 
 /** The website's game-mode tab bar. Never rendered inside a Discord embed —

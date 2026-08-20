@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import type { GameMode } from "@/lib/types";
 import {
   type ActivityLaunchMode,
@@ -18,6 +19,8 @@ import BiteshooterDemo from "./BiteshooterDemo";
 import BiteshooterGame from "./BiteshooterGame";
 import BitebluffDemo from "./BitebluffDemo";
 import BiteballDemo from "./BiteballDemo";
+
+const RngdleDemo = dynamic(() => import("./RngdleDemo"));
 
 export default function GameTabs() {
   // Embedded: the mode is resolved per player from whichever command THEY ran
@@ -43,7 +46,8 @@ export default function GameTabs() {
           requestedMode === "bitefight" ||
           requestedMode === "biteshooter" ||
           requestedMode === "bitebluff" ||
-          requestedMode === "biteball"
+          requestedMode === "biteball" ||
+          requestedMode === "rngdle"
             ? requestedMode
             : "classic";
         setRuntime({ embedded: false, mode });
@@ -88,6 +92,9 @@ export default function GameTabs() {
   }
   if (!runtime.embedded && runtime.mode === "biteball") {
     return <BiteballDemo onModeChange={setWebMode} />;
+  }
+  if (!runtime.embedded && runtime.mode === "rngdle") {
+    return <RngdleDemo onModeChange={setWebMode} />;
   }
   return (
     <Game

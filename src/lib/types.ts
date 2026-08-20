@@ -92,7 +92,8 @@ export type GameMode =
   | "bitefight"
   | "biteshooter"
   | "bitebluff"
-  | "biteball";
+  | "biteball"
+  | "rngdle";
 export type MegaCellResult = "bomb" | "check" | number;
 
 export interface MegaClickRecord {
