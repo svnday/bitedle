@@ -29,7 +29,7 @@ function RngdleReelDigits({
   targetSlots: string[];
 }) {
   const [digits, setDigits] = useState<string[]>(() =>
-    Array.from({ length: targetSlots.length }, randomDigit)
+    Array.from({ length: targetSlots.length }, randomDigit),
   );
   const [revealedCount, setRevealedCount] = useState(0);
   const [settlingSlots, setSettlingSlots] = useState<Set<number>>(new Set());
@@ -94,13 +94,30 @@ function RngdleReelDigits({
   });
 }
 
+function ShareIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <circle cx="18" cy="5" r="2.5" />
+      <circle cx="6" cy="12" r="2.5" />
+      <circle cx="18" cy="19" r="2.5" />
+      <path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5" />
+    </svg>
+  );
+}
+
 export default function RngdleRoll({
   result,
   state,
+  nextReset,
+  lifetimeEp,
 }: {
   result: RngdleResult | null;
   state: RngdleRevealState;
+  nextReset: string;
+  lifetimeEp: number;
 }) {
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasResult = result !== null;
   const targetNumber = result?.number ?? 0;
   const target = String(targetNumber);
@@ -113,7 +130,7 @@ export default function RngdleRoll({
   const spinning = SPINNING_STATES.has(state);
   const revealing = REVEALING_STATES.has(state);
   const reelsActive = spinning || revealing;
-  const showRarity = !reelsActive;
+  const showRarity = hasResult && !reelsActive;
   const showScore = showRarity && state !== "revealing-rarity";
   const showPenalty = result?.penaltyPercent !== null &&
     (state === "revealing-penalty" || state === "final-complete");
@@ -121,51 +138,96 @@ export default function RngdleRoll({
   const visibleTier = showRarity ? result?.rarity ?? "common" : "common";
   const finale = state === "revealing-rarity";
 
-  return (
-    <div className={`rngdle-number-card rngdle-tier--${visibleTier}${reelsActive ? " rngdle-number-card--reeling" : ""}${finale ? " rngdle-number-card--finale" : ""}`}>
-      <div className="rngdle-card-gloss" aria-hidden="true" />
-      <div className="rngdle-digit-row" aria-hidden="true">
-        {reelsActive ? (
-          <RngdleReelDigits
-            key={animationKey}
-            state={state}
-            targetNumber={targetNumber}
-            targetSlots={targetSlots}
-          />
-        ) : targetSlots.map((digit, index) => (
-          <span
-            key={index}
-            className={`rngdle-digit-window${index < leadingBlankCount ? " rngdle-digit-window--blank rngdle-digit-window--collapsed" : ""}`}
-          >
-            <span className="rngdle-digit">{digit || "\u00a0"}</span>
-          </span>
-        ))}
+  useEffect(() => () => {
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+  }, []);
+
+  const shareResult = async () => {
+    if (!result) return;
+    const text = `RNGDLE ${result.number} - ${result.creditedEp.toLocaleString()} EP (${result.rarityLabel})`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ text });
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+      setCopied(true);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 1_800);
+    } catch {
+      // Cancelling the native share sheet should leave the result unchanged.
+    }
+  };
+
+  if (!hasResult) {
+    return (
+      <div className="rngdle-ready-copy">
+        <strong aria-hidden="true">??????</strong>
+        <p>One roll per day. One number. What will yours be?</p>
+        <span className="sr-only">Ready to roll a random number.</span>
       </div>
-      <p className="sr-only">
-        {reelsActive ? "A random number is rolling." : result ? `Rolled ${result.number}.` : "Ready to roll."}
-      </p>
+    );
+  }
+
+  return (
+    <div className={`rngdle-roll-result rngdle-tier--${visibleTier}`}>
+      <div className={`rngdle-number-card${reelsActive ? " rngdle-number-card--reeling" : ""}${finale ? " rngdle-number-card--finale" : ""}`}>
+        <div className="rngdle-card-gloss" aria-hidden="true" />
+        <div className="rngdle-digit-row" aria-hidden="true">
+          {reelsActive ? (
+            <RngdleReelDigits
+              key={animationKey}
+              state={state}
+              targetNumber={targetNumber}
+              targetSlots={targetSlots}
+            />
+          ) : targetSlots.map((digit, index) => (
+            <span
+              key={index}
+              className={`rngdle-digit-window${index < leadingBlankCount ? " rngdle-digit-window--blank rngdle-digit-window--collapsed" : ""}`}
+            >
+              <span className="rngdle-digit">{digit || "\u00a0"}</span>
+            </span>
+          ))}
+        </div>
+        <p className="sr-only">
+          {reelsActive ? "A random number is rolling." : `Rolled ${result.number}.`}
+        </p>
+      </div>
 
       <div className={`rngdle-rarity-line${showRarity ? " rngdle-reveal-visible" : ""}`}>
-        <strong>{result?.rarityLabel ?? "COMMON"}</strong>
+        <strong>{result.rarityLabel}</strong>
         <span aria-hidden="true">{"\u2022"}</span>
-        <span>{result?.rarityBand ?? "Awaiting roll"}</span>
+        <span>{result.rarityBand}</span>
       </div>
 
       <div className={`rngdle-score-block${showScore ? " rngdle-reveal-visible" : ""}`}>
-        {showPenalty && result ? (
-          <>
+        {showPenalty ? (
+          <div className="rngdle-penalized-score">
             <span className="rngdle-raw-score">{result.rawEp.toLocaleString()} EP</span>
             <span className="rngdle-penalty-chip">{"\u2212"}{result.penaltyPercent}%</span>
             <strong>{result.creditedEp.toLocaleString()} EP</strong>
             <small>credited after reroll penalty</small>
-          </>
+          </div>
         ) : (
           <>
-            <strong>{result?.rawEp.toLocaleString() ?? "0"} EP</strong>
-            <small>{result?.penaltyPercent ? "raw reroll score" : "entropy points"}</small>
+            <strong className="rngdle-score-pill">{result.rawEp.toLocaleString()} EP</strong>
+            <strong className="rngdle-lifetime-score">{lifetimeEp.toLocaleString()} EP</strong>
+            <small>YOUR LIFETIME EP</small>
           </>
         )}
       </div>
+
+      <div className={`rngdle-result-actions${showScore ? " rngdle-reveal-visible" : ""}`}>
+        <button type="button" onClick={shareResult}>
+          <ShareIcon />
+          {copied ? "COPIED" : "SHARE"}
+        </button>
+        <span>NEXT ROLL IN <strong>{nextReset}</strong></span>
+      </div>
+      <p className={`rngdle-save-note${showScore ? " rngdle-reveal-visible" : ""}`}>
+        Website lab result saved in this browser
+      </p>
     </div>
   );
 }

@@ -83,6 +83,9 @@ assert.equal(scoring.selectRngdleNumber(() => 1_000_000), 1_000_000);
 assert.throws(() => scoring.selectRngdleNumber(() => -1), RangeError);
 assert.equal(scoring.selectRngdlePenalty(() => 0), 1);
 assert.equal(scoring.selectRngdlePenalty(() => 98), 99);
+assert.equal(scoring.formatRngdlePercentile(3_984), "Bottom 24%");
+assert.equal(scoring.formatRngdlePercentile(5_761), "Top 50%");
+assert.equal(scoring.formatRngdlePercentile(164_953), "Top 1%");
 
 const unpenalized = scoring.scoreRngdleNumber(69);
 assert.equal(unpenalized.creditedEp, unpenalized.rawEp);
@@ -90,6 +93,7 @@ assert.equal(scoring.scoreRngdleNumber(69, 1).creditedEp, Math.floor(unpenalized
 assert.equal(scoring.scoreRngdleNumber(69, 99).creditedEp, Math.floor(unpenalized.rawEp * 0.01));
 assert.throws(() => scoring.scoreRngdleNumber(69, 0), RangeError);
 assert.throws(() => scoring.scoreRngdleNumber(69, 100), RangeError);
+assert.equal(scoring.scoreRngdleNumber(563_190).rarityBand, "Bottom 24%");
 
 assert.equal(time.rngdleGameDay(new Date("2026-08-19T22:59:59.999Z")), "2026-08-18");
 assert.equal(time.rngdleGameDay(new Date("2026-08-19T23:00:00.000Z")), "2026-08-19");
@@ -112,6 +116,7 @@ const tabs = fs.readFileSync(path.join(repoRoot, "src", "components", "GameTabs.
 const nav = fs.readFileSync(path.join(repoRoot, "src", "components", "GameNav.tsx"), "utf8");
 const demo = fs.readFileSync(path.join(repoRoot, "src", "components", "RngdleDemo.tsx"), "utf8");
 const roll = fs.readFileSync(path.join(repoRoot, "src", "components", "RngdleRoll.tsx"), "utf8");
+const badgeBreakdown = fs.readFileSync(path.join(repoRoot, "src", "components", "RngdleBadgeBreakdown.tsx"), "utf8");
 const styles = fs.readFileSync(path.join(repoRoot, "src", "app", "globals.css"), "utf8");
 
 assert.match(types, /\| "rngdle";/);
@@ -123,11 +128,17 @@ assert.doesNotMatch(demo, /fetch\(/);
 assert.match(demo, /bitedle:rngdle:website-lab:v1/);
 assert.match(demo, /rngdleGameDay/);
 assert.match(demo, /rngdleNumberRevealTimeline/);
+assert.match(demo, /number=\{result\.number\}/);
+assert.match(demo, /bitedle:rngdle:website-lab:lifetime:v1/);
 assert.match(roll, /RNGDLE_REEL_TICK_MS/);
 assert.match(roll, /rngdle-digit--spinning/);
 assert.match(roll, /rngdle-number-card--finale/);
+assert.match(roll, /One roll per day\. One number\./);
+assert.match(badgeBreakdown, /rngdle-badge-digits/);
+assert.match(badgeBreakdown, /badgeContributorIndexes/);
 assert.match(styles, /@keyframes rngdle-digit-scroll/);
 assert.match(styles, /@keyframes rngdle-finale-pulse/);
+assert.match(styles, /Screenshot-aligned RNGDLE presentation/);
 assert.doesNotMatch(styles, /@keyframes rngdle-digit-roll/);
 
 console.log("RNGDLE verification passed.");

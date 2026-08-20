@@ -21,6 +21,7 @@ import RngdleBadgeBreakdown from "./RngdleBadgeBreakdown";
 import RngdleRoll from "./RngdleRoll";
 
 const STORAGE_KEY = "bitedle:rngdle:website-lab:v1";
+const LIFETIME_STORAGE_KEY = "bitedle:rngdle:website-lab:lifetime:v1";
 const RARITY_REVEAL_MS = 650;
 const BADGE_REVEAL_MS = 1_100;
 const PENALTY_REVEAL_MS = 900;
@@ -53,6 +54,7 @@ export default function RngdleDemo({
   onModeChange: (mode: GameMode) => void;
 }) {
   const [dayState, setDayState] = useState<RngdleDayState | null | undefined>(undefined);
+  const [lifetimeEp, setLifetimeEp] = useState(0);
   const [revealState, setRevealState] = useState<RngdleRevealState>("ready");
   const [now, setNow] = useState(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -73,6 +75,11 @@ export default function RngdleDemo({
       const current = Date.now();
       const gameDay = rngdleGameDay(new Date(current));
       const stored = safeStoredState(window.localStorage.getItem(STORAGE_KEY));
+      const rawLifetime = window.localStorage.getItem(LIFETIME_STORAGE_KEY);
+      const storedLifetime = rawLifetime === null
+        ? stored?.reroll?.creditedEp ?? stored?.initial.creditedEp ?? 0
+        : Number(rawLifetime);
+      setLifetimeEp(Number.isSafeInteger(storedLifetime) && storedLifetime >= 0 ? storedLifetime : 0);
       if (stored?.gameDay === gameDay) {
         setDayState(stored);
         setRevealState(stored.reroll ? "final-complete" : "initial-complete");
@@ -183,6 +190,9 @@ export default function RngdleDemo({
       reroll: null,
       rerolledAt: null,
     });
+    const nextLifetime = lifetimeEp + result.creditedEp;
+    setLifetimeEp(nextLifetime);
+    window.localStorage.setItem(LIFETIME_STORAGE_KEY, String(nextLifetime));
     queueInitialReveal(result.number);
   };
 
@@ -201,13 +211,18 @@ export default function RngdleDemo({
     const penalty = forcedPenalty ?? selectRngdlePenalty();
     const result = scoreRngdleNumber(forcedNumber ?? selectRngdleNumber(), penalty);
     persist({ ...dayState, reroll: result, rerolledAt });
+    const nextLifetime = Math.max(0, lifetimeEp - dayState.initial.creditedEp + result.creditedEp);
+    setLifetimeEp(nextLifetime);
+    window.localStorage.setItem(LIFETIME_STORAGE_KEY, String(nextLifetime));
     queueRerollReveal(result.number);
   };
 
   const resetLab = () => {
     clearTimers();
     window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(LIFETIME_STORAGE_KEY);
     setDayState(null);
+    setLifetimeEp(0);
     setRevealState("ready");
     setNow(Date.now());
   };
@@ -244,42 +259,31 @@ export default function RngdleDemo({
       <GameNav mode="rngdle" onModeChange={onModeChange} />
       <main className="rngdle-main">
         <div className="rngdle-shell">
-          <header className="rngdle-header">
-            <div>
-              <p className="rngdle-eyebrow">Website scoring lab</p>
-              <h1>RNGDLE</h1>
-              <p>One number. Hundreds of hidden patterns. One daily shot at entropy.</p>
-            </div>
-            <div className="rngdle-reset-clock">
-              <span>Next roll in</span>
-              <strong>{nextReset}</strong>
-              <small>7:00 PM New York</small>
-            </div>
-          </header>
+          <h1 className="sr-only">RNGDLE</h1>
 
           <section className="rngdle-stage" aria-labelledby="rngdle-stage-title">
             <div className="rngdle-stage-topline">
-              <div>
-                <span className="rngdle-live-dot" aria-hidden="true" />
-                <span>{dayState ? "TODAY'S ROLL" : "DAILY ROLL READY"}</span>
-              </div>
               <button type="button" className="rngdle-lab-reset" onClick={resetLab} disabled={isAnimating}>
                 Reset lab
               </button>
             </div>
             <h2 id="rngdle-stage-title" className="sr-only">Daily RNGDLE roll</h2>
 
-            <div ref={resultRef} tabIndex={dayState ? -1 : undefined}>
-              <RngdleRoll result={result} state={revealState} />
+            <div ref={resultRef} className="rngdle-result-focus" tabIndex={dayState ? -1 : undefined}>
+              <RngdleRoll
+                result={result}
+                state={revealState}
+                nextReset={nextReset}
+                lifetimeEp={lifetimeEp}
+              />
             </div>
 
             {!dayState ? (
               <div className="rngdle-primary-actions">
                 <button type="button" className="rngdle-roll-button" onClick={roll}>
-                  <span className="rngdle-die" aria-hidden="true">⚄</span>
-                  ROLL THE NUMBER
+                  GENERATE
                 </button>
-                <p>Uniformly generated from 0 to 1,000,000.</p>
+                <p>Website lab · your roll is saved in this browser</p>
               </div>
             ) : null}
 
@@ -348,7 +352,7 @@ export default function RngdleDemo({
           </section>
 
           {result && ["revealing-badges", "initial-complete", "revealing-penalty", "final-complete"].includes(revealState) ? (
-            <RngdleBadgeBreakdown badges={result.badges} state={revealState} />
+            <RngdleBadgeBreakdown badges={result.badges} number={result.number} state={revealState} />
           ) : null}
 
           <footer className="rngdle-footer">

@@ -17,6 +17,23 @@ const CARD_TIERS: readonly [number, RngdleNumberRarity, string, string][] = [
   [164_953, "anomaly", "ANOMALY", "Top 5-1%"],
 ];
 
+// Smallest EP value that rounds to each population percentile from 1 through
+// 100. Derived from the permitted full-range rngdle.com percentile snapshot on
+// 2026-08-19; this keeps the client payload compact while preserving the
+// integer percentile labels used by the reference result card.
+const ROUNDED_PERCENTILE_EP_BREAKS = [
+  1_999, 2_148, 2_282, 2_393, 2_495, 2_655, 2_749, 2_851, 2_948, 3_015,
+  3_084, 3_152, 3_198, 3_267, 3_338, 3_409, 3_491, 3_564, 3_640, 3_712,
+  3_770, 3_835, 3_905, 3_960, 4_017, 4_071, 4_137, 4_198, 4_262, 4_325,
+  4_386, 4_454, 4_510, 4_576, 4_645, 4_704, 4_774, 4_843, 4_906, 4_975,
+  5_042, 5_106, 5_174, 5_241, 5_315, 5_389, 5_472, 5_550, 5_637, 5_719,
+  5_801, 5_887, 5_970, 6_054, 6_147, 6_244, 6_346, 6_452, 6_562, 6_680,
+  6_788, 6_909, 7_030, 7_169, 7_313, 7_474, 7_638, 7_809, 7_990, 8_178,
+  8_388, 8_639, 8_887, 9_163, 9_471, 9_818, 10_193, 10_633, 11_100, 11_674,
+  12_319, 12_988, 13_724, 14_509, 15_350, 16_323, 17_434, 18_657, 20_106, 21_861,
+  24_724, 27_889, 29_413, 31_088, 33_905, 38_362, 45_020, 61_783, 121_166, 337_576,
+] as const;
+
 interface OracleBadge {
   id: string;
   label: string;
@@ -42,6 +59,24 @@ export function classifyRngdleScore(rawEp: number): {
     if (rawEp < cutoff) return { rarity, label, band };
   }
   return { rarity: "mythic", label: "MYTHIC", band: "Top 1%" };
+}
+
+export function formatRngdlePercentile(
+  rawEp: number,
+  rarity: RngdleNumberRarity = classifyRngdleScore(rawEp).rarity,
+): string {
+  let low = 0;
+  let high: number = ROUNDED_PERCENTILE_EP_BREAKS.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (ROUNDED_PERCENTILE_EP_BREAKS[middle] <= rawEp) low = middle + 1;
+    else high = middle;
+  }
+
+  const roundedPercentile = low;
+  return rarity === "trash" || rarity === "common"
+    ? `Bottom ${Math.max(1, roundedPercentile)}%`
+    : `Top ${Math.max(1, 100 - roundedPercentile)}%`;
 }
 
 export function scoreRngdleNumber(
@@ -71,7 +106,7 @@ export function scoreRngdleNumber(
     creditedEp,
     rarity: classification.rarity,
     rarityLabel: classification.label,
-    rarityBand: classification.band,
+    rarityBand: formatRngdlePercentile(scored.totalEP, classification.rarity),
     badges: scored.badges.map((badge) => ({
       id: badge.id,
       label: badge.label,
