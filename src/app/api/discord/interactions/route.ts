@@ -54,17 +54,16 @@ import {
   deliverRngdleProfile,
   deliverRngdleRoll,
   parseRngdleReplayCustomId,
-  parseRngdleRerollCancelCustomId,
-  parseRngdleRerollConfirmCustomId,
-  parseRngdleRerollCustomId,
+  parseRngdleRerollModalCustomId,
+  parseRngdleRerollOpenCustomId,
   RNGDLE_LEADERBOARD_BUTTON_ID,
   RNGDLE_PROFILE_BUTTON_ID,
   RNGDLE_REPLAY_CUSTOM_ID_PREFIX,
-  RNGDLE_REROLL_CANCEL_CUSTOM_ID_PREFIX,
-  RNGDLE_REROLL_CONFIRM_CUSTOM_ID_PREFIX,
+  RNGDLE_REROLL_LEGACY_CONFIRM_PREFIX,
+  RNGDLE_REROLL_MODAL_CUSTOM_ID_PREFIX,
   RNGDLE_REROLL_CUSTOM_ID_PREFIX,
-  rngdleRerollCancelUpdate,
-  rngdleRerollConfirmUpdate,
+  rngdleRerollAcknowledged,
+  rngdleRerollModal,
   takePendingRngdlePenalty,
 } from "@/lib/rngdle-discord";
 import { getRngdleDiscordRepository } from "@/lib/rngdle-discord-store";
@@ -111,10 +110,12 @@ interface Interaction {
     custom_id?: string;
     options?: { name: string; value?: string; options?: { name: string; value?: string }[] }[];
     resolved?: { users?: Record<string, InteractionUser> };
+    /** Present on modal submits: the values the dialog came back with. */
+    components?: unknown[];
   };
   member?: { user?: InteractionUser };
   user?: InteractionUser;
-  /** Present on component interactions: the message the component sits on. */
+  /** On component interactions, and on modals opened from one: the message. */
   message?: { id?: string; components?: unknown[] };
   channel_id?: string;
   guild_id?: string;
@@ -947,7 +948,7 @@ function handleRngdle(body: Interaction): NextResponse {
 }
 
 async function handleRngdleReroll(body: Interaction): Promise<NextResponse> {
-  const parsed = parseRngdleRerollCustomId(body.data?.custom_id ?? "");
+  const parsed = parseRngdleRerollOpenCustomId(body.data?.custom_id ?? "");
   const user = body.member?.user ?? body.user;
   if (!parsed || !user?.id || !body.guild_id) {
     return reply("That RNGDLE reroll button is invalid.", true);
@@ -962,32 +963,22 @@ async function handleRngdleReroll(body: Interaction): Promise<NextResponse> {
     return reply("That RNGDLE roll is from a previous game day.", true);
   }
 
-  // A reroll cannot be undone, so the button only asks. Swapping the card's
-  // buttons in place keeps the confirmation on the roll message itself, which
-  // matters: delivery edits that message through this interaction chain, and a
-  // confirmation posted elsewhere would not be able to reach it.
-  return NextResponse.json({
-    type: 7,
-    data: rngdleRerollConfirmUpdate(body, parsed.gameDay, parsed.userId),
-  });
-}
-
-function handleRngdleRerollCancel(body: Interaction): NextResponse {
-  const parsed = parseRngdleRerollCancelCustomId(body.data?.custom_id ?? "");
-  const user = body.member?.user ?? body.user;
-  if (!parsed || !user?.id) return reply("That RNGDLE button is invalid.", true);
-  if (parsed.userId !== user.id) return reply("Only the player who rolled can use this.", true);
-  return NextResponse.json({
-    type: 7,
-    data: rngdleRerollCancelUpdate(body, parsed.gameDay, parsed.userId),
-  });
+  // A reroll cannot be undone, so the button only asks - in a modal, which
+  // Discord shows to the presser alone. The card is left untouched, so nobody
+  // else sees that a reroll is even being considered, and closing the dialog is
+  // the cancel. The submit still lands on this message: a modal opened from a
+  // component carries it, which is what delivery edits through `@original`.
+  return NextResponse.json({ type: 9, data: rngdleRerollModal(parsed.gameDay, parsed.userId) });
 }
 
 function handleRngdleRerollConfirm(body: Interaction): NextResponse {
-  const parsed = parseRngdleRerollConfirmCustomId(body.data?.custom_id ?? "");
+  const parsed = parseRngdleRerollModalCustomId(body.data?.custom_id ?? "");
   const user = body.member?.user ?? body.user;
   if (!parsed || !user?.id || !body.guild_id) {
-    return reply("That RNGDLE reroll button is invalid.", true);
+    return reply("That RNGDLE reroll is no longer valid.", true);
+  }
+  if (!rngdleRerollAcknowledged(body)) {
+    return reply("Reroll cancelled - the confirmation was not ticked.", true);
   }
   if (parsed.userId !== user.id) {
     return reply("Only the player who rolled can use this reroll.", true);
@@ -1163,11 +1154,12 @@ function handleRngdleUtilityButton(body: Interaction, mode: "leaderboard" | "use
  */
 function isRngdleInteraction(body: Interaction): boolean {
   if (body.type === 2) return body.data?.name === "rngdle";
-  if (body.type !== 3) return false;
   const customId = body.data?.custom_id ?? "";
+  // 5 is MODAL_SUBMIT - the reroll confirmation dialog.
+  if (body.type === 5) return customId.startsWith(RNGDLE_REROLL_MODAL_CUSTOM_ID_PREFIX);
+  if (body.type !== 3) return false;
   return customId.startsWith(RNGDLE_REROLL_CUSTOM_ID_PREFIX)
-    || customId.startsWith(RNGDLE_REROLL_CONFIRM_CUSTOM_ID_PREFIX)
-    || customId.startsWith(RNGDLE_REROLL_CANCEL_CUSTOM_ID_PREFIX)
+    || customId.startsWith(RNGDLE_REROLL_LEGACY_CONFIRM_PREFIX)
     || customId.startsWith(RNGDLE_REPLAY_CUSTOM_ID_PREFIX)
     || customId === RNGDLE_LEADERBOARD_BUTTON_ID
     || customId === RNGDLE_PROFILE_BUTTON_ID;
@@ -1233,13 +1225,17 @@ export async function POST(request: NextRequest) {
     return handleRngdle(body);
   }
 
-  if (body?.type === 3 && body?.data?.custom_id?.startsWith(RNGDLE_REROLL_CONFIRM_CUSTOM_ID_PREFIX)) {
+  // Type 5 is MODAL_SUBMIT: the reroll dialog coming back ticked.
+  if (body?.type === 5 && body?.data?.custom_id?.startsWith(RNGDLE_REROLL_MODAL_CUSTOM_ID_PREFIX)) {
     return handleRngdleRerollConfirm(body);
   }
-  if (body?.type === 3 && body?.data?.custom_id?.startsWith(RNGDLE_REROLL_CANCEL_CUSTOM_ID_PREFIX)) {
-    return handleRngdleRerollCancel(body);
-  }
-  if (body?.type === 3 && body?.data?.custom_id?.startsWith(RNGDLE_REROLL_CUSTOM_ID_PREFIX)) {
+  // A stale card may still carry the superseded in-channel confirm button; it
+  // opens the dialog rather than rerolling outright. Its Cancel twin is left
+  // unrouted on purpose - a cancel that does nothing has already cancelled.
+  if (body?.type === 3 && (
+    body?.data?.custom_id?.startsWith(RNGDLE_REROLL_CUSTOM_ID_PREFIX)
+    || body?.data?.custom_id?.startsWith(RNGDLE_REROLL_LEGACY_CONFIRM_PREFIX)
+  )) {
     return handleRngdleReroll(body);
   }
 

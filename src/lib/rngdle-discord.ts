@@ -39,8 +39,13 @@ const RNGDLE_MESSAGE_ACCENTS: Record<RngdleDiscordRoll["current"]["rarity"], num
 };
 
 export const RNGDLE_REROLL_CUSTOM_ID_PREFIX = "rngdle-reroll:v1:";
-export const RNGDLE_REROLL_CONFIRM_CUSTOM_ID_PREFIX = "rngdle-reroll-go:v1:";
-export const RNGDLE_REROLL_CANCEL_CUSTOM_ID_PREFIX = "rngdle-reroll-no:v1:";
+export const RNGDLE_REROLL_MODAL_CUSTOM_ID_PREFIX = "rngdle-reroll-modal:v1:";
+export const RNGDLE_REROLL_ACK_CUSTOM_ID = "rngdle-reroll-ack";
+// The confirmation used to be a pair of buttons swapped onto the roll card,
+// which put a private decision in front of the whole channel. Cards posted
+// before that changed still carry this button, so it is still routed - it now
+// opens the modal instead. Safe to delete once no such card is in play.
+export const RNGDLE_REROLL_LEGACY_CONFIRM_PREFIX = "rngdle-reroll-go:v1:";
 export const RNGDLE_REPLAY_CUSTOM_ID_PREFIX = "rngdle-replay:v1:";
 export const RNGDLE_REROLL_BUTTON_LABEL = "Reroll 1-99% Risk";
 export const RNGDLE_LEADERBOARD_BUTTON_ID = "rngdle-leaderboard:v1";
@@ -54,75 +59,76 @@ export function parseRngdleRerollCustomId(customId: string): { gameDay: string; 
   return parseOwnedRollCustomId(customId, RNGDLE_REROLL_CUSTOM_ID_PREFIX);
 }
 
-export function parseRngdleRerollConfirmCustomId(customId: string): { gameDay: string; userId: string } | null {
-  return parseOwnedRollCustomId(customId, RNGDLE_REROLL_CONFIRM_CUSTOM_ID_PREFIX);
+export function parseRngdleRerollModalCustomId(customId: string): { gameDay: string; userId: string } | null {
+  return parseOwnedRollCustomId(customId, RNGDLE_REROLL_MODAL_CUSTOM_ID_PREFIX);
 }
 
-export function parseRngdleRerollCancelCustomId(customId: string): { gameDay: string; userId: string } | null {
-  return parseOwnedRollCustomId(customId, RNGDLE_REROLL_CANCEL_CUSTOM_ID_PREFIX);
+/** Accepts the reroll button and the superseded in-channel confirm button. */
+export function parseRngdleRerollOpenCustomId(customId: string): { gameDay: string; userId: string } | null {
+  return parseOwnedRollCustomId(customId, RNGDLE_REROLL_CUSTOM_ID_PREFIX)
+    ?? parseOwnedRollCustomId(customId, RNGDLE_REROLL_LEGACY_CONFIRM_PREFIX);
 }
 
 /** Spells out what a reroll costs, since it cannot be taken back. */
-export const RNGDLE_REROLL_WARNING = `⚠️ **Reroll today's number?**
-A random **1-99% risk** is drawn and subtracted from the new roll's EP. You keep the new number whether it beats this one or not, today's number is gone for good, and you get **one reroll per day**.`;
+export const RNGDLE_REROLL_WARNING = `⚠️ A random **1-99% risk** is drawn and subtracted from the new roll's EP.
 
-interface RngdleMessageInteraction {
-  message?: { components?: unknown[] };
+You keep the new number whether it beats this one or not, today's number is gone for good, and you get **one reroll per day**.`;
+
+/**
+ * The confirmation, as a modal. Discord shows a modal only to the person who
+ * pressed the button, which is the point: a reroll is their decision and the
+ * warning has no business sitting under the card for the whole channel to read.
+ *
+ * Modals cannot hold buttons, so the confirming gesture is a required
+ * single-option checkbox group - Discord refuses the submit until it is ticked.
+ * Dismissing the dialog is the cancel: no interaction fires and the card is
+ * never touched, so there is no cancel path to handle and nothing to restore.
+ *
+ * Crucially a modal opened from a component carries that component's message,
+ * so the submit can still edit the roll card through `@original` exactly as the
+ * button chain did.
+ */
+export function rngdleRerollModal(gameDay: string, userId: string): Record<string, unknown> {
+  return {
+    custom_id: `${RNGDLE_REROLL_MODAL_CUSTOM_ID_PREFIX}${gameDay}:${userId}`,
+    title: "Reroll today's number?",
+    components: [
+      { type: 10, content: RNGDLE_REROLL_WARNING },
+      {
+        type: 18,
+        label: "Confirm the reroll",
+        description: "This cannot be undone, and you only get one per day.",
+        component: {
+          type: 22,
+          custom_id: RNGDLE_REROLL_ACK_CUSTOM_ID,
+          required: true,
+          options: [{ value: "reroll", label: "Yes - reroll my number and take the risk" }],
+        },
+      },
+    ],
+  };
+}
+
+interface RngdleModalSubmission {
+  data?: { components?: unknown[] };
 }
 
 /**
- * The roll card's own container, echoed back untouched. Rebuilding it would
- * mean re-uploading its image; taking Discord's copy keeps the card pixel
- * identical and leaves its attachment in place, so only the buttons change.
+ * Whether the acknowledgement was actually ticked. Discord enforces `required`
+ * before it will accept the submit, so this only ever fails on a payload that
+ * did not come from the dialog - but a reroll cannot be undone, and the whole
+ * feature exists to stop one happening by accident, so it is checked anyway.
  */
-function rngdleCardContainer(body: RngdleMessageInteraction): unknown[] {
-  return (body.message?.components ?? []).filter((component) => (
-    typeof component === "object" && component !== null && (component as { type?: number }).type === 17
-  ));
-}
-
-function rngdleActionRow(buttons: Record<string, unknown>[]) {
-  return { type: 1, components: buttons };
-}
-
-/** Swaps the card's buttons for a confirm/cancel pair and states the terms. */
-export function rngdleRerollConfirmUpdate(
-  body: RngdleMessageInteraction,
-  gameDay: string,
-  userId: string,
-): Record<string, unknown> {
-  return {
-    flags: DISCORD_COMPONENTS_V2_FLAG,
-    allowed_mentions: { parse: [] },
-    components: [
-      ...rngdleCardContainer(body),
-      { type: 10, content: RNGDLE_REROLL_WARNING },
-      rngdleActionRow([
-        { type: 2, style: 4, label: "Yes, reroll", custom_id: `${RNGDLE_REROLL_CONFIRM_CUSTOM_ID_PREFIX}${gameDay}:${userId}` },
-        { type: 2, style: 2, label: "Cancel", custom_id: `${RNGDLE_REROLL_CANCEL_CUSTOM_ID_PREFIX}${gameDay}:${userId}` },
-      ]),
-    ],
-  };
-}
-
-/** Puts the card back exactly as it was, warning and all, on a cancel. */
-export function rngdleRerollCancelUpdate(
-  body: RngdleMessageInteraction,
-  gameDay: string,
-  userId: string,
-): Record<string, unknown> {
-  return {
-    flags: DISCORD_COMPONENTS_V2_FLAG,
-    allowed_mentions: { parse: [] },
-    components: [
-      ...rngdleCardContainer(body),
-      rngdleActionRow([
-        { type: 2, style: 2, label: "Leaderboard", custom_id: RNGDLE_LEADERBOARD_BUTTON_ID },
-        { type: 2, style: 1, label: "My Profile", custom_id: RNGDLE_PROFILE_BUTTON_ID },
-        { type: 2, style: 4, label: RNGDLE_REROLL_BUTTON_LABEL, custom_id: rngdleRerollCustomId(gameDay, userId) },
-      ]),
-    ],
-  };
+export function rngdleRerollAcknowledged(body: RngdleModalSubmission): boolean {
+  const walk = (components: unknown[]): boolean => components.some((component) => {
+    if (typeof component !== "object" || component === null) return false;
+    const node = component as { custom_id?: string; values?: unknown; component?: unknown };
+    if (node.custom_id === RNGDLE_REROLL_ACK_CUSTOM_ID) {
+      return Array.isArray(node.values) && node.values.length > 0;
+    }
+    return node.component !== undefined && walk([node.component]);
+  });
+  return walk(body.data?.components ?? []);
 }
 
 export function rngdleReplayCustomId(gameDay: string, userId: string): string {

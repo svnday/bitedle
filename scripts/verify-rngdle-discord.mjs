@@ -515,42 +515,77 @@ assert.match(routeSource, /RNGDLE_REPLAY_CUSTOM_ID_PREFIX/);
 assert.match(routeSource, /RNGDLE_LEADERBOARD_BUTTON_ID/);
 assert.match(routeSource, /RNGDLE_PROFILE_BUTTON_ID/);
 assert.match(routeSource, /riskAnimationPercent: penalty/);
-// A reroll is irreversible, so the button must only ask. The confirmation has
-// to stay on the roll card: delivery edits that message through this same
-// interaction chain, and a confirmation posted anywhere else could not reach
-// it. These assertions pin both halves of that.
+// A reroll is irreversible, so the button must only ask - and it asks in a
+// modal, which Discord shows to the presser alone. That privacy is the whole
+// point of the change, so these pin the shape of the dialog and, just as
+// importantly, that nothing about it lands on the public card.
 {
   const gameDay = "2026-08-20";
   const player = "600000000000000001";
-  const card = { type: 17, components: [{ type: 12, items: [{ media: { url: "attachment://rngdle-result.png" } }] }] };
-  const message = { components: [card, { type: 1, components: [{ type: 2, custom_id: "stale" }] }] };
+  const modal = delivery.rngdleRerollModal(gameDay, player);
 
-  const asking = delivery.rngdleRerollConfirmUpdate({ message }, gameDay, player);
-  assert.deepEqual(asking.components[0], card, "the confirmation must reuse the card's own container");
-  assert.equal(asking.attachments, undefined, "omitting attachments keeps the card's image in place");
-  const warning = asking.components.find((component) => component.type === 10);
-  assert.ok(warning, "the confirmation must state the terms");
+  assert.match(modal.custom_id, /^rngdle-reroll-modal:v1:/);
+  assert.deepEqual(
+    delivery.parseRngdleRerollModalCustomId(modal.custom_id),
+    { gameDay, userId: player },
+    "the submit has to say whose reroll it is",
+  );
+  assert.ok(modal.title.length <= 45, "Discord caps a modal title at 45 characters");
+
+  const warning = modal.components.find((component) => component.type === 10);
+  assert.ok(warning, "the dialog must state the terms");
   for (const phrase of ["1-99% risk", "one reroll per day"]) {
     assert.ok(warning.content.includes(phrase), `the warning should mention ${phrase}`);
   }
-  const askRow = asking.components.find((component) => component.type === 1);
-  assert.equal(askRow.components.length, 2, "confirm and cancel only");
-  assert.match(askRow.components[0].custom_id, /^rngdle-reroll-go:v1:/);
-  assert.match(askRow.components[1].custom_id, /^rngdle-reroll-no:v1:/);
-  assert.equal(
-    askRow.components.some((button) => /^rngdle-reroll:v1:/.test(button.custom_id)),
-    false,
-    "asking must not leave a one-click reroll on the card",
-  );
 
-  const cancelled = delivery.rngdleRerollCancelUpdate({ message }, gameDay, player);
-  assert.deepEqual(cancelled.components[0], card, "cancelling must restore the card untouched");
-  assert.equal(cancelled.components.some((component) => component.type === 10), false, "the warning clears on cancel");
-  const backRow = cancelled.components.find((component) => component.type === 1);
-  assert.deepEqual(backRow.components.map((button) => button.label), ["Leaderboard", "My Profile", "Reroll 1-99% Risk"]);
+  // Modals cannot hold buttons, so the gesture is a checkbox group Discord
+  // refuses to submit until it is ticked. A plain checkbox cannot be required.
+  const label = modal.components.find((component) => component.type === 18);
+  assert.ok(label, "the confirming component must be wrapped in a Label");
+  assert.ok(label.label.length <= 45, "Discord caps a Label at 45 characters");
+  assert.ok(label.description.length <= 100, "Discord caps a Label description at 100 characters");
+  assert.equal(label.component.type, 22, "a required tick needs a checkbox group, not a checkbox");
+  assert.equal(label.component.required, true);
+  assert.equal(label.component.custom_id, delivery.RNGDLE_REROLL_ACK_CUSTOM_ID);
+  assert.equal(label.component.options.length, 1);
+
+  // Buttons are not valid in a modal, and a container would make it a message.
+  for (const component of modal.components) {
+    assert.ok([10, 18].includes(component.type), `component type ${component.type} is not valid in a modal`);
+  }
+
+  // The submit is only honoured when the box actually came back ticked.
+  const submitted = (values) => ({
+    data: { components: [{ type: 18, component: { type: 22, custom_id: delivery.RNGDLE_REROLL_ACK_CUSTOM_ID, values } }] },
+  });
+  assert.equal(delivery.rngdleRerollAcknowledged(submitted(["reroll"])), true);
+  assert.equal(delivery.rngdleRerollAcknowledged(submitted([])), false, "an unticked box must not reroll");
+  assert.equal(delivery.rngdleRerollAcknowledged({ data: { components: [] } }), false);
+  assert.equal(delivery.rngdleRerollAcknowledged({}), false);
 }
+
+// The confirmation must never touch the public card again.
+assert.doesNotMatch(routeSource, /rngdleRerollConfirmUpdate|rngdleRerollCancelUpdate/);
+assert.equal(typeof delivery.rngdleRerollConfirmUpdate, "undefined", "the in-channel confirmation is gone");
+assert.equal(typeof delivery.rngdleRerollCancelUpdate, "undefined", "cancelling is closing the dialog now");
+// Opening it is a MODAL response; the submit comes back as interaction type 5.
+assert.match(routeSource, /type: 9, data: rngdleRerollModal\(/);
+assert.match(routeSource, /body\?\.type === 5 && body\?\.data\?\.custom_id\?\.startsWith\(RNGDLE_REROLL_MODAL_CUSTOM_ID_PREFIX\)/);
+// Skipping the guild_channels write keys off this, so type 5 has to be in it.
+assert.match(routeSource, /if \(body\.type === 5\) return customId\.startsWith\(RNGDLE_REROLL_MODAL_CUSTOM_ID_PREFIX\)/);
+// Cards posted before the change still carry the old confirm button.
+assert.deepEqual(
+  delivery.parseRngdleRerollOpenCustomId(`${delivery.RNGDLE_REROLL_LEGACY_CONFIRM_PREFIX}2026-08-20:600000000000000001`),
+  { gameDay: "2026-08-20", userId: "600000000000000001" },
+  "a stale confirm button must still open the dialog rather than reroll outright",
+);
+assert.deepEqual(
+  delivery.parseRngdleRerollOpenCustomId(delivery.rngdleRerollCustomId("2026-08-20", "600000000000000001")),
+  { gameDay: "2026-08-20", userId: "600000000000000001" },
+);
+assert.equal(delivery.parseRngdleRerollOpenCustomId("rngdle-reroll-no:v1:2026-08-20:1"), null);
+
 assert.match(routeSource, /handleRngdleRerollConfirm/);
-assert.match(routeSource, /handleRngdleRerollCancel/);
 assert.match(routeSource, /handleRngdleReplay/);
 assert.match(routeSource, /NextResponse\.json\(\{ type: 6 \}\)/);
 
