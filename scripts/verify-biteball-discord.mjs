@@ -204,9 +204,11 @@ assert.doesNotMatch(commandSource, /name: "biteball"[\s\S]*?type: 4/);
 assert.match(routeSource, /body\?\.data\?\.name === "biteball"/);
 assert.match(routeSource, /return handleBiteball\(body\)/);
 assert.match(routeSource, /body\.data\?\.name !== "biteball"/);
+const biteballHandlerStart = routeSource.indexOf("function handleBiteball");
+const nextHandlerStart = routeSource.indexOf("function rngdleDeliveryRank", biteballHandlerStart);
 const handlerSource = routeSource.slice(
-  routeSource.indexOf("function handleBiteball"),
-  routeSource.indexOf("export async function POST"),
+  biteballHandlerStart,
+  nextHandlerStart === -1 ? routeSource.indexOf("export async function POST") : nextHandlerStart,
 );
 assert.match(handlerSource, /NextResponse\.json\(\{ type: 5 \}\)/);
 assert.doesNotMatch(handlerSource, /type: 12|launchActivity|custom_id|recordIntent|getStore/);

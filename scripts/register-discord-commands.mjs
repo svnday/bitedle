@@ -96,6 +96,39 @@ const commands = [
     ],
   },
   {
+    name: "rngdle",
+    description: "Roll RNGDLE or view this server's all-time leaderboard",
+    type: 1,
+    default_member_permissions: null,
+    integration_types: [0],
+    contexts: [0],
+    options: [
+      {
+        type: 1,
+        name: "roll",
+        description: "Make today's one RNGDLE roll",
+      },
+      {
+        type: 1,
+        name: "leaderboard",
+        description: "Show this server's all-time RNGDLE leaderboard",
+      },
+      {
+        type: 1,
+        name: "user",
+        description: "Show your or another player's RNGDLE profile",
+        options: [
+          {
+            type: 6,
+            name: "player",
+            description: "Player to view (defaults to you)",
+            required: false,
+          },
+        ],
+      },
+    ],
+  },
+  {
     name: "share",
     description: "Share Bitedle from Discord",
     type: 1,

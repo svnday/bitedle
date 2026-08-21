@@ -16,6 +16,7 @@
     "verify:biteball": "node scripts/verify-biteball.mjs",
     "verify:biteball-discord": "node scripts/verify-biteball-discord.mjs",
     "verify:rngdle": "node scripts/verify-rngdle.mjs",
+    "verify:rngdle-discord": "node scripts/verify-rngdle-discord.mjs",
     "render:bitebluff-samples": "node scripts/render-bitebluff-samples.mjs"
   },
   "dependencies": {

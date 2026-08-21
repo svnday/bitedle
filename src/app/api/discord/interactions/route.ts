@@ -47,10 +47,23 @@ import {
 } from "@/lib/bitesweeper-discord-preview";
 import { BITEBALL_MAX_QUESTION_LENGTH, selectBiteballAnswer } from "@/lib/biteball";
 import { deliverBiteballResponse } from "@/lib/biteball-discord";
+import {
+  deliverRngdleLeaderboard,
+  deliverRngdleError,
+  deliverRngdleProfile,
+  deliverRngdleRoll,
+  parseRngdleRerollCustomId,
+  RNGDLE_LEADERBOARD_BUTTON_ID,
+  RNGDLE_PROFILE_BUTTON_ID,
+  RNGDLE_REROLL_CUSTOM_ID_PREFIX,
+} from "@/lib/rngdle-discord";
+import { getRngdleDiscordRepository } from "@/lib/rngdle-discord-store";
+import { scoreRngdleNumber, selectRngdleNumber, selectRngdlePenalty } from "@/lib/rngdle/scoring";
+import { canRerollRngdle, rngdleGameDay, rngdleNextResetAt } from "@/lib/rngdle/time";
 
 // Imports next/og (via discord-summary) for the preview image — needs Node.
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 function siteUrl(): string {
   // VERCEL_URL is the unique URL of *this* deployment, not the stable
@@ -82,7 +95,7 @@ interface Interaction {
   data?: {
     name?: string;
     custom_id?: string;
-    options?: { name: string; value: string }[];
+    options?: { name: string; value?: string; options?: { name: string; value?: string }[] }[];
     resolved?: { users?: Record<string, InteractionUser> };
   };
   member?: { user?: InteractionUser };
@@ -780,6 +793,215 @@ function handleBiteball(body: Interaction): NextResponse {
   return NextResponse.json({ type: 5 });
 }
 
+function rngdleDeliveryRank(
+  standings: Awaited<ReturnType<ReturnType<typeof getRngdleDiscordRepository>["dailyStandings"]>>,
+  userId: string,
+): { rank: number; playerCount: number } {
+  return {
+    rank: standings.find((entry) => entry.userId === userId)?.rank ?? standings.length,
+    playerCount: Math.max(1, standings.length),
+  };
+}
+
+async function processRngdleCommand(
+  body: Interaction,
+  user: InteractionUser & { id: string },
+  subcommand: string,
+  profileUser?: InteractionUser & { id: string },
+): Promise<void> {
+  const guildId = body.guild_id!;
+  const applicationId = body.application_id!;
+  const token = body.token!;
+  try {
+    const repository = getRngdleDiscordRepository();
+    if (subcommand === "leaderboard") {
+      const entries = await repository.leaderboard(guildId, 100_000);
+      await deliverRngdleLeaderboard({
+        applicationId,
+        token,
+        entries,
+        attachmentSizeLimit: body.attachment_size_limit,
+      });
+      return;
+    }
+
+    const gameDay = rngdleGameDay();
+    if (subcommand === "user") {
+      const target = profileUser ?? user;
+      const profile = await repository.userProfile(guildId, target.id, gameDay);
+      if (!profile) {
+        await deliverRngdleError({
+          applicationId,
+          token,
+          content: `${interactionName(target)} hasn't rolled RNGDLE in this server yet.`,
+        });
+        return;
+      }
+      const currentProfile = {
+        ...profile,
+        displayName: interactionName(target),
+        avatar: target.avatar ?? profile.avatar,
+      };
+      await deliverRngdleProfile({
+        applicationId,
+        token,
+        profile: currentProfile,
+        attachmentSizeLimit: body.attachment_size_limit,
+      });
+      return;
+    }
+
+    const now = Date.now();
+    const rollGameDay = rngdleGameDay(new Date(now));
+    const result = scoreRngdleNumber(selectRngdleNumber());
+    const creation = await repository.createInitial({
+      guildId,
+      userId: user.id,
+      displayName: interactionName(user),
+      avatar: user.avatar ?? null,
+      gameDay: rollGameDay,
+      initial: result,
+      current: result,
+      initialRolledAt: now,
+      rerolledAt: null,
+    });
+    const [standings, profile] = await Promise.all([
+      repository.dailyStandings(guildId, rollGameDay),
+      repository.userProfile(guildId, user.id, rollGameDay),
+    ]);
+    const { rank, playerCount } = rngdleDeliveryRank(standings, user.id);
+    await deliverRngdleRoll({
+      applicationId,
+      token,
+      roll: creation.roll,
+      rank,
+      playerCount,
+      animate: creation.created,
+      stats: {
+        gameDay: rollGameDay,
+        nextResetAt: rngdleNextResetAt(new Date(now)),
+        now,
+        currentStreak: profile?.currentStreak ?? 1,
+        careerEp: profile?.careerEp ?? creation.roll.current.creditedEp,
+        newBadges: profile?.todayNewBadges ?? creation.roll.current.badges.length,
+      },
+      attachmentSizeLimit: body.attachment_size_limit,
+    });
+  } catch (error) {
+    console.error("rngdle: command processing failed", error);
+    await deliverRngdleError({
+      applicationId,
+      token,
+      content: "RNGDLE couldn't complete that request just now. Try again in a moment.",
+    }).catch((deliveryError) => console.error("rngdle: error fallback failed", deliveryError));
+  }
+}
+
+function handleRngdle(body: Interaction): NextResponse {
+  if (!body.guild_id) {
+    return reply("Run /rngdle in a server so rolls and leaderboards stay guild-scoped.", true);
+  }
+  const user = body.member?.user ?? body.user;
+  if (!user?.id || !body.application_id || !body.token) {
+    return reply("RNGDLE couldn't identify this roll. Try the command again.", true);
+  }
+
+  const subcommand = body.data?.options?.[0]?.name;
+  if (subcommand !== "roll" && subcommand !== "leaderboard" && subcommand !== "user") {
+    return reply("Choose /rngdle roll, /rngdle leaderboard, or /rngdle user.", true);
+  }
+  const targetValue = body.data?.options?.[0]?.options?.find((option) => option.name === "player")?.value;
+  const target = typeof targetValue === "string" ? body.data?.resolved?.users?.[targetValue] : undefined;
+  after(() => processRngdleCommand(
+    body,
+    user as InteractionUser & { id: string },
+    subcommand,
+    target?.id ? target as InteractionUser & { id: string } : undefined,
+  ));
+  return NextResponse.json({ type: 5 });
+}
+
+async function handleRngdleReroll(body: Interaction): Promise<NextResponse> {
+  const parsed = parseRngdleRerollCustomId(body.data?.custom_id ?? "");
+  const user = body.member?.user ?? body.user;
+  if (!parsed || !user?.id || !body.guild_id) {
+    return reply("That RNGDLE reroll button is invalid.", true);
+  }
+  if (parsed.userId !== user.id) {
+    return reply("Only the player who rolled can use this reroll.", true);
+  }
+  if (!body.application_id || !body.token) {
+    return reply("RNGDLE couldn't start that reroll. Try again.", true);
+  }
+  if (parsed.gameDay !== rngdleGameDay()) {
+    return reply("That RNGDLE roll is from a previous game day.", true);
+  }
+
+  const repository = getRngdleDiscordRepository();
+  const existing = await repository.getRoll(body.guild_id, user.id, parsed.gameDay);
+  const now = Date.now();
+  if (!existing) return reply("That RNGDLE roll no longer exists.", true);
+  if (!canRerollRngdle(existing.initialRolledAt, existing.rerolledAt, now)) {
+    return reply(existing.rerolledAt === null
+      ? "The 10-minute RNGDLE reroll window has expired."
+      : "You already used the one reroll for today's RNGDLE.", true);
+  }
+
+  const penalty = selectRngdlePenalty();
+  const outcome = await repository.reroll({
+    guildId: body.guild_id,
+    userId: user.id,
+    gameDay: parsed.gameDay,
+    displayName: interactionName(user),
+    avatar: user.avatar ?? null,
+    result: scoreRngdleNumber(selectRngdleNumber(), penalty),
+    now,
+  });
+  if (outcome.status !== "updated") {
+    return reply(outcome.status === "expired"
+      ? "The 10-minute RNGDLE reroll window has expired."
+      : "You already used the one reroll for today's RNGDLE.", true);
+  }
+  const [standings, profile] = await Promise.all([
+    repository.dailyStandings(body.guild_id, parsed.gameDay),
+    repository.userProfile(body.guild_id, user.id, parsed.gameDay),
+  ]);
+  const { rank, playerCount } = rngdleDeliveryRank(standings, user.id);
+  after(() => deliverRngdleRoll({
+    applicationId: body.application_id!,
+    token: body.token!,
+    roll: outcome.roll,
+    rank,
+    playerCount,
+    animate: true,
+    stats: {
+      gameDay: parsed.gameDay,
+      nextResetAt: rngdleNextResetAt(new Date(now)),
+      now,
+      currentStreak: profile?.currentStreak ?? 1,
+      careerEp: profile?.careerEp ?? outcome.roll.current.creditedEp,
+      newBadges: profile?.todayNewBadges ?? outcome.roll.current.badges.length,
+    },
+    attachmentSizeLimit: body.attachment_size_limit,
+  }).catch((error) => console.error("rngdle: reroll delivery failed", error)));
+  return NextResponse.json({ type: 6 });
+}
+
+function handleRngdleUtilityButton(body: Interaction, mode: "leaderboard" | "user"): NextResponse {
+  if (!body.guild_id || !body.application_id || !body.token) {
+    return reply("Run that RNGDLE action in a server.", true);
+  }
+  const user = body.member?.user ?? body.user;
+  if (!user?.id) return reply("RNGDLE couldn't identify you.", true);
+  after(() => processRngdleCommand(
+    body,
+    user as InteractionUser & { id: string },
+    mode,
+    mode === "user" ? user as InteractionUser & { id: string } : undefined,
+  ));
+  return NextResponse.json({ type: 5 });
+}
+
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("X-Signature-Ed25519");
   const timestamp = request.headers.get("X-Signature-Timestamp");
@@ -833,6 +1055,22 @@ export async function POST(request: NextRequest) {
 
   if (body?.type === 2 && body?.data?.name === "biteball") {
     return handleBiteball(body);
+  }
+
+  if (body?.type === 2 && body?.data?.name === "rngdle") {
+    return handleRngdle(body);
+  }
+
+  if (body?.type === 3 && body?.data?.custom_id?.startsWith(RNGDLE_REROLL_CUSTOM_ID_PREFIX)) {
+    return handleRngdleReroll(body);
+  }
+
+  if (body?.type === 3 && body?.data?.custom_id === RNGDLE_LEADERBOARD_BUTTON_ID) {
+    return handleRngdleUtilityButton(body, "leaderboard");
+  }
+
+  if (body?.type === 3 && body?.data?.custom_id === RNGDLE_PROFILE_BUTTON_ID) {
+    return handleRngdleUtilityButton(body, "user");
   }
 
   if (body?.type === 2 && (body?.data?.name === "play" || body?.data?.name === "bitedle")) {
