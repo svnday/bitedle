@@ -106,15 +106,21 @@ function ShareIcon() {
 }
 
 export default function RngdleRoll({
+  displayedLifetimeEp,
+  displayedScore,
+  lifetimeVisible,
+  onComposePoem,
   result,
   state,
   nextReset,
-  lifetimeEp,
 }: {
+  displayedLifetimeEp: number;
+  displayedScore: number | null;
+  lifetimeVisible: boolean;
+  onComposePoem: () => void;
   result: RngdleResult | null;
   state: RngdleRevealState;
   nextReset: string;
-  lifetimeEp: number;
 }) {
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -130,13 +136,20 @@ export default function RngdleRoll({
   const spinning = SPINNING_STATES.has(state);
   const revealing = REVEALING_STATES.has(state);
   const reelsActive = spinning || revealing;
-  const showRarity = hasResult && !reelsActive;
-  const showScore = showRarity && state !== "revealing-rarity";
+  const showRarityStyle = hasResult && !reelsActive;
+  const showRarityLine = [
+    "revealing-rarity",
+    "initial-complete",
+    "revealing-penalty",
+    "final-complete",
+    "reroll-confirmation",
+  ].includes(state);
+  const showActions = showRarityStyle;
   const showPenalty = result?.penaltyPercent !== null &&
     (state === "revealing-penalty" || state === "final-complete");
   const animationKey = `${targetNumber}-${result?.penaltyPercent ?? "initial"}`;
-  const visibleTier = showRarity ? result?.rarity ?? "common" : "common";
-  const finale = state === "revealing-rarity";
+  const visibleTier = showRarityStyle ? result?.rarity ?? "common" : "common";
+  const finale = state === "revealing-badges";
 
   useEffect(() => () => {
     if (copiedTimer.current) clearTimeout(copiedTimer.current);
@@ -195,13 +208,13 @@ export default function RngdleRoll({
         </p>
       </div>
 
-      <div className={`rngdle-rarity-line${showRarity ? " rngdle-reveal-visible" : ""}`}>
+      <div className={`rngdle-rarity-line${showRarityLine ? " rngdle-reveal-visible" : ""}`}>
         <strong>{result.rarityLabel}</strong>
         <span aria-hidden="true">{"\u2022"}</span>
         <span>{result.rarityBand}</span>
       </div>
 
-      <div className={`rngdle-score-block${showScore ? " rngdle-reveal-visible" : ""}`}>
+      <div className="rngdle-score-block rngdle-reveal-visible">
         {showPenalty ? (
           <div className="rngdle-penalized-score">
             <span className="rngdle-raw-score">{result.rawEp.toLocaleString()} EP</span>
@@ -211,23 +224,31 @@ export default function RngdleRoll({
           </div>
         ) : (
           <>
-            <strong className="rngdle-score-pill">{result.rawEp.toLocaleString()} EP</strong>
-            <strong className="rngdle-lifetime-score">{lifetimeEp.toLocaleString()} EP</strong>
-            <small>YOUR LIFETIME EP</small>
+            <strong className="rngdle-score-pill">
+              {displayedScore === null ? "???" : displayedScore.toLocaleString()} EP
+            </strong>
+            <span className={`rngdle-lifetime-block${lifetimeVisible ? " rngdle-lifetime-block--visible" : ""}`}>
+              <strong className="rngdle-lifetime-score">{displayedLifetimeEp.toLocaleString()} EP</strong>
+              <small>YOUR LIFETIME EP</small>
+            </span>
           </>
         )}
       </div>
 
-      <div className={`rngdle-result-actions${showScore ? " rngdle-reveal-visible" : ""}`}>
+      <div className={`rngdle-result-actions${showActions ? " rngdle-reveal-visible" : ""}`}>
         <button type="button" onClick={shareResult}>
           <ShareIcon />
           {copied ? "COPIED" : "SHARE"}
         </button>
         <span>NEXT ROLL IN <strong>{nextReset}</strong></span>
       </div>
-      <p className={`rngdle-save-note${showScore ? " rngdle-reveal-visible" : ""}`}>
-        Website lab result saved in this browser
-      </p>
+      <button
+        type="button"
+        className={`rngdle-compose-poem${showActions ? " rngdle-reveal-visible" : ""}`}
+        onClick={onComposePoem}
+      >
+        COMPOSE POEM
+      </button>
     </div>
   );
 }

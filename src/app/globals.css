@@ -968,6 +968,15 @@ body {
   color: #dddce2 !important;
   font-size: 0.9rem !important;
 }
+.rngdle-lifetime-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  transform: translateY(0.4rem);
+  transition: opacity 500ms ease, transform 500ms ease;
+}
+.rngdle-lifetime-block--visible { opacity: 1; transform: none; }
 .rngdle-score-block small {
   grid-row: auto;
   color: #a3a0ac;
@@ -1036,6 +1045,26 @@ body {
 }
 .rngdle-result-actions.rngdle-reveal-visible,
 .rngdle-save-note.rngdle-reveal-visible { transform: none; opacity: 1; }
+.rngdle-compose-poem {
+  margin-top: 0.85rem;
+  cursor: pointer;
+  border: 2px solid transparent;
+  border-radius: 0.45rem;
+  padding: 0.48rem 1rem;
+  opacity: 0;
+  transform: translateY(0.5rem);
+  color: #f8f6fb;
+  background: linear-gradient(#111017, #111017) padding-box,
+    linear-gradient(90deg, #ff5f68, #dd45e7) border-box;
+  box-shadow: 0 0 1rem rgba(221, 69, 231, 0.09);
+  font-size: 0.65rem;
+  font-weight: 950;
+  letter-spacing: 0.045em;
+  transition: transform 150ms ease, opacity 460ms ease;
+}
+.rngdle-compose-poem.rngdle-reveal-visible { opacity: 1; transform: none; }
+.rngdle-compose-poem.rngdle-reveal-visible:hover { transform: scale(1.02); }
+.rngdle-compose-poem.rngdle-reveal-visible:active { transform: scale(0.98); }
 
 .rngdle-primary-actions {
   gap: 0.65rem;
@@ -1092,7 +1121,12 @@ body {
 .rngdle-section-heading span {
   color: #aaa7b1;
   font-size: 0.62rem;
+  opacity: 0;
+  transform: translateY(0.6rem);
+  transition: opacity 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    transform 400ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
+.rngdle-section-heading .rngdle-badge-summary--visible { opacity: 1; transform: none; }
 .rngdle-badge-list { gap: 0.6rem; }
 .rngdle-badge {
   --badge-accent: #d9d7df;
@@ -1100,8 +1134,13 @@ body {
   border: 1px solid #4b4953;
   border-radius: 0.5rem;
   padding: 0.65rem 0.75rem 0.6rem;
+  opacity: 1;
+  transform: none;
   background: #25242c;
   text-align: left;
+}
+.rngdle-badge--entering {
+  animation: rngdle-live-badge-in 350ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
 }
 .rngdle-badge:first-child {
   box-shadow: 0 0 1rem color-mix(in srgb, var(--badge-accent) 18%, transparent);
@@ -1196,6 +1235,80 @@ body {
   background: var(--badge-accent);
   box-shadow: 0 0 0.65rem color-mix(in srgb, var(--badge-accent) 22%, transparent);
 }
+.rngdle-badge--entering .rngdle-badge-digit--active {
+  animation: rngdle-live-contributor-in 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  animation-delay: calc(100ms + var(--rng-contributor-order) * 80ms);
+}
+.rngdle-poem-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 14, 21, 0.92);
+  backdrop-filter: blur(5px);
+}
+.rngdle-poem-dialog {
+  width: min(48rem, 100%);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  border: 1px solid #4b4953;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  color: #f2f0f5;
+  background: #25242c;
+  box-shadow: 0 1.5rem 5rem rgba(0, 0, 0, 0.45);
+  text-align: left;
+}
+.rngdle-poem-dialog > header { display: flex; justify-content: space-between; gap: 1rem; }
+.rngdle-poem-dialog h2 { font-size: 1.25rem; text-transform: uppercase; }
+.rngdle-poem-dialog header p { margin-top: 0.25rem; color: #aaa7b1; font-size: 0.75rem; }
+.rngdle-poem-dialog header button {
+  align-self: flex-start;
+  cursor: pointer;
+  border-radius: 0.4rem;
+  padding: 0.25rem 0.55rem;
+  color: #c9c6cf;
+  background: #34323b;
+  font-size: 1.15rem;
+}
+.rngdle-poem-draft,
+.rngdle-poem-bank { margin-top: 1.5rem; }
+.rngdle-poem-dialog h3 { font-size: 0.8rem; text-transform: uppercase; }
+.rngdle-poem-draft p {
+  min-height: 3.2rem;
+  margin-top: 0.45rem;
+  border: 1px solid #45434d;
+  border-radius: 0.5rem;
+  padding: 0.8rem;
+  color: #817e8a;
+  background: #1c1b22;
+  font-size: 0.72rem;
+}
+.rngdle-poem-bank > div { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.65rem; }
+.rngdle-poem-bank span {
+  border: 1px solid #4b4953;
+  border-radius: 0.45rem;
+  padding: 0.38rem 0.6rem;
+  color: #dddbe2;
+  background: #2d2b34;
+  font-size: 0.7rem;
+}
+
+@keyframes rngdle-live-badge-in {
+  from { opacity: 0; transform: translateY(-20px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes rngdle-live-contributor-in {
+  from { color: #777480; background: #34323b; box-shadow: none; }
+  to {
+    color: #17161c;
+    background: var(--badge-accent);
+    box-shadow: 0 0 0.65rem color-mix(in srgb, var(--badge-accent) 22%, transparent);
+  }
+}
 .rngdle-footer { margin-top: 1.5rem; color: #5f5c67; font-size: 0.55rem; }
 
 @media (max-width: 640px) {
@@ -1216,7 +1329,9 @@ body {
   .rngdle-number-card--finale,
   .rngdle-digit,
   .rngdle-digit--spinning,
-  .rngdle-badge-list--visible .rngdle-badge { animation: none; }
+  .rngdle-badge-list--visible .rngdle-badge,
+  .rngdle-badge--entering,
+  .rngdle-badge--entering .rngdle-badge-digit--active { animation: none; }
 }
 
 /* --- Biteball website divination lab (website-only) ------------------- */

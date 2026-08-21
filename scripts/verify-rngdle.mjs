@@ -94,6 +94,10 @@ assert.equal(scoring.scoreRngdleNumber(69, 99).creditedEp, Math.floor(unpenalize
 assert.throws(() => scoring.scoreRngdleNumber(69, 0), RangeError);
 assert.throws(() => scoring.scoreRngdleNumber(69, 100), RangeError);
 assert.equal(scoring.scoreRngdleNumber(563_190).rarityBand, "Bottom 24%");
+const screenshotFixture = scoring.scoreRngdleNumber(569_354);
+assert.equal(screenshotFixture.rawEp, 5_219);
+assert.equal(screenshotFixture.rarityBand, "Bottom 43%");
+assert.equal(screenshotFixture.badges.length, 13);
 
 assert.equal(time.rngdleGameDay(new Date("2026-08-19T22:59:59.999Z")), "2026-08-18");
 assert.equal(time.rngdleGameDay(new Date("2026-08-19T23:00:00.000Z")), "2026-08-19");
@@ -110,6 +114,14 @@ assert.equal(reveal.rngdleNumberRevealTimeline(69, false).spinMs, 2_000);
 assert.equal(reveal.rngdleNumberRevealTimeline(69, false).numberRevealMs, 7_200);
 assert.equal(reveal.rngdleNumberRevealTimeline(1_000_000, false).slotCount, 7);
 assert.deepEqual(reveal.rngdleNumberRevealTimeline(69, true).digitOffsetsMs, [0, 60, 120, 180, 240, 300]);
+const badgeOffsets = reveal.rngdleBadgeRevealOffsets(13, false);
+assert.equal(badgeOffsets.length, 13);
+assert.equal(badgeOffsets[0], 0);
+assert.equal(badgeOffsets[1], 500);
+assert.ok(badgeOffsets[12] > badgeOffsets[11]);
+const badgeTimeline = reveal.rngdleBadgeRevealTimeline(13, false);
+assert.equal(badgeTimeline.summaryVisibleMs, badgeOffsets[12] + 1_500);
+assert.equal(badgeTimeline.rarityVisibleMs, badgeTimeline.summaryVisibleMs + 1_250);
 
 const types = fs.readFileSync(path.join(repoRoot, "src", "lib", "types.ts"), "utf8");
 const tabs = fs.readFileSync(path.join(repoRoot, "src", "components", "GameTabs.tsx"), "utf8");
@@ -130,14 +142,19 @@ assert.match(demo, /rngdleGameDay/);
 assert.match(demo, /rngdleNumberRevealTimeline/);
 assert.match(demo, /number=\{result\.number\}/);
 assert.match(demo, /bitedle:rngdle:website-lab:lifetime:v1/);
+assert.match(demo, /badgeTimeline\.badgeOffsetsMs/);
+assert.match(demo, /setVisibleBadgeCount\(index \+ 1\)/);
 assert.match(roll, /RNGDLE_REEL_TICK_MS/);
 assert.match(roll, /rngdle-digit--spinning/);
 assert.match(roll, /rngdle-number-card--finale/);
 assert.match(roll, /One roll per day\. One number\./);
 assert.match(badgeBreakdown, /rngdle-badge-digits/);
-assert.match(badgeBreakdown, /badgeContributorIndexes/);
+assert.match(badgeBreakdown, /rngdleBadgeContributorIndexes/);
+assert.match(badgeBreakdown, /rngdle-badge--entering/);
 assert.match(styles, /@keyframes rngdle-digit-scroll/);
 assert.match(styles, /@keyframes rngdle-finale-pulse/);
+assert.match(styles, /@keyframes rngdle-live-badge-in/);
+assert.match(styles, /@keyframes rngdle-live-contributor-in/);
 assert.match(styles, /Screenshot-aligned RNGDLE presentation/);
 assert.doesNotMatch(styles, /@keyframes rngdle-digit-roll/);
 

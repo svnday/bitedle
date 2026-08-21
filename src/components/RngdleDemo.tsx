@@ -13,8 +13,15 @@ import {
   rngdleNextResetAt,
   rngdleRerollDeadline,
 } from "@/lib/rngdle/time";
-import { rngdleNumberRevealTimeline } from "@/lib/rngdle/reveal";
-import type { RngdleDayState, RngdleRevealState } from "@/lib/rngdle/types";
+import {
+  rngdleBadgeRevealTimeline,
+  rngdleNumberRevealTimeline,
+} from "@/lib/rngdle/reveal";
+import type {
+  RngdleDayState,
+  RngdleResult,
+  RngdleRevealState,
+} from "@/lib/rngdle/types";
 import type { GameMode } from "@/lib/types";
 import GameNav from "./GameNav";
 import RngdleBadgeBreakdown from "./RngdleBadgeBreakdown";
@@ -22,8 +29,6 @@ import RngdleRoll from "./RngdleRoll";
 
 const STORAGE_KEY = "bitedle:rngdle:website-lab:v1";
 const LIFETIME_STORAGE_KEY = "bitedle:rngdle:website-lab:lifetime:v1";
-const RARITY_REVEAL_MS = 650;
-const BADGE_REVEAL_MS = 1_100;
 const PENALTY_REVEAL_MS = 900;
 
 function readForcedInteger(name: string, min: number, max: number): number | null {
@@ -55,15 +60,69 @@ export default function RngdleDemo({
 }) {
   const [dayState, setDayState] = useState<RngdleDayState | null | undefined>(undefined);
   const [lifetimeEp, setLifetimeEp] = useState(0);
+  const [displayedLifetimeEp, setDisplayedLifetimeEp] = useState(0);
+  const [displayedRawEp, setDisplayedRawEp] = useState<number | null>(null);
+  const [visibleBadgeCount, setVisibleBadgeCount] = useState(0);
+  const [badgeSummaryVisible, setBadgeSummaryVisible] = useState(false);
+  const [lifetimeVisible, setLifetimeVisible] = useState(false);
+  const [poemOpen, setPoemOpen] = useState(false);
   const [revealState, setRevealState] = useState<RngdleRevealState>("ready");
   const [now, setNow] = useState(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const scoreFrame = useRef<number | null>(null);
+  const lifetimeFrame = useRef<number | null>(null);
+  const displayedRawEpRef = useRef(0);
+  const displayedLifetimeEpRef = useRef(0);
   const resultRef = useRef<HTMLDivElement>(null);
   const confirmationRef = useRef<HTMLButtonElement>(null);
 
   const clearTimers = useCallback(() => {
     for (const timer of timers.current) clearTimeout(timer);
     timers.current = [];
+    if (scoreFrame.current !== null) cancelAnimationFrame(scoreFrame.current);
+    if (lifetimeFrame.current !== null) cancelAnimationFrame(lifetimeFrame.current);
+    scoreFrame.current = null;
+    lifetimeFrame.current = null;
+  }, []);
+
+  const animateScoreTo = useCallback((target: number, reducedMotion: boolean) => {
+    if (scoreFrame.current !== null) cancelAnimationFrame(scoreFrame.current);
+    if (reducedMotion) {
+      displayedRawEpRef.current = target;
+      setDisplayedRawEp(target);
+      return;
+    }
+    const from = displayedRawEpRef.current;
+    const startedAt = performance.now();
+    const tick = (timestamp: number) => {
+      const progress = Math.min(1, (timestamp - startedAt) / 500);
+      const eased = 1 - Math.pow(1 - progress, 2);
+      const value = Math.round(from + (target - from) * eased);
+      displayedRawEpRef.current = value;
+      setDisplayedRawEp(value);
+      if (progress < 1) scoreFrame.current = requestAnimationFrame(tick);
+    };
+    scoreFrame.current = requestAnimationFrame(tick);
+  }, []);
+
+  const animateLifetimeTo = useCallback((target: number, reducedMotion: boolean) => {
+    if (lifetimeFrame.current !== null) cancelAnimationFrame(lifetimeFrame.current);
+    if (reducedMotion) {
+      displayedLifetimeEpRef.current = target;
+      setDisplayedLifetimeEp(target);
+      return;
+    }
+    const from = displayedLifetimeEpRef.current;
+    const startedAt = performance.now();
+    const tick = (timestamp: number) => {
+      const progress = Math.min(1, (timestamp - startedAt) / 1_500);
+      const eased = 1 - Math.pow(1 - progress, 2);
+      const value = Math.round(from + (target - from) * eased);
+      displayedLifetimeEpRef.current = value;
+      setDisplayedLifetimeEp(value);
+      if (progress < 1) lifetimeFrame.current = requestAnimationFrame(tick);
+    };
+    lifetimeFrame.current = requestAnimationFrame(tick);
   }, []);
 
   useEffect(() => clearTimers, [clearTimers]);
@@ -79,13 +138,27 @@ export default function RngdleDemo({
       const storedLifetime = rawLifetime === null
         ? stored?.reroll?.creditedEp ?? stored?.initial.creditedEp ?? 0
         : Number(rawLifetime);
-      setLifetimeEp(Number.isSafeInteger(storedLifetime) && storedLifetime >= 0 ? storedLifetime : 0);
+      const safeLifetime = Number.isSafeInteger(storedLifetime) && storedLifetime >= 0 ? storedLifetime : 0;
+      setLifetimeEp(safeLifetime);
+      setDisplayedLifetimeEp(safeLifetime);
+      displayedLifetimeEpRef.current = safeLifetime;
       if (stored?.gameDay === gameDay) {
         setDayState(stored);
+        const storedResult = stored.reroll ?? stored.initial;
+        setDisplayedRawEp(storedResult.rawEp);
+        displayedRawEpRef.current = storedResult.rawEp;
+        setVisibleBadgeCount(storedResult.badges.length);
+        setBadgeSummaryVisible(true);
+        setLifetimeVisible(true);
         setRevealState(stored.reroll ? "final-complete" : "initial-complete");
       } else {
         window.localStorage.removeItem(STORAGE_KEY);
         setDayState(null);
+        setDisplayedRawEp(null);
+        displayedRawEpRef.current = 0;
+        setVisibleBadgeCount(0);
+        setBadgeSummaryVisible(false);
+        setLifetimeVisible(false);
         setRevealState("ready");
       }
       setNow(current);
@@ -109,6 +182,11 @@ export default function RngdleDemo({
         clearTimers();
         window.localStorage.removeItem(STORAGE_KEY);
         setDayState(null);
+        setDisplayedRawEp(null);
+        displayedRawEpRef.current = 0;
+        setVisibleBadgeCount(0);
+        setBadgeSummaryVisible(false);
+        setLifetimeVisible(false);
         setRevealState("ready");
       } else {
         setRevealState("initial-complete");
@@ -130,51 +208,75 @@ export default function RngdleDemo({
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   };
 
-  const queueInitialReveal = (number: number) => {
+  const queueReveal = (
+    result: RngdleResult,
+    targetLifetimeEp: number,
+    reroll: boolean,
+  ) => {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const { spinMs: rollMs, numberRevealMs: numberMs } =
-      rngdleNumberRevealTimeline(number, reducedMotion);
-    const rarityMs = reducedMotion ? 140 : RARITY_REVEAL_MS;
-    const badgeMs = reducedMotion ? 180 : BADGE_REVEAL_MS;
-    setRevealState("rolling");
-    timers.current.push(
-      setTimeout(() => setRevealState("revealing-number"), rollMs),
-      setTimeout(() => setRevealState("revealing-rarity"), rollMs + numberMs),
-      setTimeout(
-        () => setRevealState("revealing-badges"),
-        rollMs + numberMs + rarityMs,
-      ),
-      setTimeout(
-        () => setRevealState("initial-complete"),
-        rollMs + numberMs + rarityMs + badgeMs,
-      ),
-    );
-  };
+      rngdleNumberRevealTimeline(result.number, reducedMotion);
+    const badgeTimeline = rngdleBadgeRevealTimeline(result.badges.length, reducedMotion);
+    const badgeStartMs = rollMs + numberMs;
+    const scoreByReveal = result.badges
+      .slice()
+      .reverse()
+      .reduce<number[]>((totals, badge, index) => {
+        totals.push((totals[index - 1] ?? 0) + badge.ep);
+        return totals;
+      }, []);
 
-  const queueRerollReveal = (number: number) => {
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const { spinMs: rollMs, numberRevealMs: numberMs } =
-      rngdleNumberRevealTimeline(number, reducedMotion);
-    const rarityMs = reducedMotion ? 140 : RARITY_REVEAL_MS;
-    const badgeMs = reducedMotion ? 180 : BADGE_REVEAL_MS;
-    const penaltyMs = reducedMotion ? 180 : PENALTY_REVEAL_MS;
-    setRevealState("rerolling");
+    setDisplayedRawEp(null);
+    displayedRawEpRef.current = 0;
+    setVisibleBadgeCount(0);
+    setBadgeSummaryVisible(false);
+    setLifetimeVisible(false);
+    setPoemOpen(false);
+    setRevealState(reroll ? "rerolling" : "rolling");
+
     timers.current.push(
-      setTimeout(() => setRevealState("revealing-reroll"), rollMs),
-      setTimeout(() => setRevealState("revealing-rarity"), rollMs + numberMs),
       setTimeout(
-        () => setRevealState("revealing-badges"),
-        rollMs + numberMs + rarityMs,
-      ),
-      setTimeout(
-        () => setRevealState("revealing-penalty"),
-        rollMs + numberMs + rarityMs + badgeMs,
-      ),
-      setTimeout(
-        () => setRevealState("final-complete"),
-        rollMs + numberMs + rarityMs + badgeMs + penaltyMs,
+        () => setRevealState(reroll ? "revealing-reroll" : "revealing-number"),
+        rollMs,
       ),
     );
+
+    badgeTimeline.badgeOffsetsMs.forEach((offset, index) => {
+      timers.current.push(setTimeout(() => {
+        setRevealState("revealing-badges");
+        setVisibleBadgeCount(index + 1);
+        animateScoreTo(scoreByReveal[index] ?? result.rawEp, reducedMotion);
+      }, badgeStartMs + offset));
+    });
+
+    timers.current.push(
+      setTimeout(() => setBadgeSummaryVisible(true), badgeStartMs + badgeTimeline.summaryVisibleMs),
+      setTimeout(() => setRevealState("revealing-rarity"), badgeStartMs + badgeTimeline.rarityVisibleMs),
+      setTimeout(() => setLifetimeVisible(true), badgeStartMs + badgeTimeline.lifetimeVisibleMs),
+      setTimeout(
+        () => animateLifetimeTo(targetLifetimeEp, reducedMotion),
+        badgeStartMs + badgeTimeline.lifetimeAnimateMs,
+      ),
+    );
+
+    if (reroll) {
+      const penaltyMs = reducedMotion ? 180 : PENALTY_REVEAL_MS;
+      timers.current.push(
+        setTimeout(
+          () => setRevealState("revealing-penalty"),
+          badgeStartMs + badgeTimeline.completeMs,
+        ),
+        setTimeout(
+          () => setRevealState("final-complete"),
+          badgeStartMs + badgeTimeline.completeMs + penaltyMs,
+        ),
+      );
+    } else {
+      timers.current.push(setTimeout(
+        () => setRevealState("initial-complete"),
+        badgeStartMs + badgeTimeline.completeMs,
+      ));
+    }
   };
 
   const roll = () => {
@@ -193,7 +295,7 @@ export default function RngdleDemo({
     const nextLifetime = lifetimeEp + result.creditedEp;
     setLifetimeEp(nextLifetime);
     window.localStorage.setItem(LIFETIME_STORAGE_KEY, String(nextLifetime));
-    queueInitialReveal(result.number);
+    queueReveal(result, nextLifetime, false);
   };
 
   const confirmReroll = () => {
@@ -214,7 +316,7 @@ export default function RngdleDemo({
     const nextLifetime = Math.max(0, lifetimeEp - dayState.initial.creditedEp + result.creditedEp);
     setLifetimeEp(nextLifetime);
     window.localStorage.setItem(LIFETIME_STORAGE_KEY, String(nextLifetime));
-    queueRerollReveal(result.number);
+    queueReveal(result, nextLifetime, true);
   };
 
   const resetLab = () => {
@@ -223,6 +325,14 @@ export default function RngdleDemo({
     window.localStorage.removeItem(LIFETIME_STORAGE_KEY);
     setDayState(null);
     setLifetimeEp(0);
+    setDisplayedLifetimeEp(0);
+    displayedLifetimeEpRef.current = 0;
+    setDisplayedRawEp(null);
+    displayedRawEpRef.current = 0;
+    setVisibleBadgeCount(0);
+    setBadgeSummaryVisible(false);
+    setLifetimeVisible(false);
+    setPoemOpen(false);
     setRevealState("ready");
     setNow(Date.now());
   };
@@ -271,10 +381,13 @@ export default function RngdleDemo({
 
             <div ref={resultRef} className="rngdle-result-focus" tabIndex={dayState ? -1 : undefined}>
               <RngdleRoll
+                displayedLifetimeEp={displayedLifetimeEp}
+                displayedScore={displayedRawEp}
+                lifetimeVisible={lifetimeVisible}
+                onComposePoem={() => setPoemOpen(true)}
                 result={result}
                 state={revealState}
                 nextReset={nextReset}
-                lifetimeEp={lifetimeEp}
               />
             </div>
 
@@ -351,8 +464,50 @@ export default function RngdleDemo({
             ) : null}
           </section>
 
-          {result && ["revealing-badges", "initial-complete", "revealing-penalty", "final-complete"].includes(revealState) ? (
-            <RngdleBadgeBreakdown badges={result.badges} number={result.number} state={revealState} />
+          {poemOpen && result ? (
+            <div className="rngdle-poem-backdrop" role="presentation">
+              <section
+                className="rngdle-poem-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="rngdle-poem-title"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setPoemOpen(false);
+                }}
+              >
+                <header>
+                  <div>
+                    <h2 id="rngdle-poem-title">Poetry</h2>
+                    <p>Compose a poem with the words your badges gave you.</p>
+                  </div>
+                  <button type="button" onClick={() => setPoemOpen(false)} aria-label="Close poem composer">
+                    {"\u00d7"}
+                  </button>
+                </header>
+                <div className="rngdle-poem-draft">
+                  <h3>Your Poem</h3>
+                  <p>Tap words below to compose...</p>
+                </div>
+                <div className="rngdle-poem-bank">
+                  <h3>Word Bank</h3>
+                  <div>
+                    {result.badges.slice(0, 12).map((badge) => (
+                      <span key={badge.id}>{badge.emoji} {badge.label.toLowerCase()}</span>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            </div>
+          ) : null}
+
+          {result && visibleBadgeCount > 0 ? (
+            <RngdleBadgeBreakdown
+              animate={revealState === "revealing-badges"}
+              badges={result.badges}
+              number={result.number}
+              summaryVisible={badgeSummaryVisible}
+              visibleCount={visibleBadgeCount}
+            />
           ) : null}
 
           <footer className="rngdle-footer">

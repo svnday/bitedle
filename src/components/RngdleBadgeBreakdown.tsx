@@ -1,94 +1,55 @@
+"use client";
+
+import { useMemo } from "react";
 import type { CSSProperties } from "react";
-import type { RngdleBadge, RngdleRevealState } from "@/lib/rngdle/types";
-
-const WHOLE_NUMBER_BADGES = new Set([
-  "HETEROGENEOUS",
-  "ONE_DIGIT",
-  "TWO_DIGITS",
-  "THREE_DIGITS",
-  "FOUR_DIGITS",
-  "FIVE_DIGITS",
-  "SIX_DIGITS",
-]);
-
-const DIGIT_BADGES: Record<string, string> = {
-  BORON: "5",
-  CARBON: "6",
-  FLUORINE: "9",
-  GHOST: "0",
-  HYDROGEN: "1",
-  LITHIUM: "3",
-  NITROGEN: "7",
-  OXYGEN: "8",
-};
-
-function badgeContributorIndexes(badge: RngdleBadge, number: number): Set<number> {
-  const digits = [...String(number)];
-  if (WHOLE_NUMBER_BADGES.has(badge.id)) return new Set(digits.map((_, index) => index));
-  if (badge.id === "CLEAN") return new Set([digits.length - 1]);
-
-  const targetDigit = DIGIT_BADGES[badge.id];
-  if (targetDigit) {
-    return new Set(digits.flatMap((digit, index) => digit === targetDigit ? [index] : []));
-  }
-
-  const exactNumber = badge.desc.match(/(?:exactly|contains)(?: the number)? ["']?(\d{2,})["']?/i)?.[1];
-  if (exactNumber) {
-    const start = String(number).indexOf(exactNumber);
-    if (start >= 0) return new Set([...exactNumber].map((_, index) => start + index));
-  }
-
-  if (/every digit|all digits|only digits|no repeated digits/i.test(badge.desc)) {
-    return new Set(digits.map((_, index) => index));
-  }
-  if (/first (?:and|two).*last|first.*last/i.test(badge.desc)) {
-    return new Set([0, digits.length - 1]);
-  }
-  return new Set<number>();
-}
+import {
+  rngdleBadgeContributorIndexes,
+  rngdleContributorMap,
+} from "@/lib/rngdle/contributors";
+import type { RngdleBadge } from "@/lib/rngdle/types";
 
 export default function RngdleBadgeBreakdown({
+  animate,
   badges,
   number,
-  state,
+  summaryVisible,
+  visibleCount,
 }: {
+  animate: boolean;
   badges: RngdleBadge[];
   number: number;
-  state: RngdleRevealState;
+  summaryVisible: boolean;
+  visibleCount: number;
 }) {
-  const visible =
-    state === "revealing-badges" ||
-    state === "initial-complete" ||
-    state === "revealing-penalty" ||
-    state === "final-complete";
   const digits = [...String(number)];
-
-  if (badges.length === 0) {
-    return (
-      <section className="rngdle-badge-section" aria-labelledby="rngdle-badge-title">
-        <div className="rngdle-section-heading">
-          <h2 id="rngdle-badge-title">Badge Breakdown</h2>
-          <span>0 badges earned</span>
-        </div>
-        <p className="rngdle-empty-badges">No badge patterns were found in this number.</p>
-      </section>
-    );
-  }
+  const contributorMap = useMemo(() => rngdleContributorMap(number), [number]);
+  const visibleBadges = badges.slice(Math.max(0, badges.length - visibleCount));
 
   return (
     <section className="rngdle-badge-section" aria-labelledby="rngdle-badge-title">
       <div className="rngdle-section-heading">
         <h2 id="rngdle-badge-title">Badge Breakdown</h2>
-        <span>{badges.length} badges earned</span>
+        <span className={summaryVisible ? "rngdle-badge-summary--visible" : undefined}>
+          {badges.length} badges earned
+        </span>
       </div>
-      <div className={`rngdle-badge-list${visible ? " rngdle-badge-list--visible" : ""}`}>
-        {badges.map((badge, index) => {
-          const contributors = badgeContributorIndexes(badge, number);
+      <div className="rngdle-badge-list">
+        {visibleBadges.map((badge) => {
+          const contributorIndexes = rngdleBadgeContributorIndexes(
+            badge,
+            number,
+            contributorMap,
+          );
+          const contributors = new Set(contributorIndexes);
+          const contributorOrder = new Map(
+            contributorIndexes.map((digitIndex, order) => [digitIndex, order]),
+          );
+
           return (
             <article
               key={badge.id}
-              className={`rngdle-badge rngdle-badge--${badge.rarity.toLowerCase()}`}
-              style={{ "--rng-badge-index": index } as CSSProperties}
+              data-badge-id={badge.id}
+              className={`rngdle-badge rngdle-badge--${badge.rarity.toLowerCase()}${animate ? " rngdle-badge--entering" : ""}`}
             >
               <header>
                 <div className="rngdle-badge-name">
@@ -102,14 +63,20 @@ export default function RngdleBadgeBreakdown({
               </header>
               <p>{badge.desc}</p>
               <div className="rngdle-badge-digits" aria-hidden="true">
-                {digits.map((digit, digitIndex) => (
-                  <span
-                    key={digitIndex}
-                    className={contributors.has(digitIndex) ? "rngdle-badge-digit--active" : undefined}
-                  >
-                    {digit}
-                  </span>
-                ))}
+                {digits.map((digit, digitIndex) => {
+                  const active = contributors.has(digitIndex);
+                  return (
+                    <span
+                      key={digitIndex}
+                      className={active ? "rngdle-badge-digit--active" : undefined}
+                      style={active
+                        ? { "--rng-contributor-order": contributorOrder.get(digitIndex) ?? 0 } as CSSProperties
+                        : undefined}
+                    >
+                      {digit}
+                    </span>
+                  );
+                })}
               </div>
             </article>
           );
