@@ -388,12 +388,18 @@ function resultPanelBody(
     </div>,
     <div key="points" style={{ marginTop: 12, color: epColor ?? (view.settled ? "#f6f5fa" : "#5c6479"), fontFamily: "Geist Mono", fontSize: 34, fontWeight: 700, display: "flex" }}>{formatEp(view.pointsEp)} EP</div>,
     view.showPenalty && result.penaltyPercent !== null ? (
+      // Two different figures live here and used to sit unlabelled one above the
+      // other, which read as "-8% of 3,824 = -593". It isn't: the top line is the
+      // net swing against the roll that was given up, the bottom is the penalty
+      // taken off this one. Both now say which is which, and the penalty carries
+      // its EP cost so the percentage does not have to be worked out by hand.
       <div key="penalty" style={{ marginTop: 5, display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <div style={{ color: "#e2e5eb", fontFamily: "Geist Mono", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
-          <svg width="15" height="15" viewBox="0 0 15 15"><path d="M12.4 5.2A5.2 5.2 0 1 0 12 10.4" fill="none" stroke="#e2e5eb" strokeWidth="1.7" strokeLinecap="round" /><path d="M10.1 3.9h2.8v2.8" fill="none" stroke="#e2e5eb" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          {stats.rerollDeltaEp !== null && stats.rerollDeltaEp >= 0 ? "+" : ""}{formatEp(stats.rerollDeltaEp ?? result.creditedEp - result.rawEp)} EP
+        <div style={{ color: chrome ?? "#e2e5eb", fontFamily: "Geist Mono", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 7 }}>
+          <svg width="15" height="15" viewBox="0 0 15 15"><path d="M12.4 5.2A5.2 5.2 0 1 0 12 10.4" fill="none" stroke={chrome ?? "#e2e5eb"} strokeWidth="1.7" strokeLinecap="round" /><path d="M10.1 3.9h2.8v2.8" fill="none" stroke={chrome ?? "#e2e5eb"} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          <div style={{ display: "flex" }}>{stats.rerollDeltaEp !== null && stats.rerollDeltaEp >= 0 ? "+" : ""}{formatEp(stats.rerollDeltaEp ?? result.creditedEp - result.rawEp)} EP</div>
+          <div style={{ color: chrome ?? "#8b93a7", fontSize: 10, fontWeight: 700, letterSpacing: 1.2, display: "flex" }}>VS FIRST ROLL</div>
         </div>
-        <div style={{ marginTop: 6, color, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>REROLL&nbsp;&nbsp;•&nbsp;&nbsp;-{result.penaltyPercent}% FROM {formatEp(result.rawEp)} BASE</div>
+        <div style={{ marginTop: 6, color, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>REROLL&nbsp;&nbsp;•&nbsp;&nbsp;-{result.penaltyPercent}% (-{formatEp(result.rawEp - result.creditedEp)} EP) FROM {formatEp(result.rawEp)} BASE</div>
       </div>
     ) : null,
   ];

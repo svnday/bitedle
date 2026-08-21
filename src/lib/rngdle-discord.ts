@@ -281,7 +281,9 @@ function rngdleResultCopy(roll: RngdleDiscordRoll, rank: number, playerCount: nu
   if (roll.rerolledAt !== null && result.penaltyPercent !== null) {
     return {
       header: null,
-      footer: `**Reroll locked · -${result.penaltyPercent}% from ${result.rawEp.toLocaleString("en-US")} base EP · ${signedPoints(result.creditedEp - roll.initial.creditedEp)}**`,
+      // Same two figures as the card, named for the same reason: the penalty is
+      // what this roll lost, the swing is how it compares to the roll given up.
+      footer: `**Reroll locked · -${result.penaltyPercent}% (-${(result.rawEp - result.creditedEp).toLocaleString("en-US")} EP) from ${result.rawEp.toLocaleString("en-US")} base EP · ${signedPoints(result.creditedEp - roll.initial.creditedEp)} vs first roll**`,
     };
   }
   const rerollTimer = canRerollRngdle(roll.initialRolledAt, roll.rerolledAt, now)

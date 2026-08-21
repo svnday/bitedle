@@ -403,7 +403,19 @@ assert.deepEqual(v2Buttons(rerolledPayload).map((button) => button.label), ["Rep
 assert.match(v2Buttons(rerolledPayload)[0].custom_id, /^rngdle-replay:v1:/);
 assert.equal(v2Buttons(rerolledPayload).some((button) => button.label === "Reroll 1-99% Risk"), false);
 assert.equal(v2Text(rerolledPayload), delivery.rngdleResultContent(reroll.roll, 2, 2, resultStats.newBadges, baseTime + 9 * 60 * 1000));
-assert.match(v2Text(rerolledPayload), /^\*\*Reroll locked · -37% from [\d,]+ base EP · [+-][\d,]+ EP\*\*$/);
+// The penalty and the swing against the first roll are different numbers, so
+// the footer has to name both rather than stacking them and hoping.
+assert.match(
+  v2Text(rerolledPayload),
+  /^\*\*Reroll locked · -37% \(-[\d,]+ EP\) from [\d,]+ base EP · [+-][\d,]+ EP vs first roll\*\*$/,
+);
+{
+  const penaltyEp = rerolledResult.rawEp - rerolledResult.creditedEp;
+  const swingEp = rerolledResult.creditedEp - firstResult.creditedEp;
+  assert.notEqual(penaltyEp, Math.abs(swingEp), "fixture must keep the two figures distinct to be worth asserting");
+  assert.match(v2Text(rerolledPayload), new RegExp(`\\(-${penaltyEp.toLocaleString("en-US")} EP\\)`));
+  assert.match(v2Text(rerolledPayload), new RegExp(`${Math.abs(swingEp).toLocaleString("en-US")} EP vs first roll`));
+}
 
 // The reroll plays as four beats: opener, the new number at full value, the
 // risk drawn against it, then the settled card. 10,531 scores 9,817 EP (rare)
