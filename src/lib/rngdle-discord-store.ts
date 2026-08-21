@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import type { RngdleBadge, RngdleResult } from "./rngdle/types";
-import { canRerollRngdle } from "./rngdle/time";
+import { canRerollRngdle, rngdleGameDayDeadline } from "./rngdle/time";
 
 export interface RngdleDiscordRoll {
   guildId: string;
@@ -430,7 +430,7 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
         AND game_day = ${input.gameDay}
         AND rerolled_at IS NULL
         AND initial_rolled_at <= ${input.now}
-        AND initial_rolled_at + 600000 > ${input.now}
+        AND ${rngdleGameDayDeadline(input.gameDay)} > ${input.now}
       RETURNING *` as NeonRollRow[];
     if (updated[0]) return { status: "updated", roll: neonRoll(updated[0]) };
     const existing = await this.getRoll(input.guildId, input.userId, input.gameDay);

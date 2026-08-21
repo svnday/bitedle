@@ -388,6 +388,23 @@ const commandSource = fs.readFileSync(path.join(repoRoot, "scripts", "register-d
 const routeSource = fs.readFileSync(path.join(repoRoot, "src", "app", "api", "discord", "interactions", "route.ts"), "utf8");
 assert.match(commandSource, /name: "rngdle"[\s\S]*?name: "roll"[\s\S]*?name: "leaderboard"[\s\S]*?name: "user"[\s\S]*?name: "player"/);
 assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S]*?contexts: \[0\]/);
+// These suites drive the file-backed store, so the Neon SQL never runs here.
+// A hardcoded reroll window in that UPDATE silently blocked every production
+// reroll past ten minutes while every test stayed green, so assert on it.
+const storeSource = fs.readFileSync(path.join(repoRoot, "src", "lib", "rngdle-discord-store.ts"), "utf8");
+const rerollUpdate = /UPDATE rngdle_rolls SET[\s\S]*?RETURNING \*/.exec(storeSource)?.[0] ?? "";
+assert.ok(rerollUpdate, "the Neon reroll UPDATE should be findable");
+assert.doesNotMatch(
+  rerollUpdate,
+  /initial_rolled_at\s*\+\s*\d/,
+  "the reroll UPDATE must not restate the window as an offset from the roll time",
+);
+assert.match(
+  rerollUpdate,
+  /rngdleGameDayDeadline\(input\.gameDay\)/,
+  "the reroll UPDATE must take its deadline from the shared game-day helper",
+);
+
 assert.match(routeSource, /body\?\.data\?\.name === "rngdle"/);
 assert.match(routeSource, /RNGDLE_REROLL_CUSTOM_ID_PREFIX/);
 assert.match(routeSource, /RNGDLE_REPLAY_CUSTOM_ID_PREFIX/);

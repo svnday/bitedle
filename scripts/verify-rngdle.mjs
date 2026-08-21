@@ -115,6 +115,9 @@ assert.equal(time.rngdleEasternWallClock("2026-11-01"), Date.parse("2026-11-02T0
 const rerollRollAt = Date.parse("2026-08-19T23:30:00.000Z"); // game day 2026-08-19
 const rerollDeadline = Date.parse("2026-08-20T23:00:00.000Z"); // next 7PM ET reset
 assert.equal(time.rngdleRerollDeadline(rerollRollAt), rerollDeadline);
+// Storage enforces the same deadline from the row's stored game day.
+assert.equal(time.rngdleGameDayDeadline("2026-08-19"), rerollDeadline);
+assert.equal(time.rngdleGameDayDeadline(time.rngdleGameDay(new Date(rerollRollAt))), rerollDeadline);
 assert.equal(time.canRerollRngdle(rerollRollAt, null, rerollRollAt + 11 * 60 * 1_000), true);
 assert.equal(time.canRerollRngdle(rerollRollAt, null, rerollDeadline - 1), true);
 assert.equal(time.canRerollRngdle(rerollRollAt, null, rerollDeadline), false);

@@ -61,6 +61,14 @@ export function rngdleNextResetAt(now: Date = new Date()): number {
   return rngdleEasternWallClock(shiftDate(rngdleGameDay(now), 1));
 }
 
+/**
+ * The reset that closes a given game day. Lets storage enforce the reroll
+ * deadline from the row's own game_day, instead of restating the rule.
+ */
+export function rngdleGameDayDeadline(gameDay: string): number {
+  return rngdleEasternWallClock(shiftDate(gameDay, 1));
+}
+
 // The one reroll stays available for the rest of the roll's game day: the
 // deadline is the daily reset that follows the initial roll.
 export function rngdleRerollDeadline(initialRolledAt: number): number {

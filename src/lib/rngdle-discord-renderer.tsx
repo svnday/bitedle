@@ -39,6 +39,25 @@ const ROLL_THEMES: Record<RngdleResult["rarity"], {
   mythic: { primary: "#ffc04a", from: "#2a1a06", to: "#87590f", panelFrom: "#150f05", panelTo: "#3a280a" },
 };
 
+/**
+ * Worn by the card until the number finishes landing. Every themed surface —
+ * backdrop, panel, locked digits — would otherwise announce the roll's rarity
+ * from the first frame and spoil the reveal. Deliberately a muted slate that
+ * matches no rarity, so the switch always reads as new information.
+ */
+const PENDING_ROLL_THEME = {
+  primary: "#8b93a7",
+  from: "#0c0e14",
+  to: "#242832",
+  panelFrom: "#08090f",
+  panelTo: "#14161e",
+};
+
+/** The rarity's theme once the roll has settled, the pending theme before. */
+function cardTheme(result: RngdleResult, settled: boolean) {
+  return settled ? ROLL_THEMES[result.rarity] : PENDING_ROLL_THEME;
+}
+
 const FONT_ROOT = path.join(process.cwd(), "node_modules", "geist", "dist", "fonts");
 const IMAGE_FONTS = Promise.all([
   readFile(path.join(FONT_ROOT, "geist-sans", "Geist-Regular.ttf")),
@@ -291,8 +310,8 @@ function stillPanelView(result: RngdleResult): RngdlePanelView {
   };
 }
 
-function panelBoxStyle(result: RngdleResult): Record<string, unknown> {
-  const theme = ROLL_THEMES[result.rarity];
+function panelBoxStyle(result: RngdleResult, settled: boolean): Record<string, unknown> {
+  const theme = cardTheme(result, settled);
   return {
     borderRadius: 30,
     border: `1px solid ${theme.primary}42`,
@@ -307,7 +326,7 @@ function panelBoxStyle(result: RngdleResult): Record<string, unknown> {
 // Returned as a keyed array, not a fragment: satori treats a fragment child as
 // one flex-row box, which would flatten the panel's column stack sideways.
 function resultPanelBody(result: RngdleResult, stats: RngdleResultCardStats, view: RngdlePanelView) {
-  const color = ROLL_THEMES[result.rarity].primary;
+  const color = cardTheme(result, view.settled).primary;
   return [
     view.lockedDigits === null
       ? <div key="digits" style={{ color, fontFamily: "Geist Mono", fontSize: 126, fontWeight: 700, lineHeight: 1, textShadow: `0 0 34px ${color}55, 0 0 120px ${color}3a`, display: "flex" }}>{view.digitsText}</div>
@@ -330,7 +349,7 @@ function resultPanelBody(result: RngdleResult, stats: RngdleResultCardStats, vie
 
 function panelPatchImage(result: RngdleResult, stats: RngdleResultCardStats, view: RngdlePanelView) {
   return (
-    <div style={{ width: PANEL_RECT.width, height: PANEL_RECT.height, fontFamily: "Geist", color: "#f6f5fa", ...panelBoxStyle(result) }}>
+    <div style={{ width: PANEL_RECT.width, height: PANEL_RECT.height, fontFamily: "Geist", color: "#f6f5fa", ...panelBoxStyle(result, view.settled) }}>
       {resultPanelBody(result, stats, view)}
     </div>
   );
@@ -455,7 +474,7 @@ function resultCardImage(
   view: RngdlePanelView,
   badges: RngdleBadge[],
 ) {
-  const theme = ROLL_THEMES[result.rarity];
+  const theme = cardTheme(result, view.settled);
   const color = theme.primary;
   return referenceShell(
     <>
@@ -467,7 +486,7 @@ function resultCardImage(
         <div style={{ color: "#aeb7ca", fontSize: 14, fontWeight: 700, fontFamily: "Geist Mono", display: "flex" }}>{stats.gameDay}</div>
         <div style={{ marginTop: 12, fontSize: 15, fontWeight: 700, display: "flex" }}>NEXT DROP IN {formatDropCountdown(stats.nextResetAt, stats.now)}</div>
       </div>
-      <div style={{ position: "absolute", left: PANEL_RECT.left, top: PANEL_RECT.top, width: PANEL_RECT.width, height: PANEL_RECT.height, ...panelBoxStyle(result) }}>
+      <div style={{ position: "absolute", left: PANEL_RECT.left, top: PANEL_RECT.top, width: PANEL_RECT.width, height: PANEL_RECT.height, ...panelBoxStyle(result, view.settled) }}>
         {resultPanelBody(result, stats, view)}
       </div>
       <div style={{ position: "absolute", left: 62, top: 478, width: 1076, display: "flex", flexWrap: "wrap", gap: 7 }}>
@@ -869,10 +888,10 @@ export async function renderRngdleDiscordAnimation(
   const frames = animationFrames(result);
   const visible = result.badges.slice(0, 15);
 
-  // The delivered still stays full resolution. The GIF's base and its chip
-  // source both rasterise through satori at GIF_RENDER_SCALE, so the backdrop
-  // pixels carried in a chip's crop margin match the base it lands on exactly.
-  const [still, base, chipSource] = await Promise.all([
+  // Two base cards, because the backdrop itself is part of the reveal: frames
+  // before the number lands wear the pending theme, and everything after wears
+  // the rarity's. Each frame's panel patch is drawn over the matching base.
+  const [still, basePending, baseSettled] = await Promise.all([
     renderRngdleDiscordStill(result, playerName, rank, playerCount, stats),
     render(
       scaledElement(
@@ -886,7 +905,7 @@ export async function renderRngdleDiscordAnimation(
     ),
     render(
       scaledElement(
-        resultImage(result, playerName, rank, playerCount, stats),
+        resultCardImage(result, playerName, rank, playerCount, stats, stillPanelView(result), []),
         RNGDLE_DISCORD_WIDTH,
         RNGDLE_DISCORD_HEIGHT,
         GIF_RENDER_SCALE,
@@ -895,12 +914,15 @@ export async function renderRngdleDiscordAnimation(
       GIF_HEIGHT,
     ),
   ]);
-  timer.mark("still+base+chips");
+  timer.mark("still+bases");
 
+  // Chips come straight off the delivered still (identical geometry while
+  // GIF_RENDER_SCALE is 1) and only ever land on settled frames, so the
+  // backdrop in each crop's margin matches the base underneath it.
   const rects = resultBadgeRects(visible).map(scaledRect);
   const chipCrops: Buffer[] = [];
   for (const rect of rects) {
-    chipCrops.push(await sharp(chipSource).extract(rect).png().toBuffer());
+    chipCrops.push(await sharp(still).extract(rect).png().toBuffer());
   }
   // A crop is opaque (chip over backdrop), and the base holds the identical
   // backdrop pixels, so scaling the crop's alpha blends into exactly the
@@ -950,7 +972,8 @@ export async function renderRngdleDiscordAnimation(
         top: rects[chip].top,
       });
     }
-    const { data, info } = await sharp(base).composite(overlays).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const frameBase = panelViewForFrame(result, frame).settled ? baseSettled : basePending;
+    const { data, info } = await sharp(frameBase).composite(overlays).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     if (info.width !== GIF_WIDTH || info.height !== GIF_HEIGHT || info.channels !== 4) {
       throw new Error("RNGDLE frame rendered at an unexpected size.");
     }
