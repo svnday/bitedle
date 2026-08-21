@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -104,6 +105,70 @@ const screenshotFixture = scoring.scoreRngdleNumber(569_354);
 assert.equal(screenshotFixture.rawEp, 5_219);
 assert.equal(screenshotFixture.rarityBand, "Bottom 43%");
 assert.equal(screenshotFixture.badges.length, 13);
+
+// Full-population parity. The reference tool's "all analyzed numbers" export
+// (number,totalEP,rarity for 0-1,000,000) was checked row by row against this
+// engine on 2026-08-21: 0 EP mismatches and 0 rarity mismatches out of
+// 1,000,001. These digests pin that agreement so a badge or family edit cannot
+// silently shift EP anywhere in the range. Regenerate them only alongside a
+// deliberate, re-verified scoring change.
+//
+// The strided sample is cheap enough to always run; the exhaustive sweep costs
+// ~55s, so it is opt-in via BITEDLE_RNGDLE_FULL_SWEEP=1.
+const SWEEP_STRIDE = 997;
+
+function stridedDigest(hashInput) {
+  const hash = crypto.createHash("sha256");
+  for (let number = 0; number <= scoring.RNGDLE_MAX_NUMBER; number += SWEEP_STRIDE) {
+    hash.update(hashInput(number));
+  }
+  return hash.digest("hex");
+}
+
+assert.equal(
+  stridedDigest((number) => {
+    const result = scoring.scoreRngdleNumber(number);
+    return `${number}|${result.rawEp}|${result.rarity}|${result.rarityBand}
+`;
+  }),
+  "f53e244ac3dd5646c5a7339c7d256db5a613e9457a4abc376e4e2656786353a8",
+  "strided EP/rarity/percentile digest drifted from the reference export",
+);
+
+if (process.env.BITEDLE_RNGDLE_FULL_SWEEP === "1") {
+  const hash = crypto.createHash("sha256");
+  const pair = Buffer.allocUnsafe(8);
+  const tierCounts = new Map();
+  let epSum = 0n;
+  for (let number = 0; number <= scoring.RNGDLE_MAX_NUMBER; number++) {
+    const { totalEP } = engine.compute(number);
+    const { rarity } = scoring.classifyRngdleScore(totalEP);
+    tierCounts.set(rarity, (tierCounts.get(rarity) ?? 0) + 1);
+    epSum += BigInt(totalEP);
+    pair.writeUInt32LE(number, 0);
+    pair.writeUInt32LE(totalEP, 4);
+    hash.update(pair);
+  }
+  assert.equal(
+    hash.digest("hex"),
+    "03bd6f2eecf52b1b179b0e60390135516fe6eff5b715c9fb339ec9ea1fb02c04",
+    "full-range EP digest drifted from the reference export",
+  );
+  assert.equal(epSum, 21_538_912_576n, "total EP across the whole range");
+  // Population shares the tier cutoffs are meant to produce: 1 / 50 / 25 / 15 /
+  // 5 / 4 / 1 percent, cumulative. Trash overshoots 1% by 425 numbers because
+  // its cutoff is inherited from the reference site verbatim.
+  assert.deepEqual(Object.fromEntries([...tierCounts].sort()), {
+    anomaly: 39_996,
+    common: 489_693,
+    epic: 50_001,
+    mythic: 10_000,
+    rare: 149_998,
+    trash: 10_425,
+    uncommon: 249_888,
+  });
+  console.log("RNGDLE full-range sweep passed (1,000,001 numbers).");
+}
 
 assert.equal(time.rngdleGameDay(new Date("2026-08-19T22:59:59.999Z")), "2026-08-18");
 assert.equal(time.rngdleGameDay(new Date("2026-08-19T23:00:00.000Z")), "2026-08-19");
