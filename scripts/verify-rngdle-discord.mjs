@@ -230,12 +230,45 @@ fs.writeFileSync(mythicProfilePath, await renderer.renderRngdleDiscordProfile({
   top: { gameDay: "2026-08-16", result: mythicResult },
 }));
 const riskAsset = await renderer.renderRngdleRiskAnimation(37);
-assert.equal(riskAsset.durationMs, 15000, "reroll risk selection should run for about fifteen seconds");
 assert.equal(riskAsset.animation.subarray(0, 6).toString("ascii"), "GIF89a");
 fs.writeFileSync(riskPath, riskAsset.animation);
 const riskMetadata = await sharp(riskAsset.animation, { animated: true }).metadata();
-assert.equal(riskMetadata.pages, 29);
-assert.equal(riskMetadata.delay.reduce((sum, delay) => sum + delay, 0), 15000);
+assert.equal(
+  riskMetadata.delay.reduce((sum, delay) => sum + delay, 0),
+  riskAsset.durationMs,
+  "encoded risk duration must match the reported one",
+);
+assert.equal(
+  riskMetadata.delay.every((delay) => delay % 10 === 0),
+  true,
+  "GIF delays are centiseconds, so every risk delay must be a multiple of 10",
+);
+
+// The readout is only believable if it is the dot's position. Rebuild the
+// frames and assert the two can never disagree, that the sweep actually
+// oscillates rather than marching once, and that it ends on the real penalty.
+for (const target of [1, 37, 99]) {
+  const sweep = renderer.rngdleRiskSweepForTest(target);
+  for (const frame of sweep) {
+    assert.equal(
+      frame.percent,
+      Math.min(99, Math.max(1, Math.round(1 + frame.position * 98))),
+      `risk readout must equal its dot position (target ${target}%)`,
+    );
+    assert.ok(frame.position >= 0 && frame.position <= 1, "dot must stay on the track");
+  }
+  const last = sweep[sweep.length - 1];
+  assert.equal(last.percent, target, "the sweep must land on the real penalty");
+  assert.equal(last.locked, true, "the final risk frame must be the locked one");
+
+  let reversals = 0;
+  for (let i = 2; i < sweep.length; i += 1) {
+    const before = sweep[i - 1].position - sweep[i - 2].position;
+    const after = sweep[i].position - sweep[i - 1].position;
+    if (before !== 0 && after !== 0 && Math.sign(before) !== Math.sign(after)) reversals += 1;
+  }
+  assert.ok(reversals >= 4, `the dot must sweep back and forth, saw ${reversals} reversals at ${target}%`);
+}
 await sharp(riskAsset.animation, { page: riskMetadata.pages - 1 }).png().toFile(riskFinalPath);
 const profileMetadata = await sharp(profilePath).metadata();
 assert.deepEqual({ width: profileMetadata.width, height: profileMetadata.height }, {

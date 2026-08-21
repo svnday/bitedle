@@ -80,10 +80,11 @@ interface RngdleAnimationFrame {
 
 interface RngdleRiskFrame {
   delay: number;
+  /** Where the dot sits on the track, 0 (far left) to 1 (far right). */
+  position: number;
+  /** Always derived from `position`, so the readout can never disagree with it. */
   percent: number;
-  progress: number;
   locked: boolean;
-  nearby: number[];
 }
 
 export interface RngdleDiscordAssets {
@@ -225,30 +226,54 @@ function animationFrames(result: RngdleResult): RngdleAnimationFrame[] {
   return frames;
 }
 
-function riskPercent(seed: number, frame: number): number {
-  let value = ((seed + 17) * (frame + 31) * 1_103_515_245 + 12_345) >>> 0;
-  value = (value ^ (value >>> 13)) >>> 0;
-  return value % 99 + 1;
+const RISK_SWEEP_FRAMES = 88;
+const RISK_SWEEP_FRAME_MS = 60;
+const RISK_SWEEP_CYCLES = 3.5;
+const RISK_SWEEP_SPREAD = 0.5;
+// Delays grow as the dot eases onto its value, so the settle is felt rather
+// than just seen. Every delay stays a multiple of 10: GIF delays are stored in
+// centiseconds, and anything else desynchronises the reported duration.
+const RISK_SETTLE_DELAYS = [80, 100, 130, 170, 220];
+const RISK_LOCK_HOLD_MS = 1_500;
+
+function riskPercentAt(position: number): number {
+  return Math.min(99, Math.max(1, Math.round(1 + position * 98)));
+}
+
+/**
+ * The dot sweeps inside a window that starts as the whole track and closes onto
+ * the answer: wide fast passes that narrow and slow, the way someone works a
+ * volume slider before letting go. Oscillating around the final position
+ * instead would clamp at the track edge whenever the answer sat near 1% or 99%,
+ * pinning the dot for long stretches; a closing window always keeps it moving
+ * and still lands exactly.
+ */
+function riskPositionAt(finalPosition: number, t: number): number {
+  const centre = 0.5 + (finalPosition - 0.5) * Math.pow(t, 1.2);
+  const halfWidth = RISK_SWEEP_SPREAD * Math.pow(1 - t, 1.6);
+  const phase = 2 * Math.PI * RISK_SWEEP_CYCLES * Math.pow(t, 0.8) - Math.PI / 2;
+  return Math.min(1, Math.max(0, centre + halfWidth * Math.sin(phase)));
 }
 
 function riskAnimationFrames(finalPercent: number): RngdleRiskFrame[] {
-  const frames = Array.from({ length: 28 }, (_, index) => {
-    const percent = riskPercent(finalPercent, index);
-    return {
-      delay: 500,
-      percent,
-      progress: index / 28,
-      locked: false,
-      nearby: [-2, -1, 0, 1, 2].map((offset) => offset === 0 ? percent : riskPercent(finalPercent, index + offset + 41)),
-    };
+  const finalPosition = (finalPercent - 1) / 98;
+  const frames: RngdleRiskFrame[] = [];
+  for (let index = 0; index < RISK_SWEEP_FRAMES; index += 1) {
+    const position = riskPositionAt(finalPosition, index / RISK_SWEEP_FRAMES);
+    frames.push({ delay: RISK_SWEEP_FRAME_MS, position, percent: riskPercentAt(position), locked: false });
+  }
+
+  // Ease whatever wobble is left straight onto the answer.
+  const from = frames[frames.length - 1].position;
+  RISK_SETTLE_DELAYS.forEach((delay, index) => {
+    const k = (index + 1) / RISK_SETTLE_DELAYS.length;
+    const position = from + (finalPosition - from) * (1 - Math.pow(1 - k, 3));
+    frames.push({ delay, position, percent: riskPercentAt(position), locked: false });
   });
-  frames.push({
-    delay: 1_000,
-    percent: finalPercent,
-    progress: 1,
-    locked: true,
-    nearby: [riskPercent(finalPercent, 88), riskPercent(finalPercent, 89), finalPercent, riskPercent(finalPercent, 90), riskPercent(finalPercent, 91)],
-  });
+
+  // Pinned rather than trusted to the maths, so the readout always matches the
+  // penalty the result card reports.
+  frames.push({ delay: RISK_LOCK_HOLD_MS, position: finalPosition, percent: finalPercent, locked: true });
   return frames;
 }
 
@@ -355,31 +380,73 @@ function panelPatchImage(result: RngdleResult, stats: RngdleResultCardStats, vie
   );
 }
 
-function riskAnimationImage(frame: RngdleRiskFrame) {
-  const accent = frame.locked ? "#ff4d5e" : "#ff6b46";
-  const trackWidth = 700;
-  const markerLeft = Math.round(frame.progress * trackWidth);
+// The risk frame is split into a static shell and three small moving pieces,
+// so a frame is a few composites instead of a full rasterisation. Positions are
+// absolute constants rather than flex-derived, because compositing needs to know
+// exactly where each piece lands.
+const RISK_TRACK = { left: 100, top: 430, width: 700, height: 18 } as const;
+const RISK_FILL_HEIGHT = 16;
+const RISK_NUMBER_RECT = { left: 200, top: 175, width: 500, height: 170 } as const;
+const RISK_DOT_BOX = 84;
+const RISK_SWEEP_ACCENT = "#ff6b46";
+const RISK_LOCKED_ACCENT = "#ff4d5e";
+
+function riskAccent(locked: boolean): string {
+  return locked ? RISK_LOCKED_ACCENT : RISK_SWEEP_ACCENT;
+}
+
+/** Everything that never moves. Two variants exist: sweeping and locked. */
+function riskShellImage(locked: boolean) {
+  const accent = riskAccent(locked);
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", color: "#f7f7fa", background: "linear-gradient(145deg, #10090d 0%, #171016 52%, #09080d 100%)", fontFamily: "Geist", display: "flex" }}>
       <GridBackdrop from="#16080c" to="#351014" />
-      <Header subtitle={frame.locked ? "RISK LOCKED" : "ROLLING REROLL RISK"} />
-      <div style={{ position: "absolute", left: 0, top: 122, width: 900, display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <div style={{ color: "#96909b", fontSize: 13, fontWeight: 700, letterSpacing: 2.2, display: "flex" }}>{frame.locked ? "FINAL SCORE REDUCTION" : "CALCULATING SCORE REDUCTION"}</div>
-        <div style={{ marginTop: 18, color: accent, fontFamily: "Geist Mono", fontSize: 112, fontWeight: 700, lineHeight: 1, textShadow: `0 0 34px ${accent}55`, display: "flex" }}>{frame.percent}%</div>
-        <div style={{ marginTop: 35, width: 720, height: 95, overflow: "hidden", borderRadius: 18, border: "1px solid #4c3439", backgroundColor: "rgba(16,10,14,.88)", display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-          {frame.nearby.map((percent, index) => (
-            <div key={`${index}-${percent}`} style={{ width: index === 2 ? 118 : 105, height: index === 2 ? 66 : 54, borderRadius: 12, border: index === 2 ? `2px solid ${accent}` : "1px solid #49363b", backgroundColor: index === 2 ? `${accent}1f` : "#171217", color: index === 2 ? "#fff7f4" : "#746c74", fontFamily: "Geist Mono", fontSize: index === 2 ? 31 : 24, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{percent}%</div>
-          ))}
+      <Header subtitle={locked ? "RISK LOCKED" : "ROLLING REROLL RISK"} />
+      <div style={{ position: "absolute", left: 0, top: 150, width: RNGDLE_DISCORD_RISK_WIDTH, display: "flex", justifyContent: "center" }}>
+        <div style={{ color: "#96909b", fontSize: 13, fontWeight: 700, letterSpacing: 2.2, display: "flex" }}>
+          {locked ? "FINAL SCORE REDUCTION" : "CALCULATING SCORE REDUCTION"}
         </div>
-        <div style={{ position: "relative", marginTop: 54, width: trackWidth, height: 18, borderRadius: 999, border: "1px solid #453137", backgroundColor: "#21161a", display: "flex" }}>
-          <div style={{ width: markerLeft, height: 16, borderRadius: 999, background: `linear-gradient(90deg, #682530, ${accent})`, boxShadow: `0 0 18px ${accent}55`, display: "flex" }} />
-          <div style={{ position: "absolute", left: Math.max(0, markerLeft - 9), top: -6, width: 28, height: 28, borderRadius: 99, border: "4px solid #fff", backgroundColor: accent, boxShadow: `0 0 22px ${accent}`, display: "flex" }} />
+      </div>
+      <div style={{ position: "absolute", left: RISK_TRACK.left, top: RISK_TRACK.top, width: RISK_TRACK.width, height: RISK_TRACK.height, borderRadius: 999, border: "1px solid #453137", backgroundColor: "#21161a", display: "flex" }} />
+      <div style={{ position: "absolute", left: 0, top: 486, width: RNGDLE_DISCORD_RISK_WIDTH, display: "flex", justifyContent: "center" }}>
+        <div style={{ color: locked ? accent : "#847b84", fontSize: 14, fontWeight: 700, letterSpacing: 1.3, display: "flex" }}>
+          {locked ? "THIS WILL BE SUBTRACTED FROM THE NEW ROLL" : "RISK CAN LAND ANYWHERE FROM 1% TO 99%"}
         </div>
-        <div style={{ marginTop: 24, color: frame.locked ? accent : "#847b84", fontSize: 14, fontWeight: 700, letterSpacing: 1.3, display: "flex" }}>{frame.locked ? `${frame.percent}% WILL BE SUBTRACTED FROM THE NEW ROLL` : "RISK CAN LAND ANYWHERE FROM 1% TO 99%"}</div>
       </div>
       <div style={{ position: "absolute", left: 48, width: 804, bottom: 31, display: "flex", justifyContent: "space-between", color: "#66585e", fontSize: 10, fontWeight: 700, letterSpacing: 1.5 }}>
         <div>ONE REROLL PER DAY</div><div>1-99% RISK</div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The readout, on a transparent ground so its glow composites over the shell
+ * the same way it would have painted there. Only 99 of these exist per accent,
+ * so they are worth caching for the lifetime of the instance.
+ */
+function riskNumberImage(percent: number, locked: boolean) {
+  const accent = riskAccent(locked);
+  return (
+    <div style={{ width: RISK_NUMBER_RECT.width, height: RISK_NUMBER_RECT.height, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Geist Mono" }}>
+      <div style={{ color: accent, fontSize: 112, fontWeight: 700, lineHeight: 1, textShadow: `0 0 34px ${accent}55`, display: "flex" }}>{percent}%</div>
+    </div>
+  );
+}
+
+/** Full-width fill, cropped per frame — the gradient is revealed, not restretched. */
+function riskFillImage(locked: boolean) {
+  return (
+    <div style={{ width: RISK_TRACK.width, height: RISK_FILL_HEIGHT, borderRadius: 999, background: `linear-gradient(90deg, #682530, ${riskAccent(locked)})`, display: "flex" }} />
+  );
+}
+
+/** The dot, boxed with room for its glow so the sprite can be placed by centre. */
+function riskDotImage(locked: boolean) {
+  const accent = riskAccent(locked);
+  return (
+    <div style={{ width: RISK_DOT_BOX, height: RISK_DOT_BOX, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: 28, height: 28, borderRadius: 99, border: "4px solid #fff", backgroundColor: accent, boxShadow: `0 0 22px ${accent}`, display: "flex" }} />
     </div>
   );
 }
@@ -809,29 +876,114 @@ async function mapLimit<T>(
   }));
 }
 
+/**
+ * Risk chrome and readouts, cached for the life of the instance. Nothing here
+ * depends on which roll is being rerolled — the shell, fill, and dot have two
+ * variants each, and a given percentage always draws the same way — so these
+ * are reused by every reroll from every player on the instance.
+ */
+const riskPieceCache = new Map<string, Promise<Buffer>>();
+
+function cachedRiskPiece(key: string, make: () => Promise<Buffer>): Promise<Buffer> {
+  let piece = riskPieceCache.get(key);
+  if (!piece) {
+    piece = make();
+    riskPieceCache.set(key, piece);
+    piece.catch(() => riskPieceCache.delete(key));
+  }
+  return piece;
+}
+
+/** Exposes the sweep to the verifier, which checks the dot/readout coupling. */
+export function rngdleRiskSweepForTest(finalPercent: number): RngdleRiskFrame[] {
+  return riskAnimationFrames(finalPercent);
+}
+
 export async function renderRngdleRiskAnimation(finalPercent: number): Promise<RngdleRiskAnimation> {
+  const timer = phaseTimer();
   const frames = riskAnimationFrames(finalPercent);
+  const states = [false, true];
+
+  const [shells, fills, dots] = await Promise.all([
+    Promise.all(states.map((locked) => cachedRiskPiece(`shell:${locked}`, () => render(
+      riskShellImage(locked), RNGDLE_DISCORD_RISK_WIDTH, RNGDLE_DISCORD_RISK_HEIGHT,
+    )))),
+    Promise.all(states.map((locked) => cachedRiskPiece(`fill:${locked}`, () => render(
+      riskFillImage(locked), RISK_TRACK.width, RISK_FILL_HEIGHT,
+    )))),
+    Promise.all(states.map((locked) => cachedRiskPiece(`dot:${locked}`, () => render(
+      riskDotImage(locked), RISK_DOT_BOX, RISK_DOT_BOX,
+    )))),
+  ]);
+  const pieceFor = (list: Buffer[], locked: boolean) => list[locked ? 1 : 0];
+  timer.mark("chrome");
+
+  const wanted = new Map<string, RngdleRiskFrame>();
+  for (const frame of frames) wanted.set(`${frame.percent}:${frame.locked}`, frame);
+  const numbers = new Map<string, Buffer>();
+  await mapLimit([...wanted.entries()], RENDER_CONCURRENCY, async ([key, frame]) => {
+    numbers.set(key, await cachedRiskPiece(`number:${key}`, () => render(
+      riskNumberImage(frame.percent, frame.locked), RISK_NUMBER_RECT.width, RISK_NUMBER_RECT.height,
+    )));
+  });
+  timer.mark(`numbers(${wanted.size})`);
+
   const frameBytes = RNGDLE_DISCORD_RISK_WIDTH * RNGDLE_DISCORD_RISK_HEIGHT * 4;
   const stacked = Buffer.allocUnsafe(frameBytes * frames.length);
+  const trackCentreY = RISK_TRACK.top + Math.round(RISK_TRACK.height / 2);
   await mapLimit(frames, RENDER_CONCURRENCY, async (frame, index) => {
-    const png = await render(riskAnimationImage(frame), RNGDLE_DISCORD_RISK_WIDTH, RNGDLE_DISCORD_RISK_HEIGHT);
-    const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const overlays: Array<{ input: Buffer; left: number; top: number }> = [];
+
+    const fillWidth = Math.round(frame.position * RISK_TRACK.width);
+    if (fillWidth > 0) {
+      overlays.push({
+        input: await sharp(pieceFor(fills, frame.locked))
+          .extract({ left: 0, top: 0, width: fillWidth, height: RISK_FILL_HEIGHT })
+          .png()
+          .toBuffer(),
+        left: RISK_TRACK.left + 1,
+        top: RISK_TRACK.top + 1,
+      });
+    }
+
+    overlays.push({
+      input: numbers.get(`${frame.percent}:${frame.locked}`)!,
+      left: RISK_NUMBER_RECT.left,
+      top: RISK_NUMBER_RECT.top,
+    });
+
+    // The dot is placed by its centre; the sprite carries its own glow margin.
+    const centreX = RISK_TRACK.left + Math.round(frame.position * RISK_TRACK.width);
+    overlays.push({
+      input: pieceFor(dots, frame.locked),
+      left: centreX - RISK_DOT_BOX / 2,
+      top: trackCentreY - RISK_DOT_BOX / 2,
+    });
+
+    const { data, info } = await sharp(pieceFor(shells, frame.locked))
+      .composite(overlays)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
     if (info.width !== RNGDLE_DISCORD_RISK_WIDTH || info.height !== RNGDLE_DISCORD_RISK_HEIGHT || info.channels !== 4) {
       throw new Error("RNGDLE risk frame rendered at an unexpected size.");
     }
     data.copy(stacked, index * frameBytes);
   });
-  return {
-    animation: await sharp(stacked, {
-      raw: {
-        width: RNGDLE_DISCORD_RISK_WIDTH,
-        height: RNGDLE_DISCORD_RISK_HEIGHT * frames.length,
-        channels: 4,
-        pageHeight: RNGDLE_DISCORD_RISK_HEIGHT,
-      },
-    }).gif({ loop: 1, delay: frames.map((frame) => frame.delay), colours: 96, effort: 4 }).toBuffer(),
-    durationMs: frames.reduce((total, frame) => total + frame.delay, 0),
-  };
+  timer.mark(`composite(${frames.length})`);
+
+  const animation = await sharp(stacked, {
+    raw: {
+      width: RNGDLE_DISCORD_RISK_WIDTH,
+      height: RNGDLE_DISCORD_RISK_HEIGHT * frames.length,
+      channels: 4,
+      pageHeight: RNGDLE_DISCORD_RISK_HEIGHT,
+    },
+  }).gif({ loop: 1, delay: frames.map((frame) => frame.delay), colours: 64, effort: 1 }).toBuffer();
+  timer.mark("gif-encode");
+  timer.log(`rngdle: risk ${finalPercent}%`);
+
+  return { animation, durationMs: frames.reduce((total, frame) => total + frame.delay, 0) };
 }
 
 export function renderRngdleDiscordStill(
