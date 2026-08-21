@@ -14,12 +14,19 @@ import {
   type RngdleRiskAnimation,
   type RngdleResultCardStats,
 } from "./rngdle-discord-renderer";
-import { selectRngdlePenalty } from "./rngdle/scoring";
+import { scoreRngdleNumber, selectRngdlePenalty } from "./rngdle/scoring";
 import { canRerollRngdle, rngdleRerollDeadline } from "./rngdle/time";
+import type { RngdleResult } from "./rngdle/types";
 
 const DEFAULT_ATTACHMENT_LIMIT = 8 * 1024 * 1024;
 const FINAL_EDIT_MARGIN_MS = 180;
 const FINAL_EDIT_RETRY_MS = 250;
+// Beats held between animation phases. A reroll reveals the new number first
+// and draws the risk against it second, so each phase needs a moment on screen
+// to be read before the next edit replaces it. Both GIFs are encoded loop:1,
+// so a hold is just the last frame staying put - no extra render.
+const REVEAL_HOLD_MS = 2_600;
+const RISK_HOLD_MS = 2_200;
 const DISCORD_COMPONENTS_V2_FLAG = 1 << 15;
 const RNGDLE_MESSAGE_ACCENTS: Record<RngdleDiscordRoll["current"]["rarity"], number> = {
   trash: 0x667896,
@@ -194,8 +201,13 @@ async function warmRerollRisk(roll: RngdleDiscordRoll, renderRisk: typeof render
   }
 }
 
-function assetCacheKey(roll: RngdleDiscordRoll, rank: number, playerCount: number, stats: RngdleResultCardStats): string {
-  const result = roll.current;
+function assetCacheKey(
+  roll: RngdleDiscordRoll,
+  result: RngdleResult,
+  rank: number,
+  playerCount: number,
+  stats: RngdleResultCardStats,
+): string {
   return [
     roll.guildId, roll.userId, roll.gameDay, roll.displayName,
     result.number, result.creditedEp, result.penaltyPercent,
@@ -300,6 +312,8 @@ function rngdleRollPayload(input: {
   header?: string | null;
   footer: string;
   includeActions?: boolean;
+  /** Defaults to the final rarity; set while an earlier phase is on screen. */
+  accentRarity?: RngdleDiscordRoll["current"]["rarity"];
 }): Record<string, unknown> {
   const containerComponents: Record<string, unknown>[] = [];
   if (input.header) containerComponents.push({ type: 10, content: input.header });
@@ -321,7 +335,7 @@ function rngdleRollPayload(input: {
     components: [
       {
         type: 17,
-        accent_color: RNGDLE_MESSAGE_ACCENTS[input.roll.current.rarity],
+        accent_color: RNGDLE_MESSAGE_ACCENTS[input.accentRarity ?? input.roll.current.rarity],
         components: containerComponents,
       },
       ...(input.includeActions === false ? [] : resultComponents(input.roll, input.now)),
@@ -383,72 +397,48 @@ export async function deliverRngdleRoll(input: {
   const url = webhookUrl(input.applicationId, input.token);
   const limit = safeLimit(input.attachmentSizeLimit);
   const resultCopy = rngdleResultCopy(input.roll, input.rank, input.playerCount, input.stats.newBadges, now());
-  const animationDelay = (duration: number) => {
+  const timingOverride = (): number | null => {
     const override = process.env.BITEDLE_RNGDLE_FINAL_EDIT_DELAY_MS;
     return process.env.NODE_ENV !== "production" && override !== undefined
       ? Math.max(0, Number(override) || 0)
-      : duration + FINAL_EDIT_MARGIN_MS;
+      : null;
   };
+  const animationDelay = (duration: number) => timingOverride() ?? duration + FINAL_EDIT_MARGIN_MS;
   const waitForAnimation = async (duration: number) => {
     await sleep(animationDelay(duration));
   };
+  const hold = async (duration: number) => {
+    await sleep(timingOverride() ?? duration);
+  };
+
+  // A reroll plays as three beats: the new number lands at full value, the risk
+  // is drawn against it, then the card settles on what survived. The reveal is
+  // therefore rendered from an unpenalised score - showing the reduced EP or the
+  // "-37% FROM …" line before the risk has run would give the outcome away.
+  const isReroll = input.riskAnimationPercent !== undefined;
+  const revealResult = isReroll ? scoreRngdleNumber(input.roll.current.number) : input.roll.current;
+  const revealStats = isReroll ? { ...input.stats, rerollDeltaEp: null } : input.stats;
 
   // Clear Discord's "thinking…" (or a reroll's stale buttons) immediately with
   // a text-only edit; every render below happens behind a visible message.
-  const openerFooter = input.riskAnimationPercent !== undefined
-    ? `🎲 **${escapeDiscordText(input.roll.displayName)} is rolling the reroll risk…**`
-    : `🎰 **${escapeDiscordText(input.roll.displayName)} is rolling…**`;
   const opener = await patchJson(url, {
     ...rngdleRollPayload({
       roll: input.roll,
       now: now(),
-      footer: openerFooter,
+      footer: `🎰 **${escapeDiscordText(input.roll.displayName)} is ${isReroll ? "rerolling" : "rolling"}…**`,
       includeActions: false,
+      accentRarity: revealResult.rarity,
     }),
     attachments: [],
   }, fetchImpl);
   if (!opener.ok) console.warn(`rngdle: opener edit failed (${await responseError(opener)})`);
-
-  // The risk animation posts before the much heavier roll render; a warmed
-  // cache usually makes it instant, and the roll renders during its playback.
-  let riskAnimation: Buffer | null = null;
-  let riskDurationMs = 0;
-  let riskPostedAt: number | null = null;
-
-  if (input.riskAnimationPercent !== undefined) {
-    try {
-      const risk = await cachedRiskAnimation(input.riskAnimationPercent, renderRisk);
-      riskAnimation = risk.animation;
-      riskDurationMs = risk.durationMs;
-    } catch (error) {
-      console.error("rngdle: risk animation rendering failed", error);
-    }
-  }
-
-  if (riskAnimation && riskAnimation.byteLength <= limit) {
-    const riskResponse = await patchMultipart(url, {
-      ...rngdleRollPayload({
-        roll: input.roll,
-        now: now(),
-        filename: RNGDLE_DISCORD_RISK_GIF_FILENAME,
-        description: "RNGDLE reroll risk selection from 1 to 99 percent",
-        footer: `🎲 **${escapeDiscordText(input.roll.displayName)} is rolling the reroll risk…**`,
-        includeActions: false,
-      }),
-      attachments: [{ id: 0, filename: RNGDLE_DISCORD_RISK_GIF_FILENAME, description: "RNGDLE reroll risk selection from 1 to 99 percent" }],
-    }, riskAnimation, RNGDLE_DISCORD_RISK_GIF_FILENAME, "image/gif", fetchImpl);
-    if (riskResponse.ok) riskPostedAt = now();
-    else console.warn(`rngdle: risk animation edit failed (${await responseError(riskResponse)})`);
-  } else if (riskAnimation) {
-    console.warn(`rngdle: risk animation exceeded the interaction attachment limit (${limit} bytes)`);
-  }
 
   let animation: Buffer | null = null;
   let durationMs = 0;
   let still: Buffer | null = null;
 
   if (input.animate) {
-    const cacheKey = assetCacheKey(input.roll, input.rank, input.playerCount, input.stats);
+    const cacheKey = assetCacheKey(input.roll, revealResult, input.rank, input.playerCount, revealStats);
     const cached = readAssetCache(cacheKey);
     if (cached) {
       animation = cached.animation;
@@ -456,11 +446,11 @@ export async function deliverRngdleRoll(input: {
     } else {
       try {
         const rendered = await renderRngdleDiscordAnimation(
-          input.roll.current,
+          revealResult,
           input.roll.displayName,
           input.rank,
           input.playerCount,
-          input.stats,
+          revealStats,
         );
         animation = rendered.animation;
         durationMs = rendered.durationMs;
@@ -472,15 +462,11 @@ export async function deliverRngdleRoll(input: {
     }
   }
 
-  if (riskPostedAt !== null) {
-    await sleep(Math.max(0, animationDelay(riskDurationMs) - (now() - riskPostedAt)));
-  }
-
   let animationPosted = false;
   if (animation && animation.byteLength <= limit) {
-    const animationCopy = input.roll.rerolledAt === null
-      ? { header: `🎰 **${escapeDiscordText(input.roll.displayName)} is rolling…**`, footer: "" }
-      : { header: null, footer: `🎰 **${escapeDiscordText(input.roll.displayName)}'s rerolled number is landing…**` };
+    const animationCopy = isReroll
+      ? { header: null, footer: `🎰 **${escapeDiscordText(input.roll.displayName)}'s rerolled number is landing…**` }
+      : { header: `🎰 **${escapeDiscordText(input.roll.displayName)} is rolling…**`, footer: "" };
     const animationResponse = await patchMultipart(url, {
       ...rngdleRollPayload({
         roll: input.roll,
@@ -489,6 +475,7 @@ export async function deliverRngdleRoll(input: {
         description: "RNGDLE number and badge reveal",
         ...animationCopy,
         includeActions: input.roll.rerolledAt === null,
+        accentRarity: revealResult.rarity,
       }),
       attachments: [{ id: 0, filename: RNGDLE_DISCORD_GIF_FILENAME, description: "RNGDLE number and badge reveal" }],
     }, animation, RNGDLE_DISCORD_GIF_FILENAME, "image/gif", fetchImpl);
@@ -498,8 +485,14 @@ export async function deliverRngdleRoll(input: {
     console.warn(`rngdle: animation exceeded the interaction attachment limit (${limit} bytes)`);
   }
 
-  // Started once the GIF is on screen and awaited after it has played, so the
-  // final card costs playback time rather than delaying the animation.
+  // Both kicked off with the reveal already on screen, so their cost is paid out
+  // of playback time. The risk animation is usually a cache hit from roll time.
+  const pendingRisk: Promise<RngdleRiskAnimation | null> | null = isReroll
+    ? cachedRiskAnimation(input.riskAnimationPercent!, renderRisk).catch((error: unknown) => {
+      console.error("rngdle: risk animation rendering failed", error);
+      return null;
+    })
+    : null;
   const pendingStill: Promise<Buffer> | null = animationPosted
     ? renderRngdleDiscordStill(
       input.roll.current,
@@ -515,6 +508,35 @@ export async function deliverRngdleRoll(input: {
 
   if (animationPosted) {
     await waitForAnimation(durationMs);
+    // Let the number sit at full value before anything starts taking EP off it.
+    if (isReroll) await hold(REVEAL_HOLD_MS);
+  }
+
+  if (pendingRisk) {
+    const risk = await pendingRisk;
+    if (risk && risk.animation.byteLength <= limit) {
+      const riskResponse = await patchMultipart(url, {
+        ...rngdleRollPayload({
+          roll: input.roll,
+          now: now(),
+          filename: RNGDLE_DISCORD_RISK_GIF_FILENAME,
+          description: "RNGDLE reroll risk selection from 1 to 99 percent",
+          footer: `🎲 **${escapeDiscordText(input.roll.displayName)} is rolling the reroll risk…**`,
+          includeActions: false,
+          accentRarity: revealResult.rarity,
+        }),
+        attachments: [{ id: 0, filename: RNGDLE_DISCORD_RISK_GIF_FILENAME, description: "RNGDLE reroll risk selection from 1 to 99 percent" }],
+      }, risk.animation, RNGDLE_DISCORD_RISK_GIF_FILENAME, "image/gif", fetchImpl);
+      if (riskResponse.ok) {
+        await waitForAnimation(risk.durationMs);
+        // Hold on RISK LOCKED so the penalty registers before the card lands.
+        await hold(RISK_HOLD_MS);
+      } else {
+        console.warn(`rngdle: risk animation edit failed (${await responseError(riskResponse)})`);
+      }
+    } else if (risk) {
+      console.warn(`rngdle: risk animation exceeded the interaction attachment limit (${limit} bytes)`);
+    }
   }
 
   if (pendingStill) still = await pendingStill;

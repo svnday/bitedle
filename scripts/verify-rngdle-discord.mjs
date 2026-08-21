@@ -389,10 +389,10 @@ await delivery.deliverRngdleRoll({
   stats: { ...resultStats, rerollDeltaEp: rerolledResult.creditedEp - firstResult.creditedEp },
   now: () => baseTime + 9 * 60 * 1000,
 });
-assert.equal(requests.length, 3, "rerolls must post opener, risk animation, then the final result");
+assert.equal(requests.length, 3, "a reroll with no reveal GIF still posts opener, risk animation, then the final result");
 assert.match(requests[0].contentType, /application\/json/, "the first reroll edit must be the lightweight opener");
 const rerollOpenerPayload = JSON.parse(requests[0].body.toString("utf8"));
-assert.match(v2Text(rerollOpenerPayload), /rolling the reroll risk/);
+assert.match(v2Text(rerollOpenerPayload), /is rerolling…/);
 assert.equal(v2Buttons(rerollOpenerPayload).length, 0, "the reroll opener must clear the buttons immediately");
 const riskPayload = multipartPayload(requests[1]);
 const rerolledPayload = multipartPayload(requests[2]);
@@ -404,6 +404,65 @@ assert.match(v2Buttons(rerolledPayload)[0].custom_id, /^rngdle-replay:v1:/);
 assert.equal(v2Buttons(rerolledPayload).some((button) => button.label === "Reroll 1-99% Risk"), false);
 assert.equal(v2Text(rerolledPayload), delivery.rngdleResultContent(reroll.roll, 2, 2, resultStats.newBadges, baseTime + 9 * 60 * 1000));
 assert.match(v2Text(rerolledPayload), /^\*\*Reroll locked · -37% from [\d,]+ base EP · [+-][\d,]+ EP\*\*$/);
+
+// The reroll plays as four beats: opener, the new number at full value, the
+// risk drawn against it, then the settled card. 10,531 scores 9,817 EP (rare)
+// and lands at 6,184 (uncommon) once 37% is taken off, so the container accent
+// is proof of which result each phase was drawn from - a reveal rendered from
+// the penalised score would already be wearing the uncommon accent.
+const revealBase = scoring.scoreRngdleNumber(10531);
+const revealPenalised = scoring.scoreRngdleNumber(10531, 37);
+assert.equal(revealBase.rarity, "rare");
+assert.equal(revealPenalised.rarity, "uncommon");
+
+requests.length = 0;
+const rerollSleeps = [];
+// Holds collapse to zero under the delivery-timing override, so drop it here
+// and record what delivery asks for instead. The sleep itself stays a no-op.
+delete process.env.BITEDLE_RNGDLE_FINAL_EDIT_DELAY_MS;
+await delivery.deliverRngdleRoll({
+  applicationId: guildA,
+  token: "rngdle-reroll-sequence-test",
+  roll: roll({ current: revealPenalised, rerolledAt: baseTime + 9 * 60 * 1000 }),
+  rank: 1,
+  playerCount: 2,
+  animate: true,
+  riskAnimationPercent: 37,
+  renderRiskAnimation: async () => riskAsset,
+  stats: { ...resultStats, rerollDeltaEp: revealPenalised.creditedEp - firstResult.creditedEp },
+  now: () => baseTime + 9 * 60 * 1000,
+  sleep: async (milliseconds) => { rerollSleeps.push(milliseconds); },
+});
+process.env.BITEDLE_RNGDLE_FINAL_EDIT_DELAY_MS = "0";
+
+assert.equal(requests.length, 4, "rerolls must post opener, the number reveal, the risk animation, then the result");
+const sequenceOpener = JSON.parse(requests[0].body.toString("utf8"));
+const revealPayload = multipartPayload(requests[1]);
+const sequenceRiskPayload = multipartPayload(requests[2]);
+const sequenceFinalPayload = multipartPayload(requests[3]);
+assertV2Attachment(revealPayload, "rngdle-roll.gif");
+assertV2Attachment(sequenceRiskPayload, "rngdle-reroll-risk.gif");
+assertV2Attachment(sequenceFinalPayload, "rngdle-result.png");
+assert.match(v2Text(revealPayload), /rerolled number is landing/);
+assert.equal(v2Buttons(revealPayload).length, 0, "the reveal must not expose buttons mid-reroll");
+assert.equal(v2Buttons(sequenceRiskPayload).length, 0, "risk animation must not expose buttons while it is running");
+
+const accentOf = (payload) => v2Container(payload).accent_color;
+assert.equal(accentOf(revealPayload), accentOf(sequenceOpener), "the opener must wear the pre-penalty accent");
+assert.equal(accentOf(revealPayload), accentOf(sequenceRiskPayload), "the risk plays against the unpenalised reveal");
+assert.notEqual(
+  accentOf(revealPayload),
+  accentOf(sequenceFinalPayload),
+  "the reveal must be drawn from the unpenalised score, so its accent differs once the penalty lands",
+);
+
+// Playback, hold, playback, hold - the two holds are what let a player read the
+// number before the risk starts, and the locked risk before the card settles.
+assert.equal(rerollSleeps.length, 4, `expected reveal playback, hold, risk playback, hold; got ${rerollSleeps.join(", ")}`);
+assert.ok(rerollSleeps[1] >= 1_000, "a hold must separate the number reveal from the risk animation");
+assert.ok(rerollSleeps[2] >= riskAsset.durationMs, "the risk animation must play out before the card settles");
+assert.ok(rerollSleeps[3] >= 1_000, "a hold must separate the locked risk from the final card");
+
 assert.deepEqual(delivery.parseRngdleReplayCustomId(delivery.rngdleReplayCustomId(dayOne, userA)), { gameDay: dayOne, userId: userA });
 assert.equal(delivery.parseRngdleReplayCustomId("rngdle-replay:v1:bad"), null);
 
