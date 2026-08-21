@@ -403,7 +403,7 @@ assert.deepEqual(v2Buttons(rerolledPayload).map((button) => button.label), ["Rep
 assert.match(v2Buttons(rerolledPayload)[0].custom_id, /^rngdle-replay:v1:/);
 assert.equal(v2Buttons(rerolledPayload).some((button) => button.label === "Reroll 1-99% Risk"), false);
 assert.equal(v2Text(rerolledPayload), delivery.rngdleResultContent(reroll.roll, 2, 2, resultStats.newBadges, baseTime + 9 * 60 * 1000));
-assert.match(v2Text(rerolledPayload), /^\*\*Reroll locked · -37% from [\d,]+ base points · [+-][\d,]+ points\*\*$/);
+assert.match(v2Text(rerolledPayload), /^\*\*Reroll locked · -37% from [\d,]+ base EP · [+-][\d,]+ EP\*\*$/);
 assert.deepEqual(delivery.parseRngdleReplayCustomId(delivery.rngdleReplayCustomId(dayOne, userA)), { gameDay: dayOne, userId: userA });
 assert.equal(delivery.parseRngdleReplayCustomId("rngdle-replay:v1:bad"), null);
 

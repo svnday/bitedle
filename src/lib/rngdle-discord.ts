@@ -185,7 +185,7 @@ function resultComponents(roll: RngdleDiscordRoll, now: number) {
 }
 
 function signedPoints(value: number): string {
-  return `${value >= 0 ? "+" : "-"}${Math.abs(value).toLocaleString("en-US")} points`;
+  return `${value >= 0 ? "+" : "-"}${Math.abs(value).toLocaleString("en-US")} EP`;
 }
 
 function rngdleResultCopy(roll: RngdleDiscordRoll, rank: number, playerCount: number, newBadges = 0, now = Date.now()): {
@@ -196,7 +196,7 @@ function rngdleResultCopy(roll: RngdleDiscordRoll, rank: number, playerCount: nu
   if (roll.rerolledAt !== null && result.penaltyPercent !== null) {
     return {
       header: null,
-      footer: `**Reroll locked · -${result.penaltyPercent}% from ${result.rawEp.toLocaleString("en-US")} base points · ${signedPoints(result.creditedEp - roll.initial.creditedEp)}**`,
+      footer: `**Reroll locked · -${result.penaltyPercent}% from ${result.rawEp.toLocaleString("en-US")} base EP · ${signedPoints(result.creditedEp - roll.initial.creditedEp)}**`,
     };
   }
   const rerollTimer = canRerollRngdle(roll.initialRolledAt, roll.rerolledAt, now)
@@ -380,7 +380,6 @@ export async function deliverRngdleRoll(input: {
     if (cached) {
       animation = cached.animation;
       durationMs = cached.durationMs;
-      still = cached.still;
     } else {
       try {
         const rendered = await renderRngdleDiscordAnimation(
@@ -392,7 +391,6 @@ export async function deliverRngdleRoll(input: {
         );
         animation = rendered.animation;
         durationMs = rendered.durationMs;
-        still = rendered.still;
         writeAssetCache(cacheKey, rendered);
       } catch (error) {
         // A failed GIF still leaves the final card worth delivering.
@@ -427,12 +425,26 @@ export async function deliverRngdleRoll(input: {
     console.warn(`rngdle: animation exceeded the interaction attachment limit (${limit} bytes)`);
   }
 
+  // Started once the GIF is on screen and awaited after it has played, so the
+  // final card costs playback time rather than delaying the animation.
+  const pendingStill: Promise<Buffer> | null = animationPosted
+    ? renderRngdleDiscordStill(
+      input.roll.current,
+      input.roll.displayName,
+      input.rank,
+      input.playerCount,
+      input.stats,
+    ).catch((error: unknown) => {
+      console.error("rngdle: still rendering failed during playback", error);
+      return null as unknown as Buffer;
+    })
+    : null;
+
   if (animationPosted) {
     await waitForAnimation(durationMs);
   }
 
-  // The compositing pipeline returns the still with the animation; only the
-  // animate:false path (or a failed animation render) still renders it here.
+  if (pendingStill) still = await pendingStill;
   if (!still) {
     try {
       still = await renderRngdleDiscordStill(
@@ -567,7 +579,7 @@ export async function deliverRngdleProfile(input: {
     if (response.ok) return;
   }
   const fallback = await patchJson(url, {
-    content: `👤 **${escapeDiscordText(input.profile.displayName)}** · #${input.profile.allTimeRank}/${input.profile.totalPlayers} · ${input.profile.careerEp.toLocaleString("en-US")} career points · ${input.profile.games} games`,
+    content: `👤 **${escapeDiscordText(input.profile.displayName)}** · #${input.profile.allTimeRank}/${input.profile.totalPlayers} · ${input.profile.careerEp.toLocaleString("en-US")} career EP · ${input.profile.games} games`,
     allowed_mentions: { parse: [] }, components: [], attachments: [],
   }, fetchImpl);
   if (!fallback.ok) throw new Error(`RNGDLE profile delivery failed (${await responseError(fallback)})`);

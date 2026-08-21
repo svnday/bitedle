@@ -1,9 +1,16 @@
 export const RNGDLE_TIME_ZONE = "America/New_York";
 export const RNGDLE_RESET_HOUR = 19;
 
-function timeZoneOffsetMs(date: Date, timeZone: string): number {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
+// Building an Intl.DateTimeFormat costs ~74us, and these helpers used to
+// construct three to six per call — enough to make rngdleNextResetAt ~460us,
+// paid on every interaction and once a second by the web demo. The formatters
+// depend only on the time zone, so they are built once.
+const offsetFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function offsetFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = offsetFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
       timeZone,
       year: "numeric",
       month: "2-digit",
@@ -12,7 +19,22 @@ function timeZoneOffsetMs(date: Date, timeZone: string): number {
       minute: "2-digit",
       second: "2-digit",
       hour12: false,
-    })
+    });
+    offsetFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+const easternDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: RNGDLE_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function timeZoneOffsetMs(date: Date, timeZone: string): number {
+  const parts = Object.fromEntries(
+    offsetFormatter(timeZone)
       .formatToParts(date)
       .map((part) => [part.type, part.value]),
   );
@@ -37,12 +59,7 @@ export function rngdleEasternWallClock(date: string, hour = RNGDLE_RESET_HOUR): 
 }
 
 function easternDate(now: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: RNGDLE_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
+  return easternDateFormatter.format(now);
 }
 
 function shiftDate(date: string, days: number): string {

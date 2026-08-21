@@ -183,24 +183,17 @@ function animationFrames(result: RngdleResult): RngdleAnimationFrame[] {
 
   // Badges then fill in beneath the number, in the order the final card lists
   // them, quickly enough that the roll stays the centrepiece.
+  // One frame per badge rather than a fade-in pair. The fade held for 70ms,
+  // which is under the threshold where it reads as motion, and each extra
+  // frame is paid for twice over in compositing and GIF encoding. The pair's
+  // delays are merged so the pacing is unchanged.
   let earnedEp = 0;
   revealBadges.forEach((badge, index) => {
     earnedEp += badge.ep;
     frames.push({
-      delay: 70,
-      digits: finalDigits,
-      lockedDigits: finalDigits.length,
-      badge,
-      badgeIndex: index + 1,
-      badgeCount: revealBadges.length,
-      earnedEp,
-      revealProgress: .5,
-      phase: "badge",
-    });
-    frames.push({
       // GIF delays are encoded in centiseconds, so every value here stays a
       // multiple of 10 to keep the reported duration exact.
-      delay: index === revealBadges.length - 1 ? 520 : 220,
+      delay: index === revealBadges.length - 1 ? 590 : 290,
       digits: finalDigits,
       lockedDigits: finalDigits.length,
       badge,
@@ -289,9 +282,21 @@ function Header({ subtitle }: { subtitle: string }) {
   );
 }
 
-function animationDigits(digits: string, lockedDigits: number, color: string) {
+/** The number's bloom, which only the landed roll wears. */
+const DIGIT_GLOW = (color: string) => `0 0 34px ${color}55, 0 0 120px ${color}3a`;
+
+/**
+ * The glow is by far the most expensive thing on the card — a 126px glyph with
+ * these two shadows rasterises in ~123ms against ~9ms without them, and the
+ * spin needs a fresh render for every distinct digit string. Withholding it
+ * until the roll settles cuts the animation's render cost by more than half,
+ * and it costs nothing visually: the pending digits are deliberately dim, so a
+ * 33%-alpha bloom on dim slate is barely there. It also gives the reveal one
+ * more thing to do, since the bloom now arrives with the rarity colour.
+ */
+function animationDigits(digits: string, lockedDigits: number, color: string, glow: boolean) {
   return (
-    <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 126, fontWeight: 700, lineHeight: 1, textShadow: `0 0 34px ${color}55, 0 0 120px ${color}3a` }}>
+    <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 126, fontWeight: 700, lineHeight: 1, ...(glow ? { textShadow: DIGIT_GLOW(color) } : {}) }}>
       {[...digits].map((digit, index) => (
         <div key={index} style={{ color: index < lockedDigits ? color : "#464e63", display: "flex" }}>{digit}</div>
       ))}
@@ -348,23 +353,45 @@ function panelBoxStyle(result: RngdleResult, settled: boolean): Record<string, u
   };
 }
 
+/**
+ * Which parts of the panel a render paints. Every layer keeps the identical
+ * layout — hidden elements are drawn in `transparent` rather than removed — so
+ * "base" and "ep" composite back into exactly what "full" would have produced,
+ * and both can be placed at the panel's origin without measuring anything.
+ *
+ * This exists because settled frames differ only in their EP total, and the
+ * glowing 126px number costs ~123ms to rasterise against ~7ms for the EP line.
+ * Rendering the glow once and varying only the cheap layer turns fourteen
+ * expensive panels into one plus fourteen cheap ones.
+ */
+type RngdlePanelLayer = "full" | "base" | "ep" | "empty";
+
 // Returned as a keyed array, not a fragment: satori treats a fragment child as
 // one flex-row box, which would flatten the panel's column stack sideways.
-function resultPanelBody(result: RngdleResult, stats: RngdleResultCardStats, view: RngdlePanelView) {
-  const color = cardTheme(result, view.settled).primary;
+function resultPanelBody(
+  result: RngdleResult,
+  stats: RngdleResultCardStats,
+  view: RngdlePanelView,
+  layer: RngdlePanelLayer = "full",
+) {
+  const themeColor = cardTheme(result, view.settled).primary;
+  const blank = layer === "empty";
+  const color = blank || layer === "ep" ? "transparent" : themeColor;
+  const epColor = blank || layer === "base" ? "transparent" : undefined;
+  const chrome = blank || layer === "ep" ? "transparent" : undefined;
   return [
     view.lockedDigits === null
-      ? <div key="digits" style={{ color, fontFamily: "Geist Mono", fontSize: 126, fontWeight: 700, lineHeight: 1, textShadow: `0 0 34px ${color}55, 0 0 120px ${color}3a`, display: "flex" }}>{view.digitsText}</div>
-      : <div key="digits" style={{ display: "flex" }}>{animationDigits(view.digitsText, view.lockedDigits, color)}</div>,
-    <div key="pill" style={{ marginTop: 18, padding: "7px 20px", borderRadius: 999, border: `1px solid ${view.settled ? color : "#3d465c"}`, color: view.settled ? color : "#68718a", backgroundColor: view.settled ? `${color}14` : "rgba(255,255,255,.02)", fontSize: 15, fontWeight: 700, display: "flex" }}>
+      ? <div key="digits" style={{ color, fontFamily: "Geist Mono", fontSize: 126, fontWeight: 700, lineHeight: 1, ...(layer === "ep" || layer === "empty" ? {} : { textShadow: DIGIT_GLOW(themeColor) }), display: "flex" }}>{view.digitsText}</div>
+      : <div key="digits" style={{ display: "flex" }}>{animationDigits(view.digitsText, view.lockedDigits, color, view.settled && layer === "full")}</div>,
+    <div key="pill" style={{ marginTop: 18, padding: "7px 20px", borderRadius: 999, border: `1px solid ${chrome ?? (view.settled ? themeColor : "#3d465c")}`, color: chrome ?? (view.settled ? themeColor : "#68718a"), backgroundColor: chrome ?? (view.settled ? `${themeColor}14` : "rgba(255,255,255,.02)"), fontSize: 15, fontWeight: 700, display: "flex" }}>
       {view.settled ? result.rarityLabel : "ROLLING"}
     </div>,
-    <div key="points" style={{ marginTop: 12, color: view.settled ? "#f6f5fa" : "#5c6479", fontFamily: "Geist Mono", fontSize: 34, fontWeight: 700, display: "flex" }}>{formatEp(view.pointsEp)} POINTS</div>,
+    <div key="points" style={{ marginTop: 12, color: epColor ?? (view.settled ? "#f6f5fa" : "#5c6479"), fontFamily: "Geist Mono", fontSize: 34, fontWeight: 700, display: "flex" }}>{formatEp(view.pointsEp)} EP</div>,
     view.showPenalty && result.penaltyPercent !== null ? (
       <div key="penalty" style={{ marginTop: 5, display: "flex", flexDirection: "column", alignItems: "center" }}>
         <div style={{ color: "#e2e5eb", fontFamily: "Geist Mono", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
           <svg width="15" height="15" viewBox="0 0 15 15"><path d="M12.4 5.2A5.2 5.2 0 1 0 12 10.4" fill="none" stroke="#e2e5eb" strokeWidth="1.7" strokeLinecap="round" /><path d="M10.1 3.9h2.8v2.8" fill="none" stroke="#e2e5eb" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          {stats.rerollDeltaEp !== null && stats.rerollDeltaEp >= 0 ? "+" : ""}{formatEp(stats.rerollDeltaEp ?? result.creditedEp - result.rawEp)} POINTS
+          {stats.rerollDeltaEp !== null && stats.rerollDeltaEp >= 0 ? "+" : ""}{formatEp(stats.rerollDeltaEp ?? result.creditedEp - result.rawEp)} EP
         </div>
         <div style={{ marginTop: 6, color, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>REROLL&nbsp;&nbsp;•&nbsp;&nbsp;-{result.penaltyPercent}% FROM {formatEp(result.rawEp)} BASE</div>
       </div>
@@ -372,10 +399,17 @@ function resultPanelBody(result: RngdleResult, stats: RngdleResultCardStats, vie
   ];
 }
 
-function panelPatchImage(result: RngdleResult, stats: RngdleResultCardStats, view: RngdlePanelView) {
+function panelPatchImage(
+  result: RngdleResult,
+  stats: RngdleResultCardStats,
+  view: RngdlePanelView,
+  layer: RngdlePanelLayer = "full",
+) {
+  // The EP layer carries no ground of its own; it lands on the base's.
+  const box = layer === "ep" ? { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" } : panelBoxStyle(result, view.settled);
   return (
-    <div style={{ width: PANEL_RECT.width, height: PANEL_RECT.height, fontFamily: "Geist", color: "#f6f5fa", ...panelBoxStyle(result, view.settled) }}>
-      {resultPanelBody(result, stats, view)}
+    <div style={{ width: PANEL_RECT.width, height: PANEL_RECT.height, fontFamily: "Geist", color: "#f6f5fa", ...box }}>
+      {resultPanelBody(result, stats, view, layer)}
     </div>
   );
 }
@@ -482,19 +516,21 @@ function referenceShell(children: React.ReactNode, from: string, to: string, glo
   );
 }
 
-function chipPointsText(badge: RngdleBadge): string {
-  return `+${formatEp(badge.ep)} POINTS`;
+function chipEpText(badge: RngdleBadge): string {
+  return `+${formatEp(badge.ep)} EP`;
 }
 
 // Chip widths stay integers so the crop rectangles computed in
 // resultBadgeRects line up exactly with where yoga lays the chips out. The
-// width covers whichever row is wider — label plus the points value (a large
-// EP like "+37,023 POINTS" used to wrap and spill out of the box) or the
-// description — using rough per-glyph widths for each font size.
+// width covers whichever row is wider — the label plus its EP value, or the
+// description — using rough per-glyph widths for each font size, since a row
+// that overflows gets clipped rather than wrapped.
 function chipWidth(badge: RngdleBadge): number {
-  const topRow = 22 + clipped(badge.label, 20).length * 6.6 + 10 + chipPointsText(badge).length * 5.2;
+  const topRow = 22 + clipped(badge.label, 20).length * 6.6 + 10 + chipEpText(badge).length * 5.2;
   const descRow = 22 + clipped(badge.desc, 38).length * 4.4;
-  return Math.round(Math.min(250, Math.max(160, topRow, descRow)));
+  // Measured across all 230 badges: the widest is "4 Consecutive Numbers"
+  // carrying "+25,000,025 EP" at 237px, so this ceiling never clips.
+  return Math.round(Math.min(260, Math.max(160, topRow, descRow)));
 }
 
 // Chips stay mostly neutral — white label, grey border, accent only in the
@@ -508,7 +544,7 @@ function compactResultBadge(badge: RngdleBadge, color: string) {
     <div key={badge.id} style={{ width, height: 42, borderRadius: 15, border: `1px solid ${standout ? "rgba(238,241,252,.78)" : "rgba(148,155,186,.30)"}`, background: standout ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.02)", padding: "6px 11px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ width: "100%", display: "flex", justifyContent: "space-between" }}>
         <div style={{ color: "#f3f4f9", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", display: "flex" }}>{clipped(badge.label, 20)}</div>
-        <div style={{ color, fontFamily: "Geist Mono", fontSize: 8.5, fontWeight: 700, whiteSpace: "nowrap", display: "flex" }}>{chipPointsText(badge)}</div>
+        <div style={{ color, fontFamily: "Geist Mono", fontSize: 8.5, fontWeight: 700, whiteSpace: "nowrap", display: "flex" }}>{chipEpText(badge)}</div>
       </div>
       <div style={{ marginTop: 4, color: "#8a90a2", fontSize: 8.5, whiteSpace: "nowrap", display: "flex" }}>{clipped(badge.desc, 38)}</div>
     </div>
@@ -540,6 +576,7 @@ function resultCardImage(
   stats: RngdleResultCardStats,
   view: RngdlePanelView,
   badges: RngdleBadge[],
+  layer: RngdlePanelLayer = "full",
 ) {
   const theme = cardTheme(result, view.settled);
   const color = theme.primary;
@@ -554,7 +591,7 @@ function resultCardImage(
         <div style={{ marginTop: 12, fontSize: 15, fontWeight: 700, display: "flex" }}>NEXT DROP IN {formatDropCountdown(stats.nextResetAt, stats.now)}</div>
       </div>
       <div style={{ position: "absolute", left: PANEL_RECT.left, top: PANEL_RECT.top, width: PANEL_RECT.width, height: PANEL_RECT.height, ...panelBoxStyle(result, view.settled) }}>
-        {resultPanelBody(result, stats, view)}
+        {resultPanelBody(result, stats, view, layer)}
       </div>
       <div style={{ position: "absolute", left: 62, top: 478, width: 1076, display: "flex", flexWrap: "wrap", gap: 7 }}>
         {badges.map((badge) => compactResultBadge(badge, color))}
@@ -564,7 +601,7 @@ function resultCardImage(
           [clipped(playerName, 24), "TODAY'S ROLLER"],
           [`#${rank} / ${playerCount}`, "TODAY"],
           [`${stats.currentStreak} ${stats.currentStreak === 1 ? "DAY" : "DAYS"}`, "STREAK"],
-          [formatEp(stats.careerEp), "CAREER POINTS"],
+          [formatEp(stats.careerEp), "CAREER EP"],
         ].map(([value, label]) => (
           <div key={label} style={{ width: 230, display: "flex", flexDirection: "column" }}>
             <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "Geist Mono", display: "flex" }}>{value}</div>
@@ -595,25 +632,45 @@ function resultImage(
 // so margins never overlap a neighbour.
 const CHIP_CROP_MARGIN = 2;
 
+const BADGE_GRID = { left: 62, top: 478, width: 1076, height: 160 } as const;
+
+/**
+ * Chip positions within the badge grid. Returned relative to the grid so the
+ * same numbers crop a chip out of the strip and place it on a frame.
+ */
 function resultBadgeRects(badges: RngdleBadge[]): Array<{ left: number; top: number; width: number; height: number }> {
   const rects: Array<{ left: number; top: number; width: number; height: number }> = [];
   let x = 0;
   let row = 0;
   for (const badge of badges) {
     const width = chipWidth(badge);
-    if (x > 0 && x + width > 1076) {
+    if (x > 0 && x + width > BADGE_GRID.width) {
       x = 0;
       row += 1;
     }
     rects.push({
-      left: 62 + x - CHIP_CROP_MARGIN,
-      top: 478 + row * 49 - CHIP_CROP_MARGIN,
+      left: Math.max(0, x - CHIP_CROP_MARGIN),
+      top: Math.max(0, row * 49 - CHIP_CROP_MARGIN),
       width: width + CHIP_CROP_MARGIN * 2,
       height: 42 + CHIP_CROP_MARGIN * 2,
     });
     x += width + 7;
   }
   return rects;
+}
+
+/**
+ * The badge grid alone, on a transparent ground. Cutting chips from here
+ * rather than from the finished card breaks the animation's dependency on the
+ * still, which lets the still be rendered later — after the GIF is already on
+ * screen — instead of blocking it.
+ */
+function badgeStripImage(badges: RngdleBadge[], color: string) {
+  return (
+    <div style={{ width: BADGE_GRID.width, height: BADGE_GRID.height, display: "flex", flexWrap: "wrap", gap: 7, alignContent: "flex-start", fontFamily: "Geist", color: "#f6f5fa" }}>
+      {badges.map((badge) => compactResultBadge(badge, color))}
+    </div>
+  );
 }
 
 // Only the top roll is emphasised with a full-strength border and glow; the
@@ -632,9 +689,9 @@ function profileRollCard(
       {roll ? (
         <div style={{ width: 300, height: 210, display: "flex", flexDirection: "column", alignItems: "center" }}>
           <div style={{ width: 300, marginTop: 38, color: accent, fontFamily: "Geist Mono", fontSize: 56, fontWeight: 700, lineHeight: 1, textShadow: `0 0 26px ${accent}4a`, display: "flex", justifyContent: "center" }}>{roll.result.number}</div>
-          <div style={{ width: 300, marginTop: 17, fontFamily: "Geist Mono", fontSize: 19, fontWeight: 700, display: "flex", justifyContent: "center" }}>{formatEp(roll.result.creditedEp)} POINTS</div>
+          <div style={{ width: 300, marginTop: 17, fontFamily: "Geist Mono", fontSize: 19, fontWeight: 700, display: "flex", justifyContent: "center" }}>{formatEp(roll.result.creditedEp)} EP</div>
           <div style={{ width: 300, marginTop: 11, color: accent, fontSize: 12, fontWeight: 900, display: "flex", justifyContent: "center" }}>{roll.result.rarityLabel}</div>
-          {roll.result.penaltyPercent !== null ? <div style={{ width: 300, marginTop: 7, color: "#c3cad8", fontFamily: "Geist Mono", fontSize: 8.5, fontWeight: 700, display: "flex", justifyContent: "center" }}>REROLL {formatEp(roll.result.creditedEp - roll.result.rawEp)} POINTS&nbsp;&nbsp;•&nbsp;&nbsp;-{roll.result.penaltyPercent}%</div> : null}
+          {roll.result.penaltyPercent !== null ? <div style={{ width: 300, marginTop: 7, color: "#c3cad8", fontFamily: "Geist Mono", fontSize: 8.5, fontWeight: 700, display: "flex", justifyContent: "center" }}>REROLL {formatEp(roll.result.creditedEp - roll.result.rawEp)} EP&nbsp;&nbsp;•&nbsp;&nbsp;-{roll.result.penaltyPercent}%</div> : null}
           <div style={{ width: 300, marginTop: "auto", color: "#65718a", fontSize: 9.5, fontFamily: "monospace", display: "flex", justifyContent: "center" }}>{footer}</div>
         </div>
       ) : (
@@ -673,7 +730,7 @@ function profileImage(profile: RngdleUserProfile, avatarDataUrl?: string | null)
         {[
           [`#${profile.allTimeRank} / ${profile.totalPlayers}`, "ALL-TIME RANK"],
           [String(profile.games), "GAMES"],
-          [formatEp(profile.careerEp), "CAREER POINTS"],
+          [formatEp(profile.careerEp), "CAREER EP"],
           [String(profile.currentStreak), "CURRENT STREAK"],
           [`${profile.uniqueBadges} / ${profile.totalBadges}`, "UNIQUE PATTERNS"],
           [`${profile.rerollDeltaEp >= 0 ? "+" : ""}${formatEp(profile.rerollDeltaEp)}`, "REROLL P&L"],
@@ -690,7 +747,7 @@ function profileImage(profile: RngdleUserProfile, avatarDataUrl?: string | null)
           <div key={badge.id} style={{ width: 208, height: 76, borderRadius: 17, border: "1px solid rgba(238,241,252,.30)", background: "rgba(255,255,255,.04)", padding: "10px 16px", display: "flex", flexDirection: "column" }}>
             <div style={{ color: "#f3f4f9", fontSize: 15, fontWeight: 900, whiteSpace: "nowrap", display: "flex" }}>{clipped(badge.label, 22)}</div>
             <div style={{ marginTop: 7, color: "#8a90a2", fontSize: 9.5, whiteSpace: "nowrap", display: "flex" }}>{clipped(badge.desc, 31)}</div>
-            <div style={{ marginTop: "auto", color: profileTheme.primary, fontFamily: "Geist Mono", fontSize: 9, fontWeight: 700, display: "flex" }}>+{formatEp(badge.ep)} POINTS</div>
+            <div style={{ marginTop: "auto", color: profileTheme.primary, fontFamily: "Geist Mono", fontSize: 9, fontWeight: 700, display: "flex" }}>+{formatEp(badge.ep)} EP</div>
           </div>
         ))}
       </div>
@@ -731,7 +788,7 @@ function leaderboardImage(entries: RngdleLeaderboardEntry[], totalPlayers: numbe
       <div style={{ position: "absolute", left: 58, top: 42, display: "flex", flexDirection: "column" }}>
         <div style={{ fontSize: 27, fontWeight: 950, display: "flex" }}>RNGDLE</div>
         <div style={{ marginTop: 17, fontSize: 37, fontWeight: 950, display: "flex" }}>ALL-TIME LEADERBOARD</div>
-        <div style={{ marginTop: 8, color: "#7f8ca5", fontSize: 15, display: "flex" }}>{totalPlayers} PLAYERS&nbsp;&nbsp;•&nbsp;&nbsp;CAREER POINTS</div>
+        <div style={{ marginTop: 8, color: "#7f8ca5", fontSize: 15, display: "flex" }}>{totalPlayers} PLAYERS&nbsp;&nbsp;•&nbsp;&nbsp;CAREER EP</div>
       </div>
       <div style={{ position: "absolute", left: 51, top: 187, width: 1098, display: "flex", flexDirection: "column", gap: 8 }}>
         {entries.slice(0, 10).map((entry, index) => {
@@ -748,19 +805,19 @@ function leaderboardImage(entries: RngdleLeaderboardEntry[], totalPlayers: numbe
               <div style={{ width: 250, display: "flex", flexDirection: "column" }}>
                 <div style={{ color: bestColor, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>BEST {entry.bestNumber}</div>
                 <div style={{ marginTop: 3, color: index >= 7 ? accent : "#b7b5c5", fontFamily: "Geist Mono", fontSize: 8.5, display: "flex", alignItems: "center", gap: 3 }}>
-                  <div style={{ display: "flex" }}>{formatEp(entry.bestEp)} PTS</div>
+                  <div style={{ display: "flex" }}>{formatEp(entry.bestEp)} EP</div>
                   {entry.bestPenaltyPercent === null ? null : (
                     <svg width="9" height="9" viewBox="0 0 15 15"><path d="M12.4 5.2A5.2 5.2 0 1 0 12 10.4" fill="none" stroke={index >= 7 ? accent : "#b7b5c5"} strokeWidth="2" strokeLinecap="round" /><path d="M10.1 3.9h2.8v2.8" fill="none" stroke={index >= 7 ? accent : "#b7b5c5"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                   )}
                   {entry.bestPenaltyPercent === null ? null : <div style={{ display: "flex" }}>-{entry.bestPenaltyPercent}%</div>}
                 </div>
               </div>
-              <div style={{ width: 181, paddingRight: 15, justifyContent: "flex-end", whiteSpace: "nowrap", fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, letterSpacing: -.25, display: "flex" }}>{formatEp(entry.totalEp)} POINTS</div>
+              <div style={{ width: 181, paddingRight: 15, justifyContent: "flex-end", whiteSpace: "nowrap", fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, letterSpacing: -.25, display: "flex" }}>{formatEp(entry.totalEp)} EP</div>
             </div>
           );
         })}
       </div>
-      <div style={{ position: "absolute", left: 58, bottom: 37, color: "#718098", fontSize: 13, display: "flex" }}>Ranked by total career points</div>
+      <div style={{ position: "absolute", left: 58, bottom: 37, color: "#718098", fontSize: 13, display: "flex" }}>Ranked by total career EP</div>
       <div style={{ position: "absolute", left: 900, width: 242, bottom: 37, color: "#718098", fontSize: 13, justifyContent: "flex-end", display: "flex" }}>Daily play builds your all-time total</div>
     </>,
     "#0b2837",
@@ -792,55 +849,16 @@ async function render(
 const RENDER_CONCURRENCY = 6;
 
 /**
- * Rasterising the animation below full size would roughly halve render time,
- * but satori does not apply a CSS transform to absolutely-positioned
- * descendants on the same terms as their static parents, so a scaled card's
- * real chip positions drift from `round(x * scale)`. Composited chips then
- * land in the wrong place and the header and footer disappear. Left at 1
- * until the animation can be laid out at a smaller size directly rather than
- * by scaling the full-size card.
+ * The roll animation's canvas. Rasterising it smaller would roughly halve
+ * render time, but it cannot be done by scaling the full-size card: satori
+ * does not apply a CSS transform to absolutely-positioned descendants on the
+ * same terms as their static parents, so composited chips land in the wrong
+ * place and the header and footer vanish. Doing it properly means laying the
+ * animation out at a smaller size directly, which is a real refactor rather
+ * than a constant.
  */
-const GIF_RENDER_SCALE = 1;
-export const GIF_WIDTH = Math.round(RNGDLE_DISCORD_WIDTH * GIF_RENDER_SCALE);
-export const GIF_HEIGHT = Math.round(RNGDLE_DISCORD_HEIGHT * GIF_RENDER_SCALE);
-
-/**
- * Renders `element` into a canvas scaled by `scale`. satori applies CSS
- * transforms about the element's centre, so the inner box is offset by half
- * the size it loses to bring its top-left corner back to the origin.
- */
-function scaledElement(element: React.ReactElement, baseWidth: number, baseHeight: number, scale: number) {
-  if (scale === 1) return element;
-  return (
-    <div style={{ width: Math.round(baseWidth * scale), height: Math.round(baseHeight * scale), overflow: "hidden", display: "flex" }}>
-      <div
-        style={{
-          width: baseWidth,
-          height: baseHeight,
-          marginLeft: -Math.round((baseWidth * (1 - scale)) / 2),
-          marginTop: -Math.round((baseHeight * (1 - scale)) / 2),
-          transform: `scale(${scale})`,
-          flexShrink: 0,
-          display: "flex",
-        }}
-      >
-        {element}
-      </div>
-    </div>
-  );
-}
-
-/** A full-resolution card rect mapped onto the scaled animation canvas. */
-function scaledRect(rect: { left: number; top: number; width: number; height: number }) {
-  const left = Math.max(0, Math.round(rect.left * GIF_RENDER_SCALE));
-  const top = Math.max(0, Math.round(rect.top * GIF_RENDER_SCALE));
-  return {
-    left,
-    top,
-    width: Math.max(1, Math.min(GIF_WIDTH - left, Math.round(rect.width * GIF_RENDER_SCALE))),
-    height: Math.max(1, Math.min(GIF_HEIGHT - top, Math.round(rect.height * GIF_RENDER_SCALE))),
-  };
-}
+export const GIF_WIDTH = RNGDLE_DISCORD_WIDTH;
+export const GIF_HEIGHT = RNGDLE_DISCORD_HEIGHT;
 
 // Per-phase render timings, for diagnosing slow rolls on deployed instances
 // where the CPU is far slower than a dev machine. Off unless explicitly set.
@@ -1018,7 +1036,6 @@ export function renderRngdleDiscordLeaderboard(entries: RngdleLeaderboardEntry[]
 
 export interface RngdleAnimationAssets {
   animation: Buffer;
-  still: Buffer;
   durationMs: number;
 }
 
@@ -1043,53 +1060,28 @@ export async function renderRngdleDiscordAnimation(
   // Two base cards, because the backdrop itself is part of the reveal: frames
   // before the number lands wear the pending theme, and everything after wears
   // the rarity's. Each frame's panel patch is drawn over the matching base.
-  const [still, basePending, baseSettled] = await Promise.all([
-    renderRngdleDiscordStill(result, playerName, rank, playerCount, stats),
+  const [basePending, baseSettled, badgeStrip] = await Promise.all([
     render(
-      scaledElement(
-        resultCardImage(result, playerName, rank, playerCount, stats, panelViewForFrame(result, frames[0]), []),
-        RNGDLE_DISCORD_WIDTH,
-        RNGDLE_DISCORD_HEIGHT,
-        GIF_RENDER_SCALE,
-      ),
+      resultCardImage(result, playerName, rank, playerCount, stats, panelViewForFrame(result, frames[0]), [], "empty"),
       GIF_WIDTH,
       GIF_HEIGHT,
     ),
     render(
-      scaledElement(
-        resultCardImage(result, playerName, rank, playerCount, stats, stillPanelView(result), []),
-        RNGDLE_DISCORD_WIDTH,
-        RNGDLE_DISCORD_HEIGHT,
-        GIF_RENDER_SCALE,
-      ),
+      resultCardImage(result, playerName, rank, playerCount, stats, stillPanelView(result), [], "empty"),
       GIF_WIDTH,
       GIF_HEIGHT,
     ),
+    render(badgeStripImage(visible, cardTheme(result, true).primary), BADGE_GRID.width, BADGE_GRID.height),
   ]);
-  timer.mark("still+bases");
+  timer.mark("bases+strip");
 
-  // Chips come straight off the delivered still (identical geometry while
-  // GIF_RENDER_SCALE is 1) and only ever land on settled frames, so the
-  // backdrop in each crop's margin matches the base underneath it.
-  const rects = resultBadgeRects(visible).map(scaledRect);
+  // Chips carry a transparent margin, so they blend onto whichever backdrop
+  // the frame beneath them is wearing.
+  const rects = resultBadgeRects(visible);
   const chipCrops: Buffer[] = [];
   for (const rect of rects) {
-    chipCrops.push(await sharp(still).extract(rect).png().toBuffer());
+    chipCrops.push(await sharp(badgeStrip).extract(rect).png().toBuffer());
   }
-  // A crop is opaque (chip over backdrop), and the base holds the identical
-  // backdrop pixels, so scaling the crop's alpha blends into exactly the
-  // chip-at-that-opacity fade the old full-frame render produced.
-  const fadedChips = new Map<string, Buffer>();
-  const fadedChip = async (chip: number, opacity: number) => {
-    const key = `${chip}:${opacity}`;
-    let faded = fadedChips.get(key);
-    if (!faded) {
-      faded = await sharp(chipCrops[chip]).ensureAlpha().linear([1, 1, 1, opacity], [0, 0, 0, 0]).png().toBuffer();
-      fadedChips.set(key, faded);
-    }
-    return faded;
-  };
-
   // Panel patches are deduplicated: the two frames of each badge reveal share
   // identical panel content, only the chip fade differs.
   const viewKey = (view: RngdlePanelView) => JSON.stringify(view);
@@ -1099,29 +1091,58 @@ export async function renderRngdleDiscordAnimation(
     const view = panelViewForFrame(result, frame);
     uniqueViews.set(viewKey(view), view);
   }
-  await mapLimit([...uniqueViews.values()], RENDER_CONCURRENCY, async (view) => {
-    panelPatches.set(viewKey(view), await render(
-      scaledElement(panelPatchImage(result, stats, view), PANEL_RECT.width, PANEL_RECT.height, GIF_RENDER_SCALE),
-      Math.round(PANEL_RECT.width * GIF_RENDER_SCALE),
-      Math.round(PANEL_RECT.height * GIF_RENDER_SCALE),
-    ));
-  });
-  timer.mark(`panels(${uniqueViews.size})`);
+  // Pending panels carry no glow, so they are cheap to render outright.
+  // Settled panels all share one glowing base and differ only in their EP
+  // total, so that base is rendered once and each frame composites a cheap
+  // EP layer onto it.
+  const views = [...uniqueViews.values()];
+  const pending = views.filter((view) => !view.settled);
+  const settled = views.filter((view) => view.settled);
+  const baseKey = (view: RngdlePanelView) => String(view.showPenalty);
+  const settledBases = new Map<string, Buffer>();
 
-  const panelOrigin = scaledRect(PANEL_RECT);
+  await Promise.all([
+    mapLimit(pending, RENDER_CONCURRENCY, async (view) => {
+      panelPatches.set(viewKey(view), await render(
+        panelPatchImage(result, stats, view),
+        PANEL_RECT.width,
+        PANEL_RECT.height,
+      ));
+    }),
+    mapLimit([...new Map(settled.map((view) => [baseKey(view), view])).values()], RENDER_CONCURRENCY, async (view) => {
+      settledBases.set(baseKey(view), await render(
+        panelPatchImage(result, stats, view, "base"),
+        PANEL_RECT.width,
+        PANEL_RECT.height,
+      ));
+    }),
+  ]);
+
+  await mapLimit(settled, RENDER_CONCURRENCY, async (view) => {
+    const epLayer = await render(
+      panelPatchImage(result, stats, view, "ep"),
+      PANEL_RECT.width,
+      PANEL_RECT.height,
+    );
+    panelPatches.set(viewKey(view), await sharp(settledBases.get(baseKey(view))!)
+      .composite([{ input: epLayer, left: 0, top: 0 }])
+      .png()
+      .toBuffer());
+  });
+  timer.mark(`panels(${uniqueViews.size}:${settledBases.size}base+${settled.length}ep+${pending.length}plain)`);
+
   const frameBytes = GIF_WIDTH * GIF_HEIGHT * 4;
   const stacked = Buffer.allocUnsafe(frameBytes * frames.length);
   await mapLimit(frames, RENDER_CONCURRENCY, async (frame, index) => {
     const overlays: Array<{ input: Buffer; left: number; top: number }> = [
-      { input: panelPatches.get(viewKey(panelViewForFrame(result, frame)))!, left: panelOrigin.left, top: panelOrigin.top },
+      { input: panelPatches.get(viewKey(panelViewForFrame(result, frame)))!, left: PANEL_RECT.left, top: PANEL_RECT.top },
     ];
     const revealedChips = Math.min(frame.badgeIndex, rects.length);
     for (let chip = 0; chip < revealedChips; chip += 1) {
-      const fading = frame.badge !== null && chip === revealedChips - 1 && frame.revealProgress < 1;
       overlays.push({
-        input: fading ? await fadedChip(chip, frame.revealProgress) : chipCrops[chip],
-        left: rects[chip].left,
-        top: rects[chip].top,
+        input: chipCrops[chip],
+        left: BADGE_GRID.left + rects[chip].left,
+        top: BADGE_GRID.top + rects[chip].top,
       });
     }
     const frameBase = panelViewForFrame(result, frame).settled ? baseSettled : basePending;
@@ -1145,7 +1166,6 @@ export async function renderRngdleDiscordAnimation(
   timer.log(`rngdle: roll ${result.number}`);
   return {
     animation,
-    still,
     durationMs: frames.reduce((total, frame) => total + frame.delay, 0),
   };
 }
@@ -1157,6 +1177,10 @@ export async function renderRngdleDiscordAssets(
   playerCount: number,
   stats: RngdleResultCardStats,
 ): Promise<RngdleDiscordAssets> {
-  const { animation, still, durationMs } = await renderRngdleDiscordAnimation(result, playerName, rank, playerCount, stats);
-  return { animation, still, durationMs };
+  const { animation, durationMs } = await renderRngdleDiscordAnimation(result, playerName, rank, playerCount, stats);
+  return {
+    animation,
+    still: await renderRngdleDiscordStill(result, playerName, rank, playerCount, stats),
+    durationMs,
+  };
 }

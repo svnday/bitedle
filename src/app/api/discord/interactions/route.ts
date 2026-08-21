@@ -823,11 +823,17 @@ async function processRngdleCommand(
   try {
     const repository = getRngdleDiscordRepository();
     if (subcommand === "leaderboard") {
-      const entries = await repository.leaderboard(guildId, 100_000);
+      // The card shows ten rows and a total, so fetch ten rows and a total
+      // rather than aggregating every roll in the guild to count its players.
+      const [entries, totalPlayers] = await Promise.all([
+        repository.leaderboard(guildId, 10),
+        repository.playerCount(guildId),
+      ]);
       await deliverRngdleLeaderboard({
         applicationId,
         token,
         entries,
+        totalPlayers,
         attachmentSizeLimit: body.attachment_size_limit,
       });
       return;

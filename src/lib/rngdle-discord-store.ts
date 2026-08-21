@@ -79,6 +79,8 @@ export interface RngdleDiscordRepository {
   }): Promise<RngdleRerollOutcome>;
   dailyStandings(guildId: string, gameDay: string): Promise<RngdleDailyStanding[]>;
   leaderboard(guildId: string, limit?: number): Promise<RngdleLeaderboardEntry[]>;
+  /** Distinct players in a guild, for the leaderboard's "N PLAYERS" caption. */
+  playerCount(guildId: string): Promise<number>;
   userProfile(guildId: string, userId: string, currentGameDay: string): Promise<RngdleUserProfile | null>;
 }
 
@@ -313,6 +315,14 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
       }));
   }
 
+  async playerCount(guildId: string): Promise<number> {
+    const players = new Set<string>();
+    for (const roll of Object.values(this.db.rolls)) {
+      if (roll.guildId === guildId) players.add(roll.userId);
+    }
+    return players.size;
+  }
+
   async userProfile(guildId: string, userId: string, currentGameDay: string): Promise<RngdleUserProfile | null> {
     const rolls = Object.values(this.db.rolls)
       .filter((roll) => roll.guildId === guildId && roll.userId === userId)
@@ -494,6 +504,15 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
       bestPenaltyPercent: row.best_penalty_percent === null ? null : Number(row.best_penalty_percent),
       bestRarity: row.best_rarity,
     }));
+  }
+
+  async playerCount(guildId: string): Promise<number> {
+    await this.ensureSchema();
+    const rows = await this.sql`
+      SELECT COUNT(DISTINCT user_id)::int AS players
+      FROM rngdle_rolls
+      WHERE guild_id = ${guildId}` as Array<{ players: number }>;
+    return rows[0]?.players ?? 0;
   }
 
   async userProfile(guildId: string, userId: string, currentGameDay: string): Promise<RngdleUserProfile | null> {
