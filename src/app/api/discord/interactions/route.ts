@@ -953,7 +953,7 @@ async function handleRngdleReroll(body: Interaction): Promise<NextResponse> {
   if (!existing) return reply("That RNGDLE roll no longer exists.", true);
   if (!canRerollRngdle(existing.initialRolledAt, existing.rerolledAt, now)) {
     return reply(existing.rerolledAt === null
-      ? "The 10-minute RNGDLE reroll window has expired."
+      ? "Today's RNGDLE reroll window closed at the daily reset."
       : "You already used the one reroll for today's RNGDLE.", true);
   }
 
@@ -971,7 +971,7 @@ async function handleRngdleReroll(body: Interaction): Promise<NextResponse> {
   });
   if (outcome.status !== "updated") {
     return reply(outcome.status === "expired"
-      ? "The 10-minute RNGDLE reroll window has expired."
+      ? "Today's RNGDLE reroll window closed at the daily reset."
       : "You already used the one reroll for today's RNGDLE.", true);
   }
   const [standings, profile] = await Promise.all([

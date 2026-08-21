@@ -1,6 +1,5 @@
 export const RNGDLE_TIME_ZONE = "America/New_York";
 export const RNGDLE_RESET_HOUR = 19;
-export const RNGDLE_REROLL_WINDOW_MS = 10 * 60 * 1_000;
 
 function timeZoneOffsetMs(date: Date, timeZone: string): number {
   const parts = Object.fromEntries(
@@ -62,8 +61,10 @@ export function rngdleNextResetAt(now: Date = new Date()): number {
   return rngdleEasternWallClock(shiftDate(rngdleGameDay(now), 1));
 }
 
+// The one reroll stays available for the rest of the roll's game day: the
+// deadline is the daily reset that follows the initial roll.
 export function rngdleRerollDeadline(initialRolledAt: number): number {
-  return initialRolledAt + RNGDLE_REROLL_WINDOW_MS;
+  return rngdleNextResetAt(new Date(initialRolledAt));
 }
 
 export function canRerollRngdle(

@@ -111,9 +111,14 @@ assert.equal(time.rngdleNextResetAt(new Date("2026-08-19T23:00:00.000Z")), Date.
 assert.equal(time.rngdleEasternWallClock("2026-03-07"), Date.parse("2026-03-08T00:00:00.000Z"));
 assert.equal(time.rngdleEasternWallClock("2026-03-08"), Date.parse("2026-03-08T23:00:00.000Z"));
 assert.equal(time.rngdleEasternWallClock("2026-11-01"), Date.parse("2026-11-02T00:00:00.000Z"));
-assert.equal(time.canRerollRngdle(1_000, null, 600_999), true);
-assert.equal(time.canRerollRngdle(1_000, null, 601_000), false);
-assert.equal(time.canRerollRngdle(1_000, 2_000, 3_000), false);
+// The single reroll stays open until the daily reset that follows the roll.
+const rerollRollAt = Date.parse("2026-08-19T23:30:00.000Z"); // game day 2026-08-19
+const rerollDeadline = Date.parse("2026-08-20T23:00:00.000Z"); // next 7PM ET reset
+assert.equal(time.rngdleRerollDeadline(rerollRollAt), rerollDeadline);
+assert.equal(time.canRerollRngdle(rerollRollAt, null, rerollRollAt + 11 * 60 * 1_000), true);
+assert.equal(time.canRerollRngdle(rerollRollAt, null, rerollDeadline - 1), true);
+assert.equal(time.canRerollRngdle(rerollRollAt, null, rerollDeadline), false);
+assert.equal(time.canRerollRngdle(rerollRollAt, rerollRollAt + 60_000, rerollRollAt + 120_000), false);
 
 assert.deepEqual(reveal.rngdleDigitRevealOffsets(69), [0, 1_000, 2_040, 3_200, 4_560, 6_200]);
 assert.equal(reveal.rngdleNumberRevealTimeline(69, false).spinMs, 2_000);

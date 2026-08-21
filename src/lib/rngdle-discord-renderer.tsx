@@ -30,13 +30,13 @@ const ROLL_THEMES: Record<RngdleResult["rarity"], {
   panelFrom: string;
   panelTo: string;
 }> = {
-  trash: { primary: "#6d7f9c", from: "#07111b", to: "#253141", panelFrom: "#070b11", panelTo: "#101722" },
-  common: { primary: "#e1e3ea", from: "#090a0f", to: "#20212a", panelFrom: "#07080d", panelTo: "#14151c" },
-  uncommon: { primary: "#34e2ad", from: "#061612", to: "#174334", panelFrom: "#06100e", panelTo: "#0d241d" },
-  rare: { primary: "#35a7ff", from: "#071522", to: "#16456d", panelFrom: "#060d15", panelTo: "#0c253c" },
-  epic: { primary: "#9f78ff", from: "#0c091c", to: "#3c176e", panelFrom: "#090713", panelTo: "#1e1037" },
-  anomaly: { primary: "#ff4ea3", from: "#1a0713", to: "#68163c", panelFrom: "#11060c", panelTo: "#351020" },
-  mythic: { primary: "#ffc04a", from: "#201404", to: "#62400b", panelFrom: "#120d04", panelTo: "#322108" },
+  trash: { primary: "#6d7f9c", from: "#0a1420", to: "#33455e", panelFrom: "#080c12", panelTo: "#141b26" },
+  common: { primary: "#e1e3ea", from: "#0d0e15", to: "#2c2e3c", panelFrom: "#08090e", panelTo: "#171821" },
+  uncommon: { primary: "#34e2ad", from: "#08201a", to: "#1e5f47", panelFrom: "#071310", panelTo: "#102a21" },
+  rare: { primary: "#35a7ff", from: "#082030", to: "#1d6099", panelFrom: "#071019", panelTo: "#0f2b46" },
+  epic: { primary: "#9f78ff", from: "#130c2b", to: "#54309e", panelFrom: "#0a0816", panelTo: "#211540" },
+  anomaly: { primary: "#ff4ea3", from: "#250a1b", to: "#872050", panelFrom: "#130710", panelTo: "#3a1324" },
+  mythic: { primary: "#ffc04a", from: "#2a1a06", to: "#87590f", panelFrom: "#150f05", panelTo: "#3a280a" },
 };
 
 const FONT_ROOT = path.join(process.cwd(), "node_modules", "geist", "dist", "fonts");
@@ -252,7 +252,7 @@ function Header({ subtitle }: { subtitle: string }) {
 
 function animationDigits(digits: string, lockedDigits: number, color: string) {
   return (
-    <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 126, fontWeight: 700, lineHeight: 1, textShadow: `0 0 32px ${color}38` }}>
+    <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 126, fontWeight: 700, lineHeight: 1, textShadow: `0 0 34px ${color}55, 0 0 120px ${color}3a` }}>
       {[...digits].map((digit, index) => (
         <div key={index} style={{ color: index < lockedDigits ? color : "#464e63", display: "flex" }}>{digit}</div>
       ))}
@@ -315,7 +315,7 @@ function resultPanelBody(result: RngdleResult, stats: RngdleResultCardStats, vie
   const color = ROLL_THEMES[result.rarity].primary;
   return [
     view.lockedDigits === null
-      ? <div key="digits" style={{ color, fontFamily: "Geist Mono", fontSize: 126, fontWeight: 700, lineHeight: 1, textShadow: `0 0 32px ${color}38`, display: "flex" }}>{view.digitsText}</div>
+      ? <div key="digits" style={{ color, fontFamily: "Geist Mono", fontSize: 126, fontWeight: 700, lineHeight: 1, textShadow: `0 0 34px ${color}55, 0 0 120px ${color}3a`, display: "flex" }}>{view.digitsText}</div>
       : <div key="digits" style={{ display: "flex" }}>{animationDigits(view.digitsText, view.lockedDigits, color)}</div>,
     <div key="pill" style={{ marginTop: 18, padding: "7px 20px", borderRadius: 999, border: `1px solid ${view.settled ? color : "#3d465c"}`, color: view.settled ? color : "#68718a", backgroundColor: view.settled ? `${color}14` : "rgba(255,255,255,.02)", fontSize: 15, fontWeight: 700, display: "flex" }}>
       {view.settled ? result.rarityLabel : "ROLLING"}
@@ -389,30 +389,47 @@ function GridBackdrop({ from, to }: { from: string; to: string }) {
   );
 }
 
-function referenceShell(children: React.ReactNode, from: string, to: string) {
+function referenceShell(children: React.ReactNode, from: string, to: string, glow?: string) {
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", color: "#f6f5fa", backgroundColor: "#0d0c14", fontFamily: "Geist", display: "flex" }}>
       <GridBackdrop from={from} to={to} />
+      {glow ? (
+        <div style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%", background: `radial-gradient(circle at 84% 4%, ${glow}30 0%, rgba(0,0,0,0) 52%)`, display: "flex" }} />
+      ) : null}
       {children}
     </div>
   );
 }
 
-// Chip widths stay integers so the crop rectangles computed in
-// resultBadgeRects line up exactly with where yoga lays the chips out.
-function chipWidth(badge: RngdleBadge): number {
-  return Math.round(Math.min(220, Math.max(160, 142 + Math.max(badge.label.length, badge.desc.length * .62) * 2.1)));
+function chipPointsText(badge: RngdleBadge): string {
+  return `+${formatEp(badge.ep)} POINTS`;
 }
 
+// Chip widths stay integers so the crop rectangles computed in
+// resultBadgeRects line up exactly with where yoga lays the chips out. The
+// width covers whichever row is wider — label plus the points value (a large
+// EP like "+37,023 POINTS" used to wrap and spill out of the box) or the
+// description — using rough per-glyph widths for each font size.
+function chipWidth(badge: RngdleBadge): number {
+  const topRow = 22 + clipped(badge.label, 20).length * 6.6 + 10 + chipPointsText(badge).length * 5.2;
+  const descRow = 22 + clipped(badge.desc, 38).length * 4.4;
+  return Math.round(Math.min(250, Math.max(160, topRow, descRow)));
+}
+
+// Chips stay mostly neutral — white label, grey border, accent only in the
+// points — so the roll's colour lives in the number, panel, and backdrop.
+// Rarer badges (anything above Common) get the bright standout border the
+// reference cards show.
 function compactResultBadge(badge: RngdleBadge, color: string) {
   const width = chipWidth(badge);
+  const standout = badge.rarity !== "Common";
   return (
-    <div key={badge.id} style={{ width, height: 42, borderRadius: 15, border: `1px solid ${color}52`, background: `${color}0b`, padding: "6px 11px", display: "flex", flexDirection: "column" }}>
+    <div key={badge.id} style={{ width, height: 42, borderRadius: 15, border: `1px solid ${standout ? "rgba(238,241,252,.78)" : "rgba(148,155,186,.30)"}`, background: standout ? "rgba(255,255,255,.05)" : "rgba(255,255,255,.02)", padding: "6px 11px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ width: "100%", display: "flex", justifyContent: "space-between" }}>
-        <div style={{ fontSize: 12, fontWeight: 700, display: "flex" }}>{clipped(badge.label, 20)}</div>
-        <div style={{ color, fontFamily: "Geist Mono", fontSize: 8.5, fontWeight: 700, display: "flex" }}>+{formatEp(badge.ep)} POINTS</div>
+        <div style={{ color: "#f3f4f9", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", display: "flex" }}>{clipped(badge.label, 20)}</div>
+        <div style={{ color, fontFamily: "Geist Mono", fontSize: 8.5, fontWeight: 700, whiteSpace: "nowrap", display: "flex" }}>{chipPointsText(badge)}</div>
       </div>
-      <div style={{ marginTop: 4, color: "#7f8798", fontSize: 8.5, display: "flex" }}>{clipped(badge.desc, 38)}</div>
+      <div style={{ marginTop: 4, color: "#8a90a2", fontSize: 8.5, whiteSpace: "nowrap", display: "flex" }}>{clipped(badge.desc, 38)}</div>
     </div>
   );
 }
@@ -477,6 +494,7 @@ function resultCardImage(
     </>,
     theme.from,
     theme.to,
+    theme.primary,
   );
 }
 
@@ -587,6 +605,7 @@ function profileImage(profile: RngdleUserProfile, avatarDataUrl?: string | null)
     </>,
     profileTheme.from,
     profileTheme.to,
+    profileTheme.primary,
   );
 }
 
@@ -610,12 +629,14 @@ function LeaderboardOrbitBackdrop() {
 function leaderboardImage(entries: RngdleLeaderboardEntry[], totalPlayers: number) {
   return referenceShell(
     <>
-      <div style={{ position: "absolute", left: 0, top: 0, width: 1200, height: 790, background: "linear-gradient(90deg, rgba(0,112,150,.13), rgba(28,24,58,.03) 46%, rgba(103,43,178,.22))", display: "flex" }} />
+      <div style={{ position: "absolute", left: 0, top: 0, width: 1200, height: 790, background: "linear-gradient(90deg, rgba(0,112,150,.20), rgba(28,24,58,.05) 46%, rgba(103,43,178,.34))", display: "flex" }} />
+      <div style={{ position: "absolute", left: 0, top: 0, width: 1200, height: 790, background: "radial-gradient(circle at 62% 8%, rgba(124,58,205,.40) 0%, rgba(0,0,0,0) 52%)", display: "flex" }} />
+      <div style={{ position: "absolute", left: 0, top: 0, width: 1200, height: 790, background: "radial-gradient(circle at 6% 94%, rgba(0,140,180,.22) 0%, rgba(0,0,0,0) 46%)", display: "flex" }} />
       <LeaderboardOrbitBackdrop />
       <div style={{ position: "absolute", left: 58, top: 42, display: "flex", flexDirection: "column" }}>
         <div style={{ fontSize: 27, fontWeight: 950, display: "flex" }}>RNGDLE</div>
         <div style={{ marginTop: 17, fontSize: 37, fontWeight: 950, display: "flex" }}>ALL-TIME LEADERBOARD</div>
-        <div style={{ marginTop: 8, color: "#7f8ca5", fontSize: 15, display: "flex" }}>{totalPlayers} PLAYERS · CAREER POINTS</div>
+        <div style={{ marginTop: 8, color: "#7f8ca5", fontSize: 15, display: "flex" }}>{totalPlayers} PLAYERS&nbsp;&nbsp;•&nbsp;&nbsp;CAREER POINTS</div>
       </div>
       <div style={{ position: "absolute", left: 51, top: 187, width: 1098, display: "flex", flexDirection: "column", gap: 8 }}>
         {entries.slice(0, 10).map((entry, index) => {
@@ -631,7 +652,13 @@ function leaderboardImage(entries: RngdleLeaderboardEntry[], totalPlayers: numbe
               <div style={{ width: 220, color: gamesColor, fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, display: "flex" }}>{entry.rolls} GAMES</div>
               <div style={{ width: 250, display: "flex", flexDirection: "column" }}>
                 <div style={{ color: bestColor, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>BEST {entry.bestNumber}</div>
-                <div style={{ marginTop: 3, color: index >= 7 ? accent : "#b7b5c5", fontFamily: "Geist Mono", fontSize: 8.5, display: "flex" }}>{formatEp(entry.bestEp)} PTS{entry.bestPenaltyPercent === null ? "" : ` · -${entry.bestPenaltyPercent}%`}</div>
+                <div style={{ marginTop: 3, color: index >= 7 ? accent : "#b7b5c5", fontFamily: "Geist Mono", fontSize: 8.5, display: "flex", alignItems: "center", gap: 3 }}>
+                  <div style={{ display: "flex" }}>{formatEp(entry.bestEp)} PTS</div>
+                  {entry.bestPenaltyPercent === null ? null : (
+                    <svg width="9" height="9" viewBox="0 0 15 15"><path d="M12.4 5.2A5.2 5.2 0 1 0 12 10.4" fill="none" stroke={index >= 7 ? accent : "#b7b5c5"} strokeWidth="2" strokeLinecap="round" /><path d="M10.1 3.9h2.8v2.8" fill="none" stroke={index >= 7 ? accent : "#b7b5c5"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  )}
+                  {entry.bestPenaltyPercent === null ? null : <div style={{ display: "flex" }}>-{entry.bestPenaltyPercent}%</div>}
+                </div>
               </div>
               <div style={{ width: 181, paddingRight: 15, justifyContent: "flex-end", whiteSpace: "nowrap", fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, letterSpacing: -.25, display: "flex" }}>{formatEp(entry.totalEp)} POINTS</div>
             </div>

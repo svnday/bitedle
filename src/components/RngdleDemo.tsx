@@ -352,7 +352,7 @@ export default function RngdleDemo({
   );
   const rerollRemaining = dayState
     ? formatRngdleCountdown(rngdleRerollDeadline(dayState.initialRolledAt) - now)
-    : "10:00";
+    : "—";
   const nextReset = now ? formatRngdleCountdown(rngdleNextResetAt(new Date(now)) - now) : "—";
   const announcement = useMemo(() => {
     if (!result || (revealState !== "initial-complete" && revealState !== "final-complete")) return "";
