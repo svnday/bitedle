@@ -155,8 +155,14 @@ assert.ok(
   (gifMetadata.pages ?? 0) > firstResult.badges.length,
   "the GIF must retain the sequential badge frames plus the number reel",
 );
-assert.equal(gifMetadata.width, renderer.RNGDLE_DISCORD_WIDTH);
-assert.equal(gifMetadata.pageHeight, renderer.RNGDLE_DISCORD_HEIGHT);
+assert.equal(gifMetadata.width, renderer.GIF_WIDTH);
+assert.equal(gifMetadata.pageHeight, renderer.GIF_HEIGHT);
+// The animation must keep the still's aspect ratio or the embed reflows when
+// the GIF is replaced by the final card.
+assert.equal(
+  (renderer.GIF_WIDTH / renderer.GIF_HEIGHT).toFixed(3),
+  (renderer.RNGDLE_DISCORD_RESULT_WIDTH / renderer.RNGDLE_DISCORD_RESULT_HEIGHT).toFixed(3),
+);
 assert.equal(gifMetadata.delay.reduce((sum, delay) => sum + delay, 0), assets.durationMs);
 assert.equal(gifMetadata.delay.slice(0, 10).every((delay) => delay === 120), true, "the reel should spin with smooth 120ms ticks");
 const pngMetadata = await sharp(assets.still).metadata();

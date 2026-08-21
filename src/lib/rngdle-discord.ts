@@ -573,6 +573,27 @@ export async function deliverRngdleProfile(input: {
   if (!fallback.ok) throw new Error(`RNGDLE profile delivery failed (${await responseError(fallback)})`);
 }
 
+/**
+ * Ephemeral note posted as a followup rather than an interaction reply, for
+ * use once the interaction has already been acknowledged — at that point a
+ * type-4 reply is no longer available.
+ */
+export async function deliverRngdleNotice(input: {
+  applicationId: string;
+  token: string;
+  content: string;
+  fetchImpl?: typeof fetch;
+}): Promise<void> {
+  const apiBase = process.env.BITEDLE_DISCORD_API_BASE_URL || "https://discord.com/api/v10";
+  const url = `${apiBase}/webhooks/${encodeURIComponent(input.applicationId)}/${encodeURIComponent(input.token)}`;
+  const response = await (input.fetchImpl ?? fetch)(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: input.content, flags: 64, allowed_mentions: { parse: [] } }),
+  });
+  if (!response.ok) console.warn(`rngdle: notice delivery failed (${await responseError(response)})`);
+}
+
 export async function deliverRngdleError(input: {
   applicationId: string;
   token: string;

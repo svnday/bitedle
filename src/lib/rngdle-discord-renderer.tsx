@@ -100,10 +100,14 @@ function pseudoDigits(number: number, frame: number): string {
 
 function animationFrames(result: RngdleResult): RngdleAnimationFrame[] {
   const frames: RngdleAnimationFrame[] = [];
+  // Each distinct digit string costs a panel rasterisation, and spinning
+  // digits read as random either way — so the spin cycles a small set of
+  // strings rather than minting a new one per frame.
+  const SPIN_STRINGS = 4;
   for (let index = 0; index < 10; index += 1) {
     frames.push({
       delay: 120,
-      digits: pseudoDigits(result.number, index),
+      digits: pseudoDigits(result.number, index % SPIN_STRINGS),
       lockedDigits: 0,
       badge: null,
       badgeIndex: 0,
@@ -114,10 +118,12 @@ function animationFrames(result: RngdleResult): RngdleAnimationFrame[] {
     });
   }
 
+  // One jitter frame per digit instead of two, at their combined delay, so
+  // the cadence is unchanged but a third fewer panels need rendering.
   const finalDigits = numberDigits(result.number);
   for (let index = 0; index < finalDigits.length; index += 1) {
     frames.push({
-      delay: 90,
+      delay: 180,
       digits: finalDigits.slice(0, index) + pseudoDigits(result.number, index * 3 + 12).slice(index),
       lockedDigits: index,
       badge: null,
@@ -125,17 +131,6 @@ function animationFrames(result: RngdleResult): RngdleAnimationFrame[] {
       badgeCount: result.badges.length,
       earnedEp: 0,
       revealProgress: .4,
-      phase: "number",
-    });
-    frames.push({
-      delay: 90,
-      digits: finalDigits.slice(0, index) + pseudoDigits(result.number, index * 3 + 13).slice(index),
-      lockedDigits: index,
-      badge: null,
-      badgeIndex: 0,
-      badgeCount: result.badges.length,
-      earnedEp: 0,
-      revealProgress: .7,
       phase: "number",
     });
     frames.push({
@@ -535,21 +530,25 @@ function resultBadgeRects(badges: RngdleBadge[]): Array<{ left: number; top: num
   return rects;
 }
 
+// Only the top roll is emphasised with a full-strength border and glow; the
+// other two sit back with a dim tint of their own rarity colour, so the card
+// row reads as "this is your best" at a glance.
 function profileRollCard(
   title: string,
   roll: RngdleUserProfile["top"] | null,
   accent: string,
   footer: string,
+  highlight = false,
 ) {
   return (
-    <div style={{ width: 350, height: 270, padding: "22px 24px", borderRadius: 24, border: `1px solid ${accent}aa`, background: "rgba(10,10,17,.82)", display: "flex", flexDirection: "column", alignItems: "center" }}>
+    <div style={{ width: 350, height: 270, padding: "22px 24px", borderRadius: 24, border: highlight ? `2px solid ${accent}` : `1px solid ${accent}3d`, background: highlight ? "rgba(12,10,8,.72)" : "rgba(10,10,17,.62)", ...(highlight ? { boxShadow: `0 0 34px ${accent}26` } : {}), display: "flex", flexDirection: "column", alignItems: "center" }}>
       <div style={{ width: 300, color: "#8090aa", fontSize: 13, fontWeight: 850, display: "flex" }}>{title}</div>
       {roll ? (
         <div style={{ width: 300, height: 210, display: "flex", flexDirection: "column", alignItems: "center" }}>
-          <div style={{ width: 300, marginTop: 38, color: accent, fontFamily: "Geist Mono", fontSize: 56, fontWeight: 700, lineHeight: 1, display: "flex", justifyContent: "center" }}>{roll.result.number}</div>
+          <div style={{ width: 300, marginTop: 38, color: accent, fontFamily: "Geist Mono", fontSize: 56, fontWeight: 700, lineHeight: 1, textShadow: `0 0 26px ${accent}4a`, display: "flex", justifyContent: "center" }}>{roll.result.number}</div>
           <div style={{ width: 300, marginTop: 17, fontFamily: "Geist Mono", fontSize: 19, fontWeight: 700, display: "flex", justifyContent: "center" }}>{formatEp(roll.result.creditedEp)} POINTS</div>
           <div style={{ width: 300, marginTop: 11, color: accent, fontSize: 12, fontWeight: 900, display: "flex", justifyContent: "center" }}>{roll.result.rarityLabel}</div>
-          {roll.result.penaltyPercent !== null ? <div style={{ width: 300, marginTop: 7, color: "#a8afbf", fontSize: 8.5, fontWeight: 850, display: "flex", justifyContent: "center" }}>REROLL · -{roll.result.penaltyPercent}% · {formatEp(roll.result.rawEp)} RAW</div> : null}
+          {roll.result.penaltyPercent !== null ? <div style={{ width: 300, marginTop: 7, color: "#c3cad8", fontFamily: "Geist Mono", fontSize: 8.5, fontWeight: 700, display: "flex", justifyContent: "center" }}>REROLL {formatEp(roll.result.creditedEp - roll.result.rawEp)} POINTS&nbsp;&nbsp;•&nbsp;&nbsp;-{roll.result.penaltyPercent}%</div> : null}
           <div style={{ width: 300, marginTop: "auto", color: "#65718a", fontSize: 9.5, fontFamily: "monospace", display: "flex", justifyContent: "center" }}>{footer}</div>
         </div>
       ) : (
@@ -564,6 +563,13 @@ function profileImage(profile: RngdleUserProfile, avatarDataUrl?: string | null)
   const profileTheme = ROLL_THEMES[profile.top.result.rarity];
   return referenceShell(
     <>
+      {/* Broad wash of the top roll's colour, layered over referenceShell's
+          corner bloom so the whole canvas carries the rarity, not just a corner. */}
+      <div style={{ position: "absolute", left: 0, top: 0, width: RNGDLE_DISCORD_PROFILE_WIDTH, height: RNGDLE_DISCORD_PROFILE_HEIGHT, background: `radial-gradient(circle at 74% -6%, ${profileTheme.primary}3a 0%, rgba(0,0,0,0) 66%)`, display: "flex" }} />
+      <div style={{ position: "absolute", left: 0, top: 0, width: RNGDLE_DISCORD_PROFILE_WIDTH, height: RNGDLE_DISCORD_PROFILE_HEIGHT, background: `linear-gradient(118deg, rgba(0,0,0,0) 34%, ${profileTheme.primary}1c 100%)`, display: "flex" }} />
+      {/* Flat tint so the far corners stay in the rarity's family rather than
+          falling back to the shared backdrop's cool mid-tone. */}
+      <div style={{ position: "absolute", left: 0, top: 0, width: RNGDLE_DISCORD_PROFILE_WIDTH, height: RNGDLE_DISCORD_PROFILE_HEIGHT, background: `${profileTheme.primary}0f`, display: "flex" }} />
       <div style={{ position: "absolute", left: 58, top: 40, display: "flex", flexDirection: "column" }}>
         <div style={{ fontSize: 25, fontWeight: 950, display: "flex" }}>RNGDLE</div>
         <div style={{ marginTop: 10, color: "#8090aa", fontSize: 15, fontWeight: 850, display: "flex" }}>PLAYER PROFILE</div>
@@ -574,7 +580,7 @@ function profileImage(profile: RngdleUserProfile, avatarDataUrl?: string | null)
       </div>
       <div style={{ position: "absolute", left: 51, top: 124, width: 1098, display: "flex", gap: 22 }}>
         {profileRollCard("TODAY'S ROLL", profile.today, profile.today ? ROLL_THEMES[profile.today.result.rarity].primary : "#45506a", "TODAY'S RESULT")}
-        {profileRollCard("TOP ROLL", profile.top, ROLL_THEMES[profile.top.result.rarity].primary, `ROLLED ${profile.top.gameDay}`)}
+        {profileRollCard("TOP ROLL", profile.top, ROLL_THEMES[profile.top.result.rarity].primary, `ROLLED ${profile.top.gameDay}`, true)}
         {profileRollCard("WORST ROLL", profile.worst, ROLL_THEMES[profile.worst.result.rarity].primary, `ROLLED ${profile.worst.gameDay}`)}
       </div>
       <div style={{ position: "absolute", left: 51, top: 417, width: 1098, display: "flex", gap: 9 }}>
@@ -586,7 +592,7 @@ function profileImage(profile: RngdleUserProfile, avatarDataUrl?: string | null)
           [`${profile.uniqueBadges} / ${profile.totalBadges}`, "UNIQUE PATTERNS"],
           [`${profile.rerollDeltaEp >= 0 ? "+" : ""}${formatEp(profile.rerollDeltaEp)}`, "REROLL P&L"],
         ].map(([value, label]) => (
-          <div key={label} style={{ width: 175, height: 96, borderRadius: 18, border: `1px solid ${profileTheme.primary}35`, background: `${profileTheme.primary}0d`, padding: "19px 17px", display: "flex", flexDirection: "column" }}>
+          <div key={label} style={{ width: 175, height: 96, borderRadius: 18, border: "1px solid rgba(148,155,186,.24)", background: "rgba(255,255,255,.03)", padding: "19px 17px", display: "flex", flexDirection: "column" }}>
             <div style={{ fontFamily: "Geist Mono", fontSize: 20, fontWeight: 700, display: "flex" }}>{value}</div>
             <div style={{ marginTop: 15, color: "#7b879f", fontSize: 11, display: "flex" }}>{label}</div>
           </div>
@@ -595,12 +601,15 @@ function profileImage(profile: RngdleUserProfile, avatarDataUrl?: string | null)
       <div style={{ position: "absolute", left: 58, top: 548, color: "#8190a7", fontSize: 13, fontWeight: 850, display: "flex" }}>RAREST FINDS</div>
       <div style={{ position: "absolute", left: 57, top: 577, width: 1086, display: "flex", gap: 9 }}>
         {profile.rarestBadges.map((badge) => (
-          <div key={badge.id} style={{ width: 208, height: 76, borderRadius: 17, border: `1px solid ${profileTheme.primary}aa`, background: "rgba(18,18,22,.85)", padding: "10px 16px", display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 15, fontWeight: 900, display: "flex" }}>{clipped(badge.label, 22)}</div>
-            <div style={{ marginTop: 7, color: "#929aab", fontSize: 9.5, display: "flex" }}>{clipped(badge.desc, 31)}</div>
+          <div key={badge.id} style={{ width: 208, height: 76, borderRadius: 17, border: "1px solid rgba(238,241,252,.30)", background: "rgba(255,255,255,.04)", padding: "10px 16px", display: "flex", flexDirection: "column" }}>
+            <div style={{ color: "#f3f4f9", fontSize: 15, fontWeight: 900, whiteSpace: "nowrap", display: "flex" }}>{clipped(badge.label, 22)}</div>
+            <div style={{ marginTop: 7, color: "#8a90a2", fontSize: 9.5, whiteSpace: "nowrap", display: "flex" }}>{clipped(badge.desc, 31)}</div>
             <div style={{ marginTop: "auto", color: profileTheme.primary, fontFamily: "Geist Mono", fontSize: 9, fontWeight: 700, display: "flex" }}>+{formatEp(badge.ep)} POINTS</div>
           </div>
         ))}
+      </div>
+      <div style={{ position: "absolute", left: 58, top: 665, color: "#6f7a91", fontSize: 12, display: "flex" }}>
+        {profile.uniqueBadges} of {profile.totalBadges} unique patterns discovered
       </div>
     </>,
     profileTheme.from,
@@ -696,6 +705,76 @@ async function render(
 // intermediate buffers alive at once and peaked over half a GiB of RSS.
 const RENDER_CONCURRENCY = 6;
 
+/**
+ * Rasterising the animation below full size would roughly halve render time,
+ * but satori does not apply a CSS transform to absolutely-positioned
+ * descendants on the same terms as their static parents, so a scaled card's
+ * real chip positions drift from `round(x * scale)`. Composited chips then
+ * land in the wrong place and the header and footer disappear. Left at 1
+ * until the animation can be laid out at a smaller size directly rather than
+ * by scaling the full-size card.
+ */
+const GIF_RENDER_SCALE = 1;
+export const GIF_WIDTH = Math.round(RNGDLE_DISCORD_WIDTH * GIF_RENDER_SCALE);
+export const GIF_HEIGHT = Math.round(RNGDLE_DISCORD_HEIGHT * GIF_RENDER_SCALE);
+
+/**
+ * Renders `element` into a canvas scaled by `scale`. satori applies CSS
+ * transforms about the element's centre, so the inner box is offset by half
+ * the size it loses to bring its top-left corner back to the origin.
+ */
+function scaledElement(element: React.ReactElement, baseWidth: number, baseHeight: number, scale: number) {
+  if (scale === 1) return element;
+  return (
+    <div style={{ width: Math.round(baseWidth * scale), height: Math.round(baseHeight * scale), overflow: "hidden", display: "flex" }}>
+      <div
+        style={{
+          width: baseWidth,
+          height: baseHeight,
+          marginLeft: -Math.round((baseWidth * (1 - scale)) / 2),
+          marginTop: -Math.round((baseHeight * (1 - scale)) / 2),
+          transform: `scale(${scale})`,
+          flexShrink: 0,
+          display: "flex",
+        }}
+      >
+        {element}
+      </div>
+    </div>
+  );
+}
+
+/** A full-resolution card rect mapped onto the scaled animation canvas. */
+function scaledRect(rect: { left: number; top: number; width: number; height: number }) {
+  const left = Math.max(0, Math.round(rect.left * GIF_RENDER_SCALE));
+  const top = Math.max(0, Math.round(rect.top * GIF_RENDER_SCALE));
+  return {
+    left,
+    top,
+    width: Math.max(1, Math.min(GIF_WIDTH - left, Math.round(rect.width * GIF_RENDER_SCALE))),
+    height: Math.max(1, Math.min(GIF_HEIGHT - top, Math.round(rect.height * GIF_RENDER_SCALE))),
+  };
+}
+
+// Per-phase render timings, for diagnosing slow rolls on deployed instances
+// where the CPU is far slower than a dev machine. Off unless explicitly set.
+const RENDER_TIMING = process.env.BITEDLE_RNGDLE_TIMING === "1";
+
+function phaseTimer() {
+  let last = Date.now();
+  const marks: string[] = [];
+  return {
+    mark(label: string) {
+      if (!RENDER_TIMING) return;
+      marks.push(`${label} ${Date.now() - last}ms`);
+      last = Date.now();
+    },
+    log(prefix: string) {
+      if (RENDER_TIMING) console.log(`${prefix}: ${marks.join(" | ")}`);
+    },
+  };
+}
+
 async function mapLimit<T>(
   items: readonly T[],
   limit: number,
@@ -786,20 +865,42 @@ export async function renderRngdleDiscordAnimation(
   playerCount: number,
   stats: RngdleResultCardStats,
 ): Promise<RngdleAnimationAssets> {
+  const timer = phaseTimer();
   const frames = animationFrames(result);
   const visible = result.badges.slice(0, 15);
 
-  const still = await renderRngdleDiscordStill(result, playerName, rank, playerCount, stats);
-  const base = await render(
-    resultCardImage(result, playerName, rank, playerCount, stats, panelViewForFrame(result, frames[0]), []),
-    RNGDLE_DISCORD_WIDTH,
-    RNGDLE_DISCORD_HEIGHT,
-  );
+  // The delivered still stays full resolution. The GIF's base and its chip
+  // source both rasterise through satori at GIF_RENDER_SCALE, so the backdrop
+  // pixels carried in a chip's crop margin match the base it lands on exactly.
+  const [still, base, chipSource] = await Promise.all([
+    renderRngdleDiscordStill(result, playerName, rank, playerCount, stats),
+    render(
+      scaledElement(
+        resultCardImage(result, playerName, rank, playerCount, stats, panelViewForFrame(result, frames[0]), []),
+        RNGDLE_DISCORD_WIDTH,
+        RNGDLE_DISCORD_HEIGHT,
+        GIF_RENDER_SCALE,
+      ),
+      GIF_WIDTH,
+      GIF_HEIGHT,
+    ),
+    render(
+      scaledElement(
+        resultImage(result, playerName, rank, playerCount, stats),
+        RNGDLE_DISCORD_WIDTH,
+        RNGDLE_DISCORD_HEIGHT,
+        GIF_RENDER_SCALE,
+      ),
+      GIF_WIDTH,
+      GIF_HEIGHT,
+    ),
+  ]);
+  timer.mark("still+base+chips");
 
-  const rects = resultBadgeRects(visible);
+  const rects = resultBadgeRects(visible).map(scaledRect);
   const chipCrops: Buffer[] = [];
   for (const rect of rects) {
-    chipCrops.push(await sharp(still).extract(rect).png().toBuffer());
+    chipCrops.push(await sharp(chipSource).extract(rect).png().toBuffer());
   }
   // A crop is opaque (chip over backdrop), and the base holds the identical
   // backdrop pixels, so scaling the crop's alpha blends into exactly the
@@ -825,14 +926,20 @@ export async function renderRngdleDiscordAnimation(
     uniqueViews.set(viewKey(view), view);
   }
   await mapLimit([...uniqueViews.values()], RENDER_CONCURRENCY, async (view) => {
-    panelPatches.set(viewKey(view), await render(panelPatchImage(result, stats, view), PANEL_RECT.width, PANEL_RECT.height));
+    panelPatches.set(viewKey(view), await render(
+      scaledElement(panelPatchImage(result, stats, view), PANEL_RECT.width, PANEL_RECT.height, GIF_RENDER_SCALE),
+      Math.round(PANEL_RECT.width * GIF_RENDER_SCALE),
+      Math.round(PANEL_RECT.height * GIF_RENDER_SCALE),
+    ));
   });
+  timer.mark(`panels(${uniqueViews.size})`);
 
-  const frameBytes = RNGDLE_DISCORD_WIDTH * RNGDLE_DISCORD_HEIGHT * 4;
+  const panelOrigin = scaledRect(PANEL_RECT);
+  const frameBytes = GIF_WIDTH * GIF_HEIGHT * 4;
   const stacked = Buffer.allocUnsafe(frameBytes * frames.length);
   await mapLimit(frames, RENDER_CONCURRENCY, async (frame, index) => {
     const overlays: Array<{ input: Buffer; left: number; top: number }> = [
-      { input: panelPatches.get(viewKey(panelViewForFrame(result, frame)))!, left: PANEL_RECT.left, top: PANEL_RECT.top },
+      { input: panelPatches.get(viewKey(panelViewForFrame(result, frame)))!, left: panelOrigin.left, top: panelOrigin.top },
     ];
     const revealedChips = Math.min(frame.badgeIndex, rects.length);
     for (let chip = 0; chip < revealedChips; chip += 1) {
@@ -844,20 +951,23 @@ export async function renderRngdleDiscordAnimation(
       });
     }
     const { data, info } = await sharp(base).composite(overlays).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    if (info.width !== RNGDLE_DISCORD_WIDTH || info.height !== RNGDLE_DISCORD_HEIGHT || info.channels !== 4) {
+    if (info.width !== GIF_WIDTH || info.height !== GIF_HEIGHT || info.channels !== 4) {
       throw new Error("RNGDLE frame rendered at an unexpected size.");
     }
     data.copy(stacked, index * frameBytes);
   });
+  timer.mark(`composite(${frames.length})`);
 
   const animation = await sharp(stacked, {
     raw: {
-      width: RNGDLE_DISCORD_WIDTH,
-      height: RNGDLE_DISCORD_HEIGHT * frames.length,
+      width: GIF_WIDTH,
+      height: GIF_HEIGHT * frames.length,
       channels: 4,
-      pageHeight: RNGDLE_DISCORD_HEIGHT,
+      pageHeight: GIF_HEIGHT,
     },
-  }).gif({ loop: 1, delay: frames.map((frame) => frame.delay), colours: 128, effort: 4 }).toBuffer();
+  }).gif({ loop: 1, delay: frames.map((frame) => frame.delay), colours: 128, effort: 1 }).toBuffer();
+  timer.mark("gif-encode");
+  timer.log(`rngdle: roll ${result.number}`);
   return {
     animation,
     still,

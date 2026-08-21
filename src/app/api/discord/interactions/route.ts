@@ -50,6 +50,7 @@ import { deliverBiteballResponse } from "@/lib/biteball-discord";
 import {
   deliverRngdleLeaderboard,
   deliverRngdleError,
+  deliverRngdleNotice,
   deliverRngdleProfile,
   deliverRngdleRoll,
   parseRngdleReplayCustomId,
@@ -947,58 +948,79 @@ async function handleRngdleReroll(body: Interaction): Promise<NextResponse> {
     return reply("That RNGDLE roll is from a previous game day.", true);
   }
 
-  const repository = getRngdleDiscordRepository();
-  const existing = await repository.getRoll(body.guild_id, user.id, parsed.gameDay);
-  const now = Date.now();
-  if (!existing) return reply("That RNGDLE roll no longer exists.", true);
-  if (!canRerollRngdle(existing.initialRolledAt, existing.rerolledAt, now)) {
-    return reply(existing.rerolledAt === null
-      ? "Today's RNGDLE reroll window closed at the daily reset."
-      : "You already used the one reroll for today's RNGDLE.", true);
-  }
-
-  // Prefer the penalty pre-drawn at roll time — its risk animation is already
-  // rendered on this instance, so the reroll answers without a render wait.
-  const penalty = takePendingRngdlePenalty(body.guild_id, user.id, parsed.gameDay) ?? selectRngdlePenalty();
-  const outcome = await repository.reroll({
-    guildId: body.guild_id,
-    userId: user.id,
-    gameDay: parsed.gameDay,
-    displayName: interactionName(user),
-    avatar: user.avatar ?? null,
-    result: scoreRngdleNumber(selectRngdleNumber(), penalty),
-    now,
-  });
-  if (outcome.status !== "updated") {
-    return reply(outcome.status === "expired"
-      ? "Today's RNGDLE reroll window closed at the daily reset."
-      : "You already used the one reroll for today's RNGDLE.", true);
-  }
-  const [standings, profile] = await Promise.all([
-    repository.dailyStandings(body.guild_id, parsed.gameDay),
-    repository.userProfile(body.guild_id, user.id, parsed.gameDay),
-  ]);
-  const { rank, playerCount } = rngdleDeliveryRank(standings, user.id);
-  after(() => deliverRngdleRoll({
-    applicationId: body.application_id!,
-    token: body.token!,
-    roll: outcome.roll,
-    rank,
-    playerCount,
-    animate: true,
-    stats: {
-      gameDay: parsed.gameDay,
-      nextResetAt: rngdleNextResetAt(new Date(now)),
-      now,
-      currentStreak: profile?.currentStreak ?? 1,
-      careerEp: profile?.careerEp ?? outcome.roll.current.creditedEp,
-      newBadges: profile?.todayNewBadges ?? outcome.roll.current.badges.length,
-      rerollDeltaEp: outcome.roll.current.creditedEp - outcome.roll.initial.creditedEp,
-    },
-    riskAnimationPercent: penalty,
-    attachmentSizeLimit: body.attachment_size_limit,
-  }).catch((error) => console.error("rngdle: reroll delivery failed", error)));
+  // Every database call moves behind the acknowledgement. On a cold instance
+  // the schema check plus four round trips can exceed Discord's 3s deadline,
+  // which players see as "bitedle didn't respond in time".
+  after(() => processRngdleReroll(body, user as InteractionUser & { id: string }, parsed));
   return NextResponse.json({ type: 6 });
+}
+
+async function processRngdleReroll(
+  body: Interaction,
+  user: InteractionUser & { id: string },
+  parsed: { gameDay: string; userId: string },
+): Promise<void> {
+  const applicationId = body.application_id!;
+  const token = body.token!;
+  const guildId = body.guild_id!;
+  const notice = (content: string) => deliverRngdleNotice({ applicationId, token, content });
+  try {
+    const repository = getRngdleDiscordRepository();
+    const existing = await repository.getRoll(guildId, user.id, parsed.gameDay);
+    const now = Date.now();
+    if (!existing) return await notice("That RNGDLE roll no longer exists.");
+    if (!canRerollRngdle(existing.initialRolledAt, existing.rerolledAt, now)) {
+      return await notice(existing.rerolledAt === null
+        ? "Today's RNGDLE reroll window closed at the daily reset."
+        : "You already used the one reroll for today's RNGDLE.");
+    }
+
+    // Prefer the penalty pre-drawn at roll time — its risk animation is already
+    // rendered on this instance, so the reroll answers without a render wait.
+    const penalty = takePendingRngdlePenalty(guildId, user.id, parsed.gameDay) ?? selectRngdlePenalty();
+    const outcome = await repository.reroll({
+      guildId,
+      userId: user.id,
+      gameDay: parsed.gameDay,
+      displayName: interactionName(user),
+      avatar: user.avatar ?? null,
+      result: scoreRngdleNumber(selectRngdleNumber(), penalty),
+      now,
+    });
+    if (outcome.status !== "updated") {
+      return await notice(outcome.status === "expired"
+        ? "Today's RNGDLE reroll window closed at the daily reset."
+        : "You already used the one reroll for today's RNGDLE.");
+    }
+    const [standings, profile] = await Promise.all([
+      repository.dailyStandings(guildId, parsed.gameDay),
+      repository.userProfile(guildId, user.id, parsed.gameDay),
+    ]);
+    const { rank, playerCount } = rngdleDeliveryRank(standings, user.id);
+    await deliverRngdleRoll({
+      applicationId,
+      token,
+      roll: outcome.roll,
+      rank,
+      playerCount,
+      animate: true,
+      stats: {
+        gameDay: parsed.gameDay,
+        nextResetAt: rngdleNextResetAt(new Date(now)),
+        now,
+        currentStreak: profile?.currentStreak ?? 1,
+        careerEp: profile?.careerEp ?? outcome.roll.current.creditedEp,
+        newBadges: profile?.todayNewBadges ?? outcome.roll.current.badges.length,
+        rerollDeltaEp: outcome.roll.current.creditedEp - outcome.roll.initial.creditedEp,
+      },
+      riskAnimationPercent: penalty,
+      attachmentSizeLimit: body.attachment_size_limit,
+    });
+  } catch (error) {
+    console.error("rngdle: reroll processing failed", error);
+    await notice("RNGDLE couldn't complete that reroll just now. Try again in a moment.")
+      .catch((noticeError) => console.error("rngdle: reroll notice failed", noticeError));
+  }
 }
 
 async function handleRngdleReplay(body: Interaction): Promise<NextResponse> {
@@ -1017,36 +1039,55 @@ async function handleRngdleReplay(body: Interaction): Promise<NextResponse> {
     return reply("That RNGDLE result is from a previous game day.", true);
   }
 
-  const repository = getRngdleDiscordRepository();
-  const roll = await repository.getRoll(body.guild_id, user.id, parsed.gameDay);
-  if (!roll || roll.rerolledAt === null) {
-    return reply("That completed RNGDLE reroll could not be found.", true);
-  }
-  const now = Date.now();
-  const [standings, profile] = await Promise.all([
-    repository.dailyStandings(body.guild_id, parsed.gameDay),
-    repository.userProfile(body.guild_id, user.id, parsed.gameDay),
-  ]);
-  const { rank, playerCount } = rngdleDeliveryRank(standings, user.id);
-  after(() => deliverRngdleRoll({
-    applicationId: body.application_id!,
-    token: body.token!,
-    roll,
-    rank,
-    playerCount,
-    animate: true,
-    stats: {
-      gameDay: parsed.gameDay,
-      nextResetAt: rngdleNextResetAt(new Date(now)),
-      now,
-      currentStreak: profile?.currentStreak ?? 1,
-      careerEp: profile?.careerEp ?? roll.current.creditedEp,
-      newBadges: profile?.todayNewBadges ?? roll.current.badges.length,
-      rerollDeltaEp: roll.current.creditedEp - roll.initial.creditedEp,
-    },
-    attachmentSizeLimit: body.attachment_size_limit,
-  }).catch((error) => console.error("rngdle: replay delivery failed", error)));
+  // Acknowledged before any database work, for the same reason as the reroll.
+  after(() => processRngdleReplay(body, user as InteractionUser & { id: string }, parsed));
   return NextResponse.json({ type: 6 });
+}
+
+async function processRngdleReplay(
+  body: Interaction,
+  user: InteractionUser & { id: string },
+  parsed: { gameDay: string; userId: string },
+): Promise<void> {
+  const applicationId = body.application_id!;
+  const token = body.token!;
+  const guildId = body.guild_id!;
+  const notice = (content: string) => deliverRngdleNotice({ applicationId, token, content });
+  try {
+    const repository = getRngdleDiscordRepository();
+    const roll = await repository.getRoll(guildId, user.id, parsed.gameDay);
+    if (!roll || roll.rerolledAt === null) {
+      return await notice("That completed RNGDLE reroll could not be found.");
+    }
+    const now = Date.now();
+    const [standings, profile] = await Promise.all([
+      repository.dailyStandings(guildId, parsed.gameDay),
+      repository.userProfile(guildId, user.id, parsed.gameDay),
+    ]);
+    const { rank, playerCount } = rngdleDeliveryRank(standings, user.id);
+    await deliverRngdleRoll({
+      applicationId,
+      token,
+      roll,
+      rank,
+      playerCount,
+      animate: true,
+      stats: {
+        gameDay: parsed.gameDay,
+        nextResetAt: rngdleNextResetAt(new Date(now)),
+        now,
+        currentStreak: profile?.currentStreak ?? 1,
+        careerEp: profile?.careerEp ?? roll.current.creditedEp,
+        newBadges: profile?.todayNewBadges ?? roll.current.badges.length,
+        rerollDeltaEp: roll.current.creditedEp - roll.initial.creditedEp,
+      },
+      attachmentSizeLimit: body.attachment_size_limit,
+    });
+  } catch (error) {
+    console.error("rngdle: replay processing failed", error);
+    await notice("RNGDLE couldn't replay that result just now. Try again in a moment.")
+      .catch((noticeError) => console.error("rngdle: replay notice failed", noticeError));
+  }
 }
 
 function handleRngdleUtilityButton(body: Interaction, mode: "leaderboard" | "user"): NextResponse {
