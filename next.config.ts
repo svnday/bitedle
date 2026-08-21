@@ -2,6 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   distDir: process.env.BITEDLE_NEXT_DIST_DIR || ".next",
+  outputFileTracingIncludes: {
+    "/api/discord/interactions": [
+      "./node_modules/geist/dist/fonts/geist-sans/Geist-Regular.ttf",
+      "./node_modules/geist/dist/fonts/geist-sans/Geist-Bold.ttf",
+      "./node_modules/geist/dist/fonts/geist-mono/GeistMono-Regular.ttf",
+      "./node_modules/geist/dist/fonts/geist-mono/GeistMono-Bold.ttf",
+    ],
+  },
   typescript: {
     tsconfigPath: process.env.BITEDLE_TSCONFIG_PATH || "tsconfig.json",
   },

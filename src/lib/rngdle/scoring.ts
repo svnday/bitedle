@@ -94,11 +94,11 @@ export function scoreRngdleNumber(
   }
 
   const scored = compute(number) as OracleResult;
-  const classification = classifyRngdleScore(scored.totalEP);
   const creditedEp =
     penaltyPercent === null
       ? scored.totalEP
       : Math.floor((scored.totalEP * (100 - penaltyPercent)) / 100);
+  const classification = classifyRngdleScore(creditedEp);
 
   return {
     number: scored.number,
@@ -106,7 +106,7 @@ export function scoreRngdleNumber(
     creditedEp,
     rarity: classification.rarity,
     rarityLabel: classification.label,
-    rarityBand: formatRngdlePercentile(scored.totalEP, classification.rarity),
+    rarityBand: formatRngdlePercentile(creditedEp, classification.rarity),
     badges: scored.badges.map((badge) => ({
       id: badge.id,
       label: badge.label,

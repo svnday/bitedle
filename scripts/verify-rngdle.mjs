@@ -94,6 +94,12 @@ assert.equal(scoring.scoreRngdleNumber(69, 99).creditedEp, Math.floor(unpenalize
 assert.throws(() => scoring.scoreRngdleNumber(69, 0), RangeError);
 assert.throws(() => scoring.scoreRngdleNumber(69, 100), RangeError);
 assert.equal(scoring.scoreRngdleNumber(563_190).rarityBand, "Bottom 24%");
+const penalizedReference = scoring.scoreRngdleNumber(219_986, 71);
+assert.deepEqual(
+  [penalizedReference.rawEp, penalizedReference.creditedEp, penalizedReference.rarity, penalizedReference.rarityLabel],
+  [4_290, 1_244, "trash", "TRASH"],
+  "reroll tier styling must follow credited EP after the penalty",
+);
 const screenshotFixture = scoring.scoreRngdleNumber(569_354);
 assert.equal(screenshotFixture.rawEp, 5_219);
 assert.equal(screenshotFixture.rarityBand, "Bottom 43%");

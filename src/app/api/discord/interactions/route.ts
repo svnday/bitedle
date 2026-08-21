@@ -52,9 +52,11 @@ import {
   deliverRngdleError,
   deliverRngdleProfile,
   deliverRngdleRoll,
+  parseRngdleReplayCustomId,
   parseRngdleRerollCustomId,
   RNGDLE_LEADERBOARD_BUTTON_ID,
   RNGDLE_PROFILE_BUTTON_ID,
+  RNGDLE_REPLAY_CUSTOM_ID_PREFIX,
   RNGDLE_REROLL_CUSTOM_ID_PREFIX,
 } from "@/lib/rngdle-discord";
 import { getRngdleDiscordRepository } from "@/lib/rngdle-discord-store";
@@ -884,6 +886,9 @@ async function processRngdleCommand(
         currentStreak: profile?.currentStreak ?? 1,
         careerEp: profile?.careerEp ?? creation.roll.current.creditedEp,
         newBadges: profile?.todayNewBadges ?? creation.roll.current.badges.length,
+        rerollDeltaEp: creation.roll.rerolledAt === null
+          ? null
+          : creation.roll.current.creditedEp - creation.roll.initial.creditedEp,
       },
       attachmentSizeLimit: body.attachment_size_limit,
     });
@@ -981,9 +986,59 @@ async function handleRngdleReroll(body: Interaction): Promise<NextResponse> {
       currentStreak: profile?.currentStreak ?? 1,
       careerEp: profile?.careerEp ?? outcome.roll.current.creditedEp,
       newBadges: profile?.todayNewBadges ?? outcome.roll.current.badges.length,
+      rerollDeltaEp: outcome.roll.current.creditedEp - outcome.roll.initial.creditedEp,
     },
+    riskAnimationPercent: penalty,
     attachmentSizeLimit: body.attachment_size_limit,
   }).catch((error) => console.error("rngdle: reroll delivery failed", error)));
+  return NextResponse.json({ type: 6 });
+}
+
+async function handleRngdleReplay(body: Interaction): Promise<NextResponse> {
+  const parsed = parseRngdleReplayCustomId(body.data?.custom_id ?? "");
+  const user = body.member?.user ?? body.user;
+  if (!parsed || !user?.id || !body.guild_id) {
+    return reply("That RNGDLE replay button is invalid.", true);
+  }
+  if (parsed.userId !== user.id) {
+    return reply("Only the player who rolled can replay this result.", true);
+  }
+  if (!body.application_id || !body.token) {
+    return reply("RNGDLE couldn't replay that result. Try again.", true);
+  }
+  if (parsed.gameDay !== rngdleGameDay()) {
+    return reply("That RNGDLE result is from a previous game day.", true);
+  }
+
+  const repository = getRngdleDiscordRepository();
+  const roll = await repository.getRoll(body.guild_id, user.id, parsed.gameDay);
+  if (!roll || roll.rerolledAt === null) {
+    return reply("That completed RNGDLE reroll could not be found.", true);
+  }
+  const now = Date.now();
+  const [standings, profile] = await Promise.all([
+    repository.dailyStandings(body.guild_id, parsed.gameDay),
+    repository.userProfile(body.guild_id, user.id, parsed.gameDay),
+  ]);
+  const { rank, playerCount } = rngdleDeliveryRank(standings, user.id);
+  after(() => deliverRngdleRoll({
+    applicationId: body.application_id!,
+    token: body.token!,
+    roll,
+    rank,
+    playerCount,
+    animate: true,
+    stats: {
+      gameDay: parsed.gameDay,
+      nextResetAt: rngdleNextResetAt(new Date(now)),
+      now,
+      currentStreak: profile?.currentStreak ?? 1,
+      careerEp: profile?.careerEp ?? roll.current.creditedEp,
+      newBadges: profile?.todayNewBadges ?? roll.current.badges.length,
+      rerollDeltaEp: roll.current.creditedEp - roll.initial.creditedEp,
+    },
+    attachmentSizeLimit: body.attachment_size_limit,
+  }).catch((error) => console.error("rngdle: replay delivery failed", error)));
   return NextResponse.json({ type: 6 });
 }
 
@@ -1063,6 +1118,10 @@ export async function POST(request: NextRequest) {
 
   if (body?.type === 3 && body?.data?.custom_id?.startsWith(RNGDLE_REROLL_CUSTOM_ID_PREFIX)) {
     return handleRngdleReroll(body);
+  }
+
+  if (body?.type === 3 && body?.data?.custom_id?.startsWith(RNGDLE_REPLAY_CUSTOM_ID_PREFIX)) {
+    return handleRngdleReplay(body);
   }
 
   if (body?.type === 3 && body?.data?.custom_id === RNGDLE_LEADERBOARD_BUTTON_ID) {

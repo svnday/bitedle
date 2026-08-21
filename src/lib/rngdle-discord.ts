@@ -4,19 +4,32 @@ import {
   RNGDLE_DISCORD_LEADERBOARD_FILENAME,
   RNGDLE_DISCORD_PNG_FILENAME,
   RNGDLE_DISCORD_PROFILE_FILENAME,
+  RNGDLE_DISCORD_RISK_GIF_FILENAME,
   renderRngdleDiscordAssets,
   renderRngdleDiscordLeaderboard,
   renderRngdleDiscordProfile,
+  renderRngdleRiskAnimation,
   renderRngdleDiscordStill,
   type RngdleResultCardStats,
 } from "./rngdle-discord-renderer";
-import { canRerollRngdle } from "./rngdle/time";
+import { canRerollRngdle, rngdleRerollDeadline } from "./rngdle/time";
 
 const DEFAULT_ATTACHMENT_LIMIT = 8 * 1024 * 1024;
 const FINAL_EDIT_MARGIN_MS = 180;
 const FINAL_EDIT_RETRY_MS = 250;
+const DISCORD_COMPONENTS_V2_FLAG = 1 << 15;
+const RNGDLE_MESSAGE_ACCENTS: Record<RngdleDiscordRoll["current"]["rarity"], number> = {
+  trash: 0x667896,
+  common: 0x8d91a3,
+  uncommon: 0x21cfa5,
+  rare: 0x3b9dff,
+  epic: 0x9d78ff,
+  anomaly: 0xff5ab3,
+  mythic: 0xffb52e,
+};
 
 export const RNGDLE_REROLL_CUSTOM_ID_PREFIX = "rngdle-reroll:v1:";
+export const RNGDLE_REPLAY_CUSTOM_ID_PREFIX = "rngdle-replay:v1:";
 export const RNGDLE_REROLL_BUTTON_LABEL = "Reroll 1-99% Risk";
 export const RNGDLE_LEADERBOARD_BUTTON_ID = "rngdle-leaderboard:v1";
 export const RNGDLE_PROFILE_BUTTON_ID = "rngdle-profile:v1";
@@ -26,8 +39,20 @@ export function rngdleRerollCustomId(gameDay: string, userId: string): string {
 }
 
 export function parseRngdleRerollCustomId(customId: string): { gameDay: string; userId: string } | null {
-  if (!customId.startsWith(RNGDLE_REROLL_CUSTOM_ID_PREFIX)) return null;
-  const payload = customId.slice(RNGDLE_REROLL_CUSTOM_ID_PREFIX.length);
+  return parseOwnedRollCustomId(customId, RNGDLE_REROLL_CUSTOM_ID_PREFIX);
+}
+
+export function rngdleReplayCustomId(gameDay: string, userId: string): string {
+  return `${RNGDLE_REPLAY_CUSTOM_ID_PREFIX}${gameDay}:${userId}`;
+}
+
+export function parseRngdleReplayCustomId(customId: string): { gameDay: string; userId: string } | null {
+  return parseOwnedRollCustomId(customId, RNGDLE_REPLAY_CUSTOM_ID_PREFIX);
+}
+
+function parseOwnedRollCustomId(customId: string, prefix: string): { gameDay: string; userId: string } | null {
+  if (!customId.startsWith(prefix)) return null;
+  const payload = customId.slice(prefix.length);
   const separator = payload.indexOf(":");
   if (separator < 1) return null;
   const gameDay = payload.slice(0, separator);
@@ -46,7 +71,19 @@ function escapeDiscordText(value: string): string {
 
 function resultComponents(roll: RngdleDiscordRoll, now: number) {
   const buttons: Record<string, unknown>[] = [];
-  if (canRerollRngdle(roll.initialRolledAt, roll.rerolledAt, now)) {
+  if (roll.rerolledAt !== null) {
+    buttons.push({
+      type: 2,
+      style: 2,
+      label: "Replay",
+      custom_id: rngdleReplayCustomId(roll.gameDay, roll.userId),
+    });
+  }
+  buttons.push(
+    { type: 2, style: 2, label: "Leaderboard", custom_id: RNGDLE_LEADERBOARD_BUTTON_ID },
+    { type: 2, style: 1, label: "My Profile", custom_id: RNGDLE_PROFILE_BUTTON_ID },
+  );
+  if (roll.rerolledAt === null && canRerollRngdle(roll.initialRolledAt, roll.rerolledAt, now)) {
     buttons.push({
       type: 2,
       style: 4,
@@ -54,26 +91,82 @@ function resultComponents(roll: RngdleDiscordRoll, now: number) {
       custom_id: rngdleRerollCustomId(roll.gameDay, roll.userId),
     });
   }
-  buttons.push(
-    { type: 2, style: 2, label: "Leaderboard", custom_id: RNGDLE_LEADERBOARD_BUTTON_ID },
-    { type: 2, style: 1, label: "My Profile", custom_id: RNGDLE_PROFILE_BUTTON_ID },
-  );
   return [{
     type: 1,
     components: buttons,
   }];
 }
 
-export function rngdleResultContent(roll: RngdleDiscordRoll, rank: number, playerCount: number, newBadges = 0): string {
+function signedPoints(value: number): string {
+  return `${value >= 0 ? "+" : "-"}${Math.abs(value).toLocaleString("en-US")} points`;
+}
+
+function rngdleResultCopy(roll: RngdleDiscordRoll, rank: number, playerCount: number, newBadges = 0, now = Date.now()): {
+  header: string | null;
+  footer: string;
+} {
   const result = roll.current;
-  const penalty = result.penaltyPercent === null
-    ? ""
-    : ` after a **${result.penaltyPercent}%** reroll risk (${result.rawEp.toLocaleString("en-US")} raw EP)`;
-  return [
-    `🎰 **${escapeDiscordText(roll.displayName)} rolled ${result.number.toLocaleString("en-US")}**`,
-    `**${result.creditedEp.toLocaleString("en-US")} EP**${penalty} · ${result.badges.length} badges · today's guild rank **#${rank}/${playerCount}**`,
-    `**+${newBadges}** new ${newBadges === 1 ? "badge" : "badges"} discovered`,
-  ].join("\n");
+  if (roll.rerolledAt !== null && result.penaltyPercent !== null) {
+    return {
+      header: null,
+      footer: `**Reroll locked · -${result.penaltyPercent}% from ${result.rawEp.toLocaleString("en-US")} base points · ${signedPoints(result.creditedEp - roll.initial.creditedEp)}**`,
+    };
+  }
+  const rerollTimer = canRerollRngdle(roll.initialRolledAt, roll.rerolledAt, now)
+    ? `⏱️ **One reroll available:** risk window closes <t:${Math.ceil(rngdleRerollDeadline(roll.initialRolledAt) / 1_000)}:R>`
+    : null;
+  return {
+    header: [
+      `🎰 **${escapeDiscordText(roll.displayName)} rolled ${result.number.toLocaleString("en-US")}**`,
+      `**${result.creditedEp.toLocaleString("en-US")} EP** · ${result.badges.length} badges · today's guild rank **#${rank}/${playerCount}**`,
+    ].join("\n"),
+    footer: [
+      `**+${newBadges} new ${newBadges === 1 ? "badge" : "badges"} discovered**`,
+      ...(rerollTimer ? [rerollTimer] : []),
+    ].join("\n"),
+  };
+}
+
+export function rngdleResultContent(roll: RngdleDiscordRoll, rank: number, playerCount: number, newBadges = 0, now = Date.now()): string {
+  const copy = rngdleResultCopy(roll, rank, playerCount, newBadges, now);
+  return [copy.header, copy.footer].filter(Boolean).join("\n");
+}
+
+function rngdleRollPayload(input: {
+  roll: RngdleDiscordRoll;
+  now: number;
+  filename?: string;
+  description?: string;
+  header?: string | null;
+  footer: string;
+  includeActions?: boolean;
+}): Record<string, unknown> {
+  const containerComponents: Record<string, unknown>[] = [];
+  if (input.header) containerComponents.push({ type: 10, content: input.header });
+  if (input.filename) {
+    containerComponents.push({
+      type: 12,
+      items: [{
+        media: { url: `attachment://${input.filename}` },
+        description: input.description,
+      }],
+    });
+  }
+  if (input.footer) containerComponents.push({ type: 10, content: input.footer });
+  return {
+    content: null,
+    embeds: [],
+    flags: DISCORD_COMPONENTS_V2_FLAG,
+    allowed_mentions: { parse: [] },
+    components: [
+      {
+        type: 17,
+        accent_color: RNGDLE_MESSAGE_ACCENTS[input.roll.current.rarity],
+        components: containerComponents,
+      },
+      ...(input.includeActions === false ? [] : resultComponents(input.roll, input.now)),
+    ],
+  };
 }
 
 function webhookUrl(applicationId: string, token: string): string {
@@ -116,33 +209,45 @@ export async function deliverRngdleRoll(input: {
   playerCount: number;
   stats: RngdleResultCardStats;
   animate: boolean;
+  riskAnimationPercent?: number;
   attachmentSizeLimit?: number;
   fetchImpl?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
+  renderRiskAnimation?: typeof renderRngdleRiskAnimation;
 }): Promise<void> {
   const fetchImpl = input.fetchImpl ?? fetch;
   const sleep = input.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   const now = input.now ?? Date.now;
+  const renderRisk = input.renderRiskAnimation ?? renderRngdleRiskAnimation;
   const url = webhookUrl(input.applicationId, input.token);
   const limit = safeLimit(input.attachmentSizeLimit);
-  const content = rngdleResultContent(input.roll, input.rank, input.playerCount, input.stats.newBadges);
+  const resultCopy = rngdleResultCopy(input.roll, input.rank, input.playerCount, input.stats.newBadges, now());
   let still: Buffer;
   let animation: Buffer | null = null;
   let durationMs = 0;
+  let riskAnimation: Buffer | null = null;
+  let riskDurationMs = 0;
 
   try {
     if (input.animate) {
-      const assets = await renderRngdleDiscordAssets(
-        input.roll.current,
-        input.roll.displayName,
-        input.rank,
-        input.playerCount,
-        input.stats,
-      );
+      const [assets, risk] = await Promise.all([
+        renderRngdleDiscordAssets(
+          input.roll.current,
+          input.roll.displayName,
+          input.rank,
+          input.playerCount,
+          input.stats,
+        ),
+        input.riskAnimationPercent === undefined
+          ? Promise.resolve(null)
+          : renderRisk(input.riskAnimationPercent),
+      ]);
       animation = assets.animation;
       still = assets.still;
       durationMs = assets.durationMs;
+      riskAnimation = risk?.animation ?? null;
+      riskDurationMs = risk?.durationMs ?? 0;
     } else {
       still = await renderRngdleDiscordStill(
         input.roll.current,
@@ -151,25 +256,67 @@ export async function deliverRngdleRoll(input: {
         input.playerCount,
         input.stats,
       );
+      if (input.riskAnimationPercent !== undefined) {
+        const risk = await renderRisk(input.riskAnimationPercent);
+        riskAnimation = risk.animation;
+        riskDurationMs = risk.durationMs;
+      }
     }
   } catch (error) {
     console.error("rngdle: image rendering failed", error);
     const fallback = await patchJson(url, {
-      content,
-      allowed_mentions: { parse: [] },
-      components: resultComponents(input.roll, now()),
+      ...rngdleRollPayload({
+        roll: input.roll,
+        now: now(),
+        header: resultCopy.header,
+        footer: resultCopy.footer,
+      }),
       attachments: [],
     }, fetchImpl);
     if (!fallback.ok) throw new Error(`RNGDLE text fallback failed (${await responseError(fallback)})`);
     return;
   }
 
+  const waitForAnimation = async (duration: number) => {
+    const override = process.env.BITEDLE_RNGDLE_FINAL_EDIT_DELAY_MS;
+    const delay = process.env.NODE_ENV !== "production" && override !== undefined
+      ? Math.max(0, Number(override) || 0)
+      : duration + FINAL_EDIT_MARGIN_MS;
+    await sleep(delay);
+  };
+
+  if (riskAnimation && riskAnimation.byteLength <= limit) {
+    const riskResponse = await patchMultipart(url, {
+      ...rngdleRollPayload({
+        roll: input.roll,
+        now: now(),
+        filename: RNGDLE_DISCORD_RISK_GIF_FILENAME,
+        description: "RNGDLE reroll risk selection from 1 to 99 percent",
+        footer: `🎲 **${escapeDiscordText(input.roll.displayName)} is rolling the reroll risk…**`,
+        includeActions: false,
+      }),
+      attachments: [{ id: 0, filename: RNGDLE_DISCORD_RISK_GIF_FILENAME, description: "RNGDLE reroll risk selection from 1 to 99 percent" }],
+    }, riskAnimation, RNGDLE_DISCORD_RISK_GIF_FILENAME, "image/gif", fetchImpl);
+    if (riskResponse.ok) await waitForAnimation(riskDurationMs);
+    else console.warn(`rngdle: risk animation edit failed (${await responseError(riskResponse)})`);
+  } else if (riskAnimation) {
+    console.warn(`rngdle: risk animation exceeded the interaction attachment limit (${limit} bytes)`);
+  }
+
   let animationPosted = false;
   if (animation && animation.byteLength <= limit) {
+    const animationCopy = input.roll.rerolledAt === null
+      ? { header: `🎰 **${escapeDiscordText(input.roll.displayName)} is rolling…**`, footer: "" }
+      : { header: null, footer: `🎰 **${escapeDiscordText(input.roll.displayName)}'s rerolled number is landing…**` };
     const animationResponse = await patchMultipart(url, {
-      content: `🎰 **${escapeDiscordText(input.roll.displayName)} is rolling…**`,
-      allowed_mentions: { parse: [] },
-      components: resultComponents(input.roll, now()),
+      ...rngdleRollPayload({
+        roll: input.roll,
+        now: now(),
+        filename: RNGDLE_DISCORD_GIF_FILENAME,
+        description: "RNGDLE number and badge reveal",
+        ...animationCopy,
+        includeActions: input.roll.rerolledAt === null,
+      }),
       attachments: [{ id: 0, filename: RNGDLE_DISCORD_GIF_FILENAME, description: "RNGDLE number and badge reveal" }],
     }, animation, RNGDLE_DISCORD_GIF_FILENAME, "image/gif", fetchImpl);
     animationPosted = animationResponse.ok;
@@ -179,18 +326,19 @@ export async function deliverRngdleRoll(input: {
   }
 
   if (animationPosted) {
-    const override = process.env.BITEDLE_RNGDLE_FINAL_EDIT_DELAY_MS;
-    const delay = process.env.NODE_ENV !== "production" && override !== undefined
-      ? Math.max(0, Number(override) || 0)
-      : durationMs + FINAL_EDIT_MARGIN_MS;
-    await sleep(delay);
+    await waitForAnimation(durationMs);
   }
 
   if (still.byteLength <= limit) {
     const finalPayload = {
-      content,
-      allowed_mentions: { parse: [] },
-      components: resultComponents(input.roll, now()),
+      ...rngdleRollPayload({
+        roll: input.roll,
+        now: now(),
+        filename: RNGDLE_DISCORD_PNG_FILENAME,
+        description: `RNGDLE result ${input.roll.current.number}`,
+        header: resultCopy.header,
+        footer: resultCopy.footer,
+      }),
       attachments: [{ id: 0, filename: RNGDLE_DISCORD_PNG_FILENAME, description: `RNGDLE result ${input.roll.current.number}` }],
     };
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -202,9 +350,12 @@ export async function deliverRngdleRoll(input: {
   }
 
   const fallback = await patchJson(url, {
-    content,
-    allowed_mentions: { parse: [] },
-    components: resultComponents(input.roll, now()),
+    ...rngdleRollPayload({
+      roll: input.roll,
+      now: now(),
+      header: resultCopy.header,
+      footer: resultCopy.footer,
+    }),
     attachments: [],
   }, fetchImpl);
   if (!fallback.ok) throw new Error(`RNGDLE final text edit failed (${await responseError(fallback)})`);
@@ -214,6 +365,7 @@ export async function deliverRngdleLeaderboard(input: {
   applicationId: string;
   token: string;
   entries: RngdleLeaderboardEntry[];
+  totalPlayers?: number;
   attachmentSizeLimit?: number;
   fetchImpl?: typeof fetch;
 }): Promise<void> {
@@ -226,7 +378,7 @@ export async function deliverRngdleLeaderboard(input: {
     }, fetchImpl);
     return;
   }
-  const image = await renderRngdleDiscordLeaderboard(input.entries);
+  const image = await renderRngdleDiscordLeaderboard(input.entries, input.totalPlayers ?? input.entries.length);
   if (image.byteLength <= safeLimit(input.attachmentSizeLimit)) {
     const response = await patchMultipart(url, {
       content: "🏆 **RNGDLE all-time leaderboard**",
