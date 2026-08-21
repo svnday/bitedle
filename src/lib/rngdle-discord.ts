@@ -5,7 +5,7 @@ import {
   RNGDLE_DISCORD_PNG_FILENAME,
   RNGDLE_DISCORD_PROFILE_FILENAME,
   RNGDLE_DISCORD_RISK_GIF_FILENAME,
-  renderRngdleDiscordAssets,
+  renderRngdleDiscordAnimation,
   renderRngdleDiscordLeaderboard,
   renderRngdleDiscordProfile,
   renderRngdleRiskAnimation,
@@ -223,67 +223,32 @@ export async function deliverRngdleRoll(input: {
   const url = webhookUrl(input.applicationId, input.token);
   const limit = safeLimit(input.attachmentSizeLimit);
   const resultCopy = rngdleResultCopy(input.roll, input.rank, input.playerCount, input.stats.newBadges, now());
-  let still: Buffer;
-  let animation: Buffer | null = null;
-  let durationMs = 0;
-  let riskAnimation: Buffer | null = null;
-  let riskDurationMs = 0;
-
-  try {
-    if (input.animate) {
-      const [assets, risk] = await Promise.all([
-        renderRngdleDiscordAssets(
-          input.roll.current,
-          input.roll.displayName,
-          input.rank,
-          input.playerCount,
-          input.stats,
-        ),
-        input.riskAnimationPercent === undefined
-          ? Promise.resolve(null)
-          : renderRisk(input.riskAnimationPercent),
-      ]);
-      animation = assets.animation;
-      still = assets.still;
-      durationMs = assets.durationMs;
-      riskAnimation = risk?.animation ?? null;
-      riskDurationMs = risk?.durationMs ?? 0;
-    } else {
-      still = await renderRngdleDiscordStill(
-        input.roll.current,
-        input.roll.displayName,
-        input.rank,
-        input.playerCount,
-        input.stats,
-      );
-      if (input.riskAnimationPercent !== undefined) {
-        const risk = await renderRisk(input.riskAnimationPercent);
-        riskAnimation = risk.animation;
-        riskDurationMs = risk.durationMs;
-      }
-    }
-  } catch (error) {
-    console.error("rngdle: image rendering failed", error);
-    const fallback = await patchJson(url, {
-      ...rngdleRollPayload({
-        roll: input.roll,
-        now: now(),
-        header: resultCopy.header,
-        footer: resultCopy.footer,
-      }),
-      attachments: [],
-    }, fetchImpl);
-    if (!fallback.ok) throw new Error(`RNGDLE text fallback failed (${await responseError(fallback)})`);
-    return;
-  }
-
-  const waitForAnimation = async (duration: number) => {
+  const animationDelay = (duration: number) => {
     const override = process.env.BITEDLE_RNGDLE_FINAL_EDIT_DELAY_MS;
-    const delay = process.env.NODE_ENV !== "production" && override !== undefined
+    return process.env.NODE_ENV !== "production" && override !== undefined
       ? Math.max(0, Number(override) || 0)
       : duration + FINAL_EDIT_MARGIN_MS;
-    await sleep(delay);
   };
+  const waitForAnimation = async (duration: number) => {
+    await sleep(animationDelay(duration));
+  };
+
+  // The risk animation is rendered and posted before the much heavier roll
+  // animation so the reroll button clears as soon as the player commits.
+  // Rendering the roll assets afterwards overlaps with its playback.
+  let riskAnimation: Buffer | null = null;
+  let riskDurationMs = 0;
+  let riskPostedAt: number | null = null;
+
+  if (input.riskAnimationPercent !== undefined) {
+    try {
+      const risk = await renderRisk(input.riskAnimationPercent);
+      riskAnimation = risk.animation;
+      riskDurationMs = risk.durationMs;
+    } catch (error) {
+      console.error("rngdle: risk animation rendering failed", error);
+    }
+  }
 
   if (riskAnimation && riskAnimation.byteLength <= limit) {
     const riskResponse = await patchMultipart(url, {
@@ -297,10 +262,34 @@ export async function deliverRngdleRoll(input: {
       }),
       attachments: [{ id: 0, filename: RNGDLE_DISCORD_RISK_GIF_FILENAME, description: "RNGDLE reroll risk selection from 1 to 99 percent" }],
     }, riskAnimation, RNGDLE_DISCORD_RISK_GIF_FILENAME, "image/gif", fetchImpl);
-    if (riskResponse.ok) await waitForAnimation(riskDurationMs);
+    if (riskResponse.ok) riskPostedAt = now();
     else console.warn(`rngdle: risk animation edit failed (${await responseError(riskResponse)})`);
   } else if (riskAnimation) {
     console.warn(`rngdle: risk animation exceeded the interaction attachment limit (${limit} bytes)`);
+  }
+
+  let animation: Buffer | null = null;
+  let durationMs = 0;
+
+  if (input.animate) {
+    try {
+      const rendered = await renderRngdleDiscordAnimation(
+        input.roll.current,
+        input.roll.displayName,
+        input.rank,
+        input.playerCount,
+        input.stats,
+      );
+      animation = rendered.animation;
+      durationMs = rendered.durationMs;
+    } catch (error) {
+      // A failed GIF still leaves the final card worth delivering.
+      console.error("rngdle: animation rendering failed", error);
+    }
+  }
+
+  if (riskPostedAt !== null) {
+    await sleep(Math.max(0, animationDelay(riskDurationMs) - (now() - riskPostedAt)));
   }
 
   let animationPosted = false;
@@ -325,9 +314,36 @@ export async function deliverRngdleRoll(input: {
     console.warn(`rngdle: animation exceeded the interaction attachment limit (${limit} bytes)`);
   }
 
+  // Rendered once the GIF is already on screen, so it costs playback time
+  // rather than delaying the first edit.
+  const pendingStill = renderRngdleDiscordStill(
+    input.roll.current,
+    input.roll.displayName,
+    input.rank,
+    input.playerCount,
+    input.stats,
+  ).then((buffer) => ({ buffer }), (error: unknown) => ({ error }));
+
   if (animationPosted) {
     await waitForAnimation(durationMs);
   }
+
+  const rendered = await pendingStill;
+  if (!("buffer" in rendered)) {
+    console.error("rngdle: image rendering failed", rendered.error);
+    const fallback = await patchJson(url, {
+      ...rngdleRollPayload({
+        roll: input.roll,
+        now: now(),
+        header: resultCopy.header,
+        footer: resultCopy.footer,
+      }),
+      attachments: [],
+    }, fetchImpl);
+    if (!fallback.ok) throw new Error(`RNGDLE text fallback failed (${await responseError(fallback)})`);
+    return;
+  }
+  const still = rendered.buffer;
 
   if (still.byteLength <= limit) {
     const finalPayload = {

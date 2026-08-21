@@ -1057,6 +1057,21 @@ function handleRngdleUtilityButton(body: Interaction, mode: "leaderboard" | "use
   return NextResponse.json({ type: 5 });
 }
 
+/**
+ * RNGDLE replies through the interaction webhook and never reads
+ * guild_channels, so it skips the pre-routing write below — and the schema
+ * bootstrap that write can trigger on a cold instance.
+ */
+function isRngdleInteraction(body: Interaction): boolean {
+  if (body.type === 2) return body.data?.name === "rngdle";
+  if (body.type !== 3) return false;
+  const customId = body.data?.custom_id ?? "";
+  return customId.startsWith(RNGDLE_REROLL_CUSTOM_ID_PREFIX)
+    || customId.startsWith(RNGDLE_REPLAY_CUSTOM_ID_PREFIX)
+    || customId === RNGDLE_LEADERBOARD_BUTTON_ID
+    || customId === RNGDLE_PROFILE_BUTTON_ID;
+}
+
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("X-Signature-Ed25519");
   const timestamp = request.headers.get("X-Signature-Timestamp");
@@ -1093,6 +1108,7 @@ export async function POST(request: NextRequest) {
   if (
     (body?.type === 2 || body?.type === 3) &&
     body.data?.name !== "biteball" &&
+    !isRngdleInteraction(body) &&
     body.guild_id &&
     body.channel_id
   ) {

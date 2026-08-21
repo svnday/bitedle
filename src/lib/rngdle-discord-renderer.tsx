@@ -3,10 +3,14 @@ import path from "node:path";
 import { ImageResponse } from "next/og";
 import sharp from "sharp";
 import type { RngdleLeaderboardEntry, RngdleUserProfile } from "./rngdle-discord-store";
-import type { RngdleBadge, RngdleBadgeRarity, RngdleResult } from "./rngdle/types";
+import type { RngdleBadge, RngdleResult } from "./rngdle/types";
 
-export const RNGDLE_DISCORD_WIDTH = 900;
-export const RNGDLE_DISCORD_HEIGHT = 700;
+// The roll animation shares the still's canvas so the GIF settles into the
+// final card without the Discord embed reflowing.
+export const RNGDLE_DISCORD_WIDTH = 1200;
+export const RNGDLE_DISCORD_HEIGHT = 760;
+export const RNGDLE_DISCORD_RISK_WIDTH = 900;
+export const RNGDLE_DISCORD_RISK_HEIGHT = 700;
 export const RNGDLE_DISCORD_RESULT_WIDTH = 1200;
 export const RNGDLE_DISCORD_RESULT_HEIGHT = 760;
 export const RNGDLE_DISCORD_PROFILE_WIDTH = 1200;
@@ -18,22 +22,6 @@ export const RNGDLE_DISCORD_RISK_GIF_FILENAME = "rngdle-reroll-risk.gif";
 export const RNGDLE_DISCORD_PNG_FILENAME = "rngdle-result.png";
 export const RNGDLE_DISCORD_LEADERBOARD_FILENAME = "rngdle-leaderboard.png";
 export const RNGDLE_DISCORD_PROFILE_FILENAME = "rngdle-profile.png";
-
-const RARITY_COLORS: Record<RngdleBadgeRarity | RngdleResult["rarity"], string> = {
-  Common: "#d9dde7",
-  Uncommon: "#34e2ad",
-  Rare: "#35a7ff",
-  Epic: "#ba72ff",
-  Anomaly: "#ff4ea3",
-  Mythic: "#ffbe2e",
-  trash: "#7d8290",
-  common: "#d9dde7",
-  uncommon: "#34e2ad",
-  rare: "#35a7ff",
-  epic: "#ba72ff",
-  anomaly: "#ff4ea3",
-  mythic: "#ffbe2e",
-};
 
 const ROLL_THEMES: Record<RngdleResult["rarity"], {
   primary: string;
@@ -163,35 +151,41 @@ function animationFrames(result: RngdleResult): RngdleAnimationFrame[] {
     });
   }
 
+  // The landed number and its rarity colour are the payoff, so hold on them
+  // before anything else competes for attention.
+  const revealBadges = result.badges.slice(0, 15);
   frames.push({
-    delay: 700,
+    delay: 1_250,
     digits: finalDigits,
     lockedDigits: finalDigits.length,
     badge: null,
     badgeIndex: 0,
-    badgeCount: result.badges.length,
+    badgeCount: revealBadges.length,
     earnedEp: 0,
     revealProgress: 1,
     phase: "rarity",
   });
 
-  const revealBadges = result.badges.slice().reverse();
+  // Badges then fill in beneath the number, in the order the final card lists
+  // them, quickly enough that the roll stays the centrepiece.
   let earnedEp = 0;
   revealBadges.forEach((badge, index) => {
     earnedEp += badge.ep;
     frames.push({
-      delay: 120,
+      delay: 70,
       digits: finalDigits,
       lockedDigits: finalDigits.length,
       badge,
       badgeIndex: index + 1,
       badgeCount: revealBadges.length,
       earnedEp,
-      revealProgress: .45,
+      revealProgress: .5,
       phase: "badge",
     });
     frames.push({
-      delay: index === revealBadges.length - 1 ? 850 : 560,
+      // GIF delays are encoded in centiseconds, so every value here stays a
+      // multiple of 10 to keep the reported duration exact.
+      delay: index === revealBadges.length - 1 ? 520 : 220,
       digits: finalDigits,
       lockedDigits: finalDigits.length,
       badge,
@@ -204,7 +198,7 @@ function animationFrames(result: RngdleResult): RngdleAnimationFrame[] {
   });
 
   frames.push({
-    delay: 1_500,
+    delay: 2_200,
     digits: finalDigits,
     lockedDigits: finalDigits.length,
     badge: null,
@@ -244,27 +238,6 @@ function riskAnimationFrames(finalPercent: number): RngdleRiskFrame[] {
   return frames;
 }
 
-function shell(children: React.ReactNode) {
-  return (
-    <div
-      style={{
-        width: "100%",
-        height: "100%",
-        display: "flex",
-        position: "relative",
-        overflow: "hidden",
-        color: "#f5f5f8",
-        background: "linear-gradient(145deg, #0d0c13 0%, #121119 58%, #09080e 100%)",
-        fontFamily: "Geist",
-      }}
-    >
-      <div style={{ position: "absolute", width: 420, height: 420, left: -210, top: -220, borderRadius: 9999, background: "rgba(87,45,135,.16)", filter: "blur(2px)", display: "flex" }} />
-      <div style={{ position: "absolute", width: 420, height: 420, right: -240, bottom: -250, borderRadius: 9999, background: "rgba(0,178,255,.10)", display: "flex" }} />
-      {children}
-    </div>
-  );
-}
-
 function Header({ subtitle }: { subtitle: string }) {
   return (
     <div style={{ position: "absolute", left: 48, top: 34, width: 804, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -277,83 +250,84 @@ function Header({ subtitle }: { subtitle: string }) {
   );
 }
 
-function NumberReel({ digits, lockedDigits, result }: { digits: string; lockedDigits: number; result: RngdleResult }) {
-  const color = RARITY_COLORS[result.rarity];
+function animationDigits(digits: string, lockedDigits: number, color: string) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <div style={{ display: "flex", gap: 8, padding: "17px 20px", borderRadius: 16, border: `2px solid ${lockedDigits === digits.length ? color : "#555460"}`, background: "linear-gradient(180deg, #37363d, #242329)", boxShadow: lockedDigits === digits.length ? `0 0 24px ${color}2e` : "0 16px 34px rgba(0,0,0,.35)" }}>
-        {[...digits].map((digit, index) => (
-          <div key={index} style={{ width: 58, height: 70, borderRadius: 8, border: `1px solid ${index < lockedDigits ? color : "#494852"}`, background: index < lockedDigits ? "#17161d" : "#2a2931", color: index < lockedDigits ? "#f7f7fa" : "#aaa8b0", fontFamily: "Geist Mono", fontSize: 48, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-            {digit}
+    <div style={{ display: "flex", fontFamily: "Geist Mono", fontSize: 126, fontWeight: 700, lineHeight: 1, textShadow: `0 0 32px ${color}38` }}>
+      {[...digits].map((digit, index) => (
+        <div key={index} style={{ color: index < lockedDigits ? color : "#464e63", display: "flex" }}>{digit}</div>
+      ))}
+    </div>
+  );
+}
+
+// Shares the still's geometry, palette, and copy so the reveal settles into the
+// final result card instead of cutting to a different-looking image.
+function animationImage(
+  result: RngdleResult,
+  frame: RngdleAnimationFrame,
+  playerName: string,
+  rank: number,
+  playerCount: number,
+  stats: RngdleResultCardStats,
+) {
+  const theme = ROLL_THEMES[result.rarity];
+  const color = theme.primary;
+  const settled = frame.phase !== "rolling" && frame.phase !== "number";
+  const complete = frame.phase === "complete";
+  const revealed = result.badges.slice(0, Math.min(15, frame.badgeIndex));
+  return referenceShell(
+    <>
+      <div style={{ position: "absolute", left: 62, top: 45, display: "flex", flexDirection: "column" }}>
+        <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: 1, display: "flex" }}>RNGDLE</div>
+        <div style={{ marginTop: 9, color: "#8390a5", fontSize: 15, fontWeight: 700, letterSpacing: .5, display: "flex" }}>ONE ROLL. ONE NUMBER. EVERY DAY.</div>
+      </div>
+      <div style={{ position: "absolute", left: 920, top: 51, width: 218, display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+        <div style={{ color: "#aeb7ca", fontSize: 14, fontWeight: 700, fontFamily: "Geist Mono", display: "flex" }}>{stats.gameDay}</div>
+        <div style={{ marginTop: 12, fontSize: 15, fontWeight: 700, display: "flex" }}>NEXT DROP IN {formatDropCountdown(stats.nextResetAt, stats.now)}</div>
+      </div>
+      <div style={{ position: "absolute", left: 55, top: 132, width: 1090, height: 330, borderRadius: 30, border: `1px solid ${color}42`, background: `linear-gradient(110deg, ${theme.panelFrom}, ${theme.panelTo})`, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+        {animationDigits(frame.digits, frame.lockedDigits, color)}
+        <div style={{ marginTop: 18, padding: "7px 20px", borderRadius: 999, border: `1px solid ${settled ? color : "#3d465c"}`, color: settled ? color : "#68718a", backgroundColor: settled ? `${color}14` : "rgba(255,255,255,.02)", fontSize: 15, fontWeight: 700, display: "flex" }}>
+          {settled ? result.rarityLabel : "ROLLING"}
+        </div>
+        <div style={{ marginTop: 12, color: settled ? "#f6f5fa" : "#5c6479", fontFamily: "Geist Mono", fontSize: 34, fontWeight: 700, display: "flex" }}>
+          {formatEp(complete ? result.creditedEp : frame.earnedEp)} POINTS
+        </div>
+        {complete && result.penaltyPercent !== null ? (
+          <div style={{ marginTop: 5, display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div style={{ color: "#e2e5eb", fontFamily: "Geist Mono", fontSize: 14, fontWeight: 700, display: "flex" }}>
+              {stats.rerollDeltaEp !== null && stats.rerollDeltaEp >= 0 ? "+" : ""}{formatEp(stats.rerollDeltaEp ?? result.creditedEp - result.rawEp)} POINTS
+            </div>
+            <div style={{ marginTop: 6, color, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>REROLL&nbsp;&nbsp;•&nbsp;&nbsp;-{result.penaltyPercent}% FROM {formatEp(result.rawEp)} BASE</div>
+          </div>
+        ) : null}
+      </div>
+      <div style={{ position: "absolute", left: 62, top: 478, width: 1076, display: "flex", flexWrap: "wrap", gap: 7 }}>
+        {revealed.map((badge, index) => (
+          <div
+            key={badge.id}
+            style={{ opacity: frame.badge && index === revealed.length - 1 ? frame.revealProgress : 1, display: "flex" }}
+          >
+            {compactResultBadge(badge, color)}
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function RarityLine({ result }: { result: RngdleResult }) {
-  const color = RARITY_COLORS[result.rarity];
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 15 }}>
-      <div style={{ padding: "4px 9px", border: `1px solid ${color}`, borderRadius: 4, color, fontSize: 13, fontWeight: 900, letterSpacing: 1.2, display: "flex" }}>{result.rarityLabel}</div>
-      <div style={{ width: 4, height: 4, borderRadius: 99, backgroundColor: "#686671", display: "flex" }} />
-      <div style={{ color: result.rarity === "trash" || result.rarity === "common" ? "#ff7b22" : color, fontSize: 14, fontWeight: 850, textTransform: "uppercase", display: "flex" }}>{result.rarityBand}</div>
-    </div>
-  );
-}
-
-function BadgeSpotlight({ badge, index, count, earnedEp, revealProgress }: { badge: RngdleBadge; index: number; count: number; earnedEp: number; revealProgress: number }) {
-  const color = RARITY_COLORS[badge.rarity];
-  return (
-    <div style={{ width: 780, height: 236, marginTop: 38, opacity: revealProgress, transform: `translateY(${Math.round((1 - revealProgress) * 18)}px) scale(${.97 + revealProgress * .03})`, borderRadius: 13, border: `1px solid ${color}88`, background: "#24232b", boxShadow: `0 0 26px ${color}20`, padding: "24px 28px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 42, height: 42, borderRadius: 10, background: `${color}20`, border: `1px solid ${color}75`, color, fontSize: 21, fontWeight: 950, display: "flex", alignItems: "center", justifyContent: "center" }}>{badge.label.slice(0, 1).toUpperCase()}</div>
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ fontSize: 23, fontWeight: 900, display: "flex" }}>{clipped(badge.label.toUpperCase(), 34)}</div>
-              <div style={{ padding: "4px 8px", border: `1px solid ${color}`, borderRadius: 4, color, fontSize: 11, fontWeight: 900, letterSpacing: 1, display: "flex" }}>{badge.rarity.toUpperCase()}</div>
-            </div>
-            <div style={{ marginTop: 8, color: "#aaa7b3", fontSize: 16, textTransform: "uppercase", display: "flex" }}>{clipped(badge.desc, 78)}</div>
+      <div style={{ position: "absolute", left: 62, bottom: 25, width: 1076, display: "flex", justifyContent: "space-between" }}>
+        {[
+          [clipped(playerName, 24), "TODAY'S ROLLER"],
+          [`#${rank} / ${playerCount}`, "TODAY"],
+          [`${stats.currentStreak} ${stats.currentStreak === 1 ? "DAY" : "DAYS"}`, "STREAK"],
+          [formatEp(stats.careerEp), "CAREER POINTS"],
+        ].map(([value, label]) => (
+          <div key={label} style={{ width: 230, display: "flex", flexDirection: "column" }}>
+            <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "Geist Mono", display: "flex" }}>{value}</div>
+            <div style={{ marginTop: 10, color: "#727990", fontSize: 13, display: "flex" }}>{label}</div>
           </div>
-        </div>
-        <div style={{ border: `1px solid ${color}8c`, borderRadius: 999, padding: "7px 13px", color, background: `${color}0f`, fontFamily: "Geist Mono", fontSize: 18, fontWeight: 700, display: "flex" }}>+{formatEp(badge.ep)} EP</div>
-      </div>
-      <div style={{ height: 1, backgroundColor: "#3b3943", display: "flex" }} />
-      <div style={{ display: "flex", justifyContent: "space-between", color: "#83808d", fontSize: 12, fontWeight: 800, letterSpacing: 1.3 }}>
-        <div style={{ display: "flex" }}>BADGE {index} OF {count}</div>
-        <div style={{ display: "flex" }}>{formatEp(earnedEp)} EP REVEALED</div>
-      </div>
-    </div>
-  );
-}
-
-function animationImage(result: RngdleResult, frame: RngdleAnimationFrame) {
-  const status = frame.phase === "rolling" ? "ROLLING" : frame.phase === "number" ? "LOCKING DIGITS" : frame.phase === "badge" ? "BADGE REVEAL" : frame.phase === "complete" ? "ROLL COMPLETE" : "RARITY FOUND";
-  return shell(
-    <>
-      <Header subtitle={status} />
-      <div style={{ position: "absolute", left: 0, width: 900, top: 104, display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <NumberReel digits={frame.digits} lockedDigits={frame.lockedDigits} result={result} />
-        {frame.phase !== "rolling" && frame.phase !== "number" ? <RarityLine result={result} /> : null}
-        {frame.badge ? (
-          <BadgeSpotlight badge={frame.badge} index={frame.badgeIndex} count={frame.badgeCount} earnedEp={frame.earnedEp} revealProgress={frame.revealProgress} />
-        ) : frame.phase === "complete" ? (
-          <div style={{ marginTop: 48, display: "flex", flexDirection: "column", alignItems: "center" }}>
-            <div style={{ color: "#92909c", fontSize: 13, fontWeight: 850, letterSpacing: 2 }}>TOTAL ROLL VALUE</div>
-            <div style={{ marginTop: 8, fontFamily: "Geist Mono", fontSize: 47, fontWeight: 700, display: "flex" }}>{formatEp(result.creditedEp)} EP</div>
-            {result.penaltyPercent ? <div style={{ marginTop: 9, color: "#ff6767", fontSize: 15, fontWeight: 850, display: "flex" }}>{result.penaltyPercent}% REROLL RISK APPLIED · {formatEp(result.rawEp)} RAW EP</div> : null}
-            <div style={{ marginTop: 16, color: "#aaa7b3", fontSize: 14, display: "flex" }}>{result.badges.length} BADGES EARNED</div>
-          </div>
-        ) : (
-          <div style={{ marginTop: 70, color: "#777481", fontSize: 14, fontWeight: 850, letterSpacing: 2, display: "flex" }}>{frame.phase === "rarity" ? "CALCULATING BADGES…" : "REELS ARE SPINNING…"}</div>
-        )}
-      </div>
-      <div style={{ position: "absolute", left: 48, width: 804, bottom: 31, display: "flex", justifyContent: "space-between", color: "#625f6c", fontSize: 10, fontWeight: 800, letterSpacing: 1.5 }}>
-        <div>BITEDLE LABS</div><div>SCORING BY RNGDLE</div>
+        ))}
       </div>
     </>,
+    theme.from,
+    theme.to,
   );
 }
 
@@ -650,17 +624,21 @@ async function render(
 
 export async function renderRngdleRiskAnimation(finalPercent: number): Promise<RngdleRiskAnimation> {
   const frames = riskAnimationFrames(finalPercent);
-  const framePngs = await Promise.all(frames.map((frame) => render(riskAnimationImage(frame))));
+  const framePngs = await Promise.all(frames.map((frame) => render(
+    riskAnimationImage(frame),
+    RNGDLE_DISCORD_RISK_WIDTH,
+    RNGDLE_DISCORD_RISK_HEIGHT,
+  )));
   const rawFrames = await Promise.all(framePngs.map(async (png) => (
     sharp(png).ensureAlpha().raw().toBuffer()
   )));
   return {
     animation: await sharp(Buffer.concat(rawFrames), {
       raw: {
-        width: RNGDLE_DISCORD_WIDTH,
-        height: RNGDLE_DISCORD_HEIGHT * frames.length,
+        width: RNGDLE_DISCORD_RISK_WIDTH,
+        height: RNGDLE_DISCORD_RISK_HEIGHT * frames.length,
         channels: 4,
-        pageHeight: RNGDLE_DISCORD_HEIGHT,
+        pageHeight: RNGDLE_DISCORD_RISK_HEIGHT,
       },
     }).gif({ loop: 1, delay: frames.map((frame) => frame.delay), colours: 96, effort: 4 }).toBuffer(),
     durationMs: frames.reduce((total, frame) => total + frame.delay, 0),
@@ -697,15 +675,21 @@ export function renderRngdleDiscordLeaderboard(entries: RngdleLeaderboardEntry[]
   );
 }
 
-export async function renderRngdleDiscordAssets(
+/**
+ * The roll GIF on its own. Split out from the asset bundle so delivery can post
+ * the animation and render the still while it is already playing.
+ */
+export async function renderRngdleDiscordAnimation(
   result: RngdleResult,
   playerName: string,
   rank: number,
   playerCount: number,
   stats: RngdleResultCardStats,
-): Promise<RngdleDiscordAssets> {
+): Promise<{ animation: Buffer; durationMs: number }> {
   const frames = animationFrames(result);
-  const framePngs = await Promise.all(frames.map((frame) => render(animationImage(result, frame))));
+  const framePngs = await Promise.all(frames.map((frame) => render(
+    animationImage(result, frame, playerName, rank, playerCount, stats),
+  )));
   const rawFrames = await Promise.all(framePngs.map(async (png) => {
     const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     if (info.width !== RNGDLE_DISCORD_WIDTH || info.height !== RNGDLE_DISCORD_HEIGHT || info.channels !== 4) {
@@ -723,7 +707,21 @@ export async function renderRngdleDiscordAssets(
   }).gif({ loop: 1, delay: frames.map((frame) => frame.delay), colours: 128, effort: 4 }).toBuffer();
   return {
     animation,
-    still: await renderRngdleDiscordStill(result, playerName, rank, playerCount, stats),
     durationMs: frames.reduce((total, frame) => total + frame.delay, 0),
+  };
+}
+
+export async function renderRngdleDiscordAssets(
+  result: RngdleResult,
+  playerName: string,
+  rank: number,
+  playerCount: number,
+  stats: RngdleResultCardStats,
+): Promise<RngdleDiscordAssets> {
+  const { animation, durationMs } = await renderRngdleDiscordAnimation(result, playerName, rank, playerCount, stats);
+  return {
+    animation,
+    still: await renderRngdleDiscordStill(result, playerName, rank, playerCount, stats),
+    durationMs,
   };
 }
