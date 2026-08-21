@@ -701,8 +701,7 @@ function profileRollCard(
   );
 }
 
-function profileImage(profile: RngdleUserProfile, avatarDataUrl?: string | null) {
-  const initials = profile.displayName.slice(0, 2).toUpperCase();
+function profileImage(profile: RngdleUserProfile) {
   const profileTheme = ROLL_THEMES[profile.top.result.rarity];
   return referenceShell(
     <>
@@ -717,9 +716,11 @@ function profileImage(profile: RngdleUserProfile, avatarDataUrl?: string | null)
         <div style={{ fontSize: 25, fontWeight: 950, display: "flex" }}>RNGDLE</div>
         <div style={{ marginTop: 10, color: "#8090aa", fontSize: 15, fontWeight: 850, display: "flex" }}>PLAYER PROFILE</div>
       </div>
-      <div style={{ position: "absolute", left: 850, top: 30, width: 296, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 18 }}>
-        <div style={{ fontSize: 31, fontWeight: 950, display: "flex" }}>{clipped(profile.displayName, 24)}</div>
-        <div style={{ width: 74, height: 74, borderRadius: 999, border: `3px solid ${profileTheme.primary}`, backgroundColor: `${profileTheme.primary}22`, ...(avatarDataUrl ? { backgroundImage: `url("${avatarDataUrl}")`, backgroundPosition: "center", backgroundSize: "cover" } : {}), color: profileTheme.primary, fontSize: 22, fontWeight: 950, display: "flex", alignItems: "center", justifyContent: "center" }}>{avatarDataUrl ? "" : initials}</div>
+      {/* No avatar: satori has to rasterise the fetched image itself, and it
+          renders Discord's PNGs distorted inside the circle. The name alone
+          reads cleanly and saves a CDN round trip per profile. */}
+      <div style={{ position: "absolute", left: 700, top: 44, width: 446, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
+        <div style={{ fontSize: 31, fontWeight: 950, whiteSpace: "nowrap", display: "flex" }}>{clipped(profile.displayName, 28)}</div>
       </div>
       <div style={{ position: "absolute", left: 51, top: 124, width: 1098, display: "flex", gap: 22 }}>
         {profileRollCard("TODAY'S ROLL", profile.today, profile.today ? ROLL_THEMES[profile.today.result.rarity].primary : "#45506a", "TODAY'S RESULT")}
@@ -1018,9 +1019,9 @@ export function renderRngdleDiscordStill(
   );
 }
 
-export function renderRngdleDiscordProfile(profile: RngdleUserProfile, avatarDataUrl?: string | null): Promise<Buffer> {
+export function renderRngdleDiscordProfile(profile: RngdleUserProfile): Promise<Buffer> {
   return render(
-    profileImage(profile, avatarDataUrl),
+    profileImage(profile),
     RNGDLE_DISCORD_PROFILE_WIDTH,
     RNGDLE_DISCORD_PROFILE_HEIGHT,
   );

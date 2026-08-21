@@ -444,6 +444,42 @@ assert.match(routeSource, /RNGDLE_REPLAY_CUSTOM_ID_PREFIX/);
 assert.match(routeSource, /RNGDLE_LEADERBOARD_BUTTON_ID/);
 assert.match(routeSource, /RNGDLE_PROFILE_BUTTON_ID/);
 assert.match(routeSource, /riskAnimationPercent: penalty/);
+// A reroll is irreversible, so the button must only ask. The confirmation has
+// to stay on the roll card: delivery edits that message through this same
+// interaction chain, and a confirmation posted anywhere else could not reach
+// it. These assertions pin both halves of that.
+{
+  const gameDay = "2026-08-20";
+  const player = "600000000000000001";
+  const card = { type: 17, components: [{ type: 12, items: [{ media: { url: "attachment://rngdle-result.png" } }] }] };
+  const message = { components: [card, { type: 1, components: [{ type: 2, custom_id: "stale" }] }] };
+
+  const asking = delivery.rngdleRerollConfirmUpdate({ message }, gameDay, player);
+  assert.deepEqual(asking.components[0], card, "the confirmation must reuse the card's own container");
+  assert.equal(asking.attachments, undefined, "omitting attachments keeps the card's image in place");
+  const warning = asking.components.find((component) => component.type === 10);
+  assert.ok(warning, "the confirmation must state the terms");
+  for (const phrase of ["1-99% risk", "one reroll per day"]) {
+    assert.ok(warning.content.includes(phrase), `the warning should mention ${phrase}`);
+  }
+  const askRow = asking.components.find((component) => component.type === 1);
+  assert.equal(askRow.components.length, 2, "confirm and cancel only");
+  assert.match(askRow.components[0].custom_id, /^rngdle-reroll-go:v1:/);
+  assert.match(askRow.components[1].custom_id, /^rngdle-reroll-no:v1:/);
+  assert.equal(
+    askRow.components.some((button) => /^rngdle-reroll:v1:/.test(button.custom_id)),
+    false,
+    "asking must not leave a one-click reroll on the card",
+  );
+
+  const cancelled = delivery.rngdleRerollCancelUpdate({ message }, gameDay, player);
+  assert.deepEqual(cancelled.components[0], card, "cancelling must restore the card untouched");
+  assert.equal(cancelled.components.some((component) => component.type === 10), false, "the warning clears on cancel");
+  const backRow = cancelled.components.find((component) => component.type === 1);
+  assert.deepEqual(backRow.components.map((button) => button.label), ["Leaderboard", "My Profile", "Reroll 1-99% Risk"]);
+}
+assert.match(routeSource, /handleRngdleRerollConfirm/);
+assert.match(routeSource, /handleRngdleRerollCancel/);
 assert.match(routeSource, /handleRngdleReplay/);
 assert.match(routeSource, /NextResponse\.json\(\{ type: 6 \}\)/);
 

@@ -54,11 +54,17 @@ import {
   deliverRngdleProfile,
   deliverRngdleRoll,
   parseRngdleReplayCustomId,
+  parseRngdleRerollCancelCustomId,
+  parseRngdleRerollConfirmCustomId,
   parseRngdleRerollCustomId,
   RNGDLE_LEADERBOARD_BUTTON_ID,
   RNGDLE_PROFILE_BUTTON_ID,
   RNGDLE_REPLAY_CUSTOM_ID_PREFIX,
+  RNGDLE_REROLL_CANCEL_CUSTOM_ID_PREFIX,
+  RNGDLE_REROLL_CONFIRM_CUSTOM_ID_PREFIX,
   RNGDLE_REROLL_CUSTOM_ID_PREFIX,
+  rngdleRerollCancelUpdate,
+  rngdleRerollConfirmUpdate,
   takePendingRngdlePenalty,
 } from "@/lib/rngdle-discord";
 import { getRngdleDiscordRepository } from "@/lib/rngdle-discord-store";
@@ -108,6 +114,8 @@ interface Interaction {
   };
   member?: { user?: InteractionUser };
   user?: InteractionUser;
+  /** Present on component interactions: the message the component sits on. */
+  message?: { id?: string; components?: unknown[] };
   channel_id?: string;
   guild_id?: string;
   /** Present on all interactions — needed for interaction-webhook posts/edits. */
@@ -954,6 +962,43 @@ async function handleRngdleReroll(body: Interaction): Promise<NextResponse> {
     return reply("That RNGDLE roll is from a previous game day.", true);
   }
 
+  // A reroll cannot be undone, so the button only asks. Swapping the card's
+  // buttons in place keeps the confirmation on the roll message itself, which
+  // matters: delivery edits that message through this interaction chain, and a
+  // confirmation posted elsewhere would not be able to reach it.
+  return NextResponse.json({
+    type: 7,
+    data: rngdleRerollConfirmUpdate(body, parsed.gameDay, parsed.userId),
+  });
+}
+
+function handleRngdleRerollCancel(body: Interaction): NextResponse {
+  const parsed = parseRngdleRerollCancelCustomId(body.data?.custom_id ?? "");
+  const user = body.member?.user ?? body.user;
+  if (!parsed || !user?.id) return reply("That RNGDLE button is invalid.", true);
+  if (parsed.userId !== user.id) return reply("Only the player who rolled can use this.", true);
+  return NextResponse.json({
+    type: 7,
+    data: rngdleRerollCancelUpdate(body, parsed.gameDay, parsed.userId),
+  });
+}
+
+function handleRngdleRerollConfirm(body: Interaction): NextResponse {
+  const parsed = parseRngdleRerollConfirmCustomId(body.data?.custom_id ?? "");
+  const user = body.member?.user ?? body.user;
+  if (!parsed || !user?.id || !body.guild_id) {
+    return reply("That RNGDLE reroll button is invalid.", true);
+  }
+  if (parsed.userId !== user.id) {
+    return reply("Only the player who rolled can use this reroll.", true);
+  }
+  if (!body.application_id || !body.token) {
+    return reply("RNGDLE couldn't start that reroll. Try again.", true);
+  }
+  if (parsed.gameDay !== rngdleGameDay()) {
+    return reply("That RNGDLE roll is from a previous game day.", true);
+  }
+
   // Every database call moves behind the acknowledgement. On a cold instance
   // the schema check plus four round trips can exceed Discord's 3s deadline,
   // which players see as "bitedle didn't respond in time".
@@ -1121,6 +1166,8 @@ function isRngdleInteraction(body: Interaction): boolean {
   if (body.type !== 3) return false;
   const customId = body.data?.custom_id ?? "";
   return customId.startsWith(RNGDLE_REROLL_CUSTOM_ID_PREFIX)
+    || customId.startsWith(RNGDLE_REROLL_CONFIRM_CUSTOM_ID_PREFIX)
+    || customId.startsWith(RNGDLE_REROLL_CANCEL_CUSTOM_ID_PREFIX)
     || customId.startsWith(RNGDLE_REPLAY_CUSTOM_ID_PREFIX)
     || customId === RNGDLE_LEADERBOARD_BUTTON_ID
     || customId === RNGDLE_PROFILE_BUTTON_ID;
@@ -1186,6 +1233,12 @@ export async function POST(request: NextRequest) {
     return handleRngdle(body);
   }
 
+  if (body?.type === 3 && body?.data?.custom_id?.startsWith(RNGDLE_REROLL_CONFIRM_CUSTOM_ID_PREFIX)) {
+    return handleRngdleRerollConfirm(body);
+  }
+  if (body?.type === 3 && body?.data?.custom_id?.startsWith(RNGDLE_REROLL_CANCEL_CUSTOM_ID_PREFIX)) {
+    return handleRngdleRerollCancel(body);
+  }
   if (body?.type === 3 && body?.data?.custom_id?.startsWith(RNGDLE_REROLL_CUSTOM_ID_PREFIX)) {
     return handleRngdleReroll(body);
   }
