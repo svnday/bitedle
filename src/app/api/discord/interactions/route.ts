@@ -58,6 +58,7 @@ import {
   RNGDLE_PROFILE_BUTTON_ID,
   RNGDLE_REPLAY_CUSTOM_ID_PREFIX,
   RNGDLE_REROLL_CUSTOM_ID_PREFIX,
+  takePendingRngdlePenalty,
 } from "@/lib/rngdle-discord";
 import { getRngdleDiscordRepository } from "@/lib/rngdle-discord-store";
 import { scoreRngdleNumber, selectRngdleNumber, selectRngdlePenalty } from "@/lib/rngdle/scoring";
@@ -65,7 +66,11 @@ import { canRerollRngdle, rngdleGameDay, rngdleNextResetAt } from "@/lib/rngdle/
 
 // Imports next/og (via discord-summary) for the preview image — needs Node.
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// RNGDLE's deferred delivery renders a GIF, waits out its playback, then posts
+// the final card — comfortably longer than the old 60s ceiling on a cold,
+// CPU-constrained instance, which killed the function mid-render and left the
+// interaction stuck on "thinking…".
+export const maxDuration = 120;
 
 function siteUrl(): string {
   // VERCEL_URL is the unique URL of *this* deployment, not the stable
@@ -952,7 +957,9 @@ async function handleRngdleReroll(body: Interaction): Promise<NextResponse> {
       : "You already used the one reroll for today's RNGDLE.", true);
   }
 
-  const penalty = selectRngdlePenalty();
+  // Prefer the penalty pre-drawn at roll time — its risk animation is already
+  // rendered on this instance, so the reroll answers without a render wait.
+  const penalty = takePendingRngdlePenalty(body.guild_id, user.id, parsed.gameDay) ?? selectRngdlePenalty();
   const outcome = await repository.reroll({
     guildId: body.guild_id,
     userId: user.id,

@@ -10,8 +10,11 @@ import {
   renderRngdleDiscordProfile,
   renderRngdleRiskAnimation,
   renderRngdleDiscordStill,
+  type RngdleAnimationAssets,
+  type RngdleRiskAnimation,
   type RngdleResultCardStats,
 } from "./rngdle-discord-renderer";
+import { selectRngdlePenalty } from "./rngdle/scoring";
 import { canRerollRngdle, rngdleRerollDeadline } from "./rngdle/time";
 
 const DEFAULT_ATTACHMENT_LIMIT = 8 * 1024 * 1024;
@@ -63,6 +66,90 @@ function parseOwnedRollCustomId(customId: string, prefix: string): { gameDay: st
 
 function safeLimit(limit: number | undefined): number {
   return Number.isSafeInteger(limit) && limit! > 0 ? limit! : DEFAULT_ATTACHMENT_LIMIT;
+}
+
+/**
+ * Per-instance caches. The risk animation depends only on its percent, so a
+ * warmed instance serves rerolls instantly; roll assets are kept briefly so a
+ * Replay shortly after a roll skips the full re-render. The reroll penalty is
+ * drawn at roll time (same 1-99 uniform distribution, still hidden from the
+ * player) purely so its animation can be rendered ahead of the click.
+ */
+const riskAnimationCache = new Map<number, Promise<RngdleRiskAnimation>>();
+const pendingRerollPenalties = new Map<string, number>();
+const animationAssetCache = new Map<string, { assets: RngdleAnimationAssets; createdAt: number }>();
+const ASSET_CACHE_TTL_MS = 90_000;
+const ASSET_CACHE_LIMIT = 8;
+
+function pendingPenaltyKey(guildId: string, userId: string, gameDay: string): string {
+  return `${guildId}:${userId}:${gameDay}`;
+}
+
+export function takePendingRngdlePenalty(guildId: string, userId: string, gameDay: string): number | null {
+  const key = pendingPenaltyKey(guildId, userId, gameDay);
+  const value = pendingRerollPenalties.get(key) ?? null;
+  pendingRerollPenalties.delete(key);
+  return value;
+}
+
+function cachedRiskAnimation(
+  percent: number,
+  renderRisk: typeof renderRngdleRiskAnimation,
+): Promise<RngdleRiskAnimation> {
+  let entry = riskAnimationCache.get(percent);
+  if (!entry) {
+    entry = renderRisk(percent);
+    riskAnimationCache.set(percent, entry);
+    entry.catch(() => riskAnimationCache.delete(percent));
+  }
+  return entry;
+}
+
+async function warmRerollRisk(roll: RngdleDiscordRoll, renderRisk: typeof renderRngdleRiskAnimation): Promise<void> {
+  if (roll.rerolledAt !== null) return;
+  for (const key of pendingRerollPenalties.keys()) {
+    if (!key.endsWith(`:${roll.gameDay}`)) pendingRerollPenalties.delete(key);
+  }
+  const key = pendingPenaltyKey(roll.guildId, roll.userId, roll.gameDay);
+  if (pendingRerollPenalties.has(key)) return;
+  const penalty = selectRngdlePenalty();
+  pendingRerollPenalties.set(key, penalty);
+  try {
+    await cachedRiskAnimation(penalty, renderRisk);
+  } catch (error) {
+    console.warn("rngdle: reroll risk warm-up failed", error);
+  }
+}
+
+function assetCacheKey(roll: RngdleDiscordRoll, rank: number, playerCount: number, stats: RngdleResultCardStats): string {
+  const result = roll.current;
+  return [
+    roll.guildId, roll.userId, roll.gameDay, roll.displayName,
+    result.number, result.creditedEp, result.penaltyPercent,
+    rank, playerCount, stats.careerEp, stats.currentStreak, stats.newBadges, stats.rerollDeltaEp,
+  ].join("|");
+}
+
+function readAssetCache(key: string): RngdleAnimationAssets | null {
+  const entry = animationAssetCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.createdAt > ASSET_CACHE_TTL_MS) {
+    animationAssetCache.delete(key);
+    return null;
+  }
+  return entry.assets;
+}
+
+function writeAssetCache(key: string, assets: RngdleAnimationAssets): void {
+  for (const [existingKey, entry] of animationAssetCache) {
+    if (Date.now() - entry.createdAt > ASSET_CACHE_TTL_MS) animationAssetCache.delete(existingKey);
+  }
+  while (animationAssetCache.size >= ASSET_CACHE_LIMIT) {
+    const oldest = animationAssetCache.keys().next().value;
+    if (oldest === undefined) break;
+    animationAssetCache.delete(oldest);
+  }
+  animationAssetCache.set(key, { assets, createdAt: Date.now() });
 }
 
 function escapeDiscordText(value: string): string {
@@ -233,16 +320,31 @@ export async function deliverRngdleRoll(input: {
     await sleep(animationDelay(duration));
   };
 
-  // The risk animation is rendered and posted before the much heavier roll
-  // animation so the reroll button clears as soon as the player commits.
-  // Rendering the roll assets afterwards overlaps with its playback.
+  // Clear Discord's "thinking…" (or a reroll's stale buttons) immediately with
+  // a text-only edit; every render below happens behind a visible message.
+  const openerFooter = input.riskAnimationPercent !== undefined
+    ? `🎲 **${escapeDiscordText(input.roll.displayName)} is rolling the reroll risk…**`
+    : `🎰 **${escapeDiscordText(input.roll.displayName)} is rolling…**`;
+  const opener = await patchJson(url, {
+    ...rngdleRollPayload({
+      roll: input.roll,
+      now: now(),
+      footer: openerFooter,
+      includeActions: false,
+    }),
+    attachments: [],
+  }, fetchImpl);
+  if (!opener.ok) console.warn(`rngdle: opener edit failed (${await responseError(opener)})`);
+
+  // The risk animation posts before the much heavier roll render; a warmed
+  // cache usually makes it instant, and the roll renders during its playback.
   let riskAnimation: Buffer | null = null;
   let riskDurationMs = 0;
   let riskPostedAt: number | null = null;
 
   if (input.riskAnimationPercent !== undefined) {
     try {
-      const risk = await renderRisk(input.riskAnimationPercent);
+      const risk = await cachedRiskAnimation(input.riskAnimationPercent, renderRisk);
       riskAnimation = risk.animation;
       riskDurationMs = risk.durationMs;
     } catch (error) {
@@ -270,21 +372,32 @@ export async function deliverRngdleRoll(input: {
 
   let animation: Buffer | null = null;
   let durationMs = 0;
+  let still: Buffer | null = null;
 
   if (input.animate) {
-    try {
-      const rendered = await renderRngdleDiscordAnimation(
-        input.roll.current,
-        input.roll.displayName,
-        input.rank,
-        input.playerCount,
-        input.stats,
-      );
-      animation = rendered.animation;
-      durationMs = rendered.durationMs;
-    } catch (error) {
-      // A failed GIF still leaves the final card worth delivering.
-      console.error("rngdle: animation rendering failed", error);
+    const cacheKey = assetCacheKey(input.roll, input.rank, input.playerCount, input.stats);
+    const cached = readAssetCache(cacheKey);
+    if (cached) {
+      animation = cached.animation;
+      durationMs = cached.durationMs;
+      still = cached.still;
+    } else {
+      try {
+        const rendered = await renderRngdleDiscordAnimation(
+          input.roll.current,
+          input.roll.displayName,
+          input.rank,
+          input.playerCount,
+          input.stats,
+        );
+        animation = rendered.animation;
+        durationMs = rendered.durationMs;
+        still = rendered.still;
+        writeAssetCache(cacheKey, rendered);
+      } catch (error) {
+        // A failed GIF still leaves the final card worth delivering.
+        console.error("rngdle: animation rendering failed", error);
+      }
     }
   }
 
@@ -314,36 +427,36 @@ export async function deliverRngdleRoll(input: {
     console.warn(`rngdle: animation exceeded the interaction attachment limit (${limit} bytes)`);
   }
 
-  // Rendered once the GIF is already on screen, so it costs playback time
-  // rather than delaying the first edit.
-  const pendingStill = renderRngdleDiscordStill(
-    input.roll.current,
-    input.roll.displayName,
-    input.rank,
-    input.playerCount,
-    input.stats,
-  ).then((buffer) => ({ buffer }), (error: unknown) => ({ error }));
-
   if (animationPosted) {
     await waitForAnimation(durationMs);
   }
 
-  const rendered = await pendingStill;
-  if (!("buffer" in rendered)) {
-    console.error("rngdle: image rendering failed", rendered.error);
-    const fallback = await patchJson(url, {
-      ...rngdleRollPayload({
-        roll: input.roll,
-        now: now(),
-        header: resultCopy.header,
-        footer: resultCopy.footer,
-      }),
-      attachments: [],
-    }, fetchImpl);
-    if (!fallback.ok) throw new Error(`RNGDLE text fallback failed (${await responseError(fallback)})`);
-    return;
+  // The compositing pipeline returns the still with the animation; only the
+  // animate:false path (or a failed animation render) still renders it here.
+  if (!still) {
+    try {
+      still = await renderRngdleDiscordStill(
+        input.roll.current,
+        input.roll.displayName,
+        input.rank,
+        input.playerCount,
+        input.stats,
+      );
+    } catch (error) {
+      console.error("rngdle: image rendering failed", error);
+      const fallback = await patchJson(url, {
+        ...rngdleRollPayload({
+          roll: input.roll,
+          now: now(),
+          header: resultCopy.header,
+          footer: resultCopy.footer,
+        }),
+        attachments: [],
+      }, fetchImpl);
+      if (!fallback.ok) throw new Error(`RNGDLE text fallback failed (${await responseError(fallback)})`);
+      return;
+    }
   }
-  const still = rendered.buffer;
 
   if (still.byteLength <= limit) {
     const finalPayload = {
@@ -359,7 +472,12 @@ export async function deliverRngdleRoll(input: {
     };
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await patchMultipart(url, finalPayload, still, RNGDLE_DISCORD_PNG_FILENAME, "image/png", fetchImpl);
-      if (response.ok) return;
+      if (response.ok) {
+        // Pre-draw the reroll penalty and render its risk animation now, so a
+        // reroll click on this instance answers instantly.
+        await warmRerollRisk(input.roll, renderRisk);
+        return;
+      }
       console.warn(`rngdle: still-image edit failed (${await responseError(response)})`);
       if (attempt === 0) await sleep(FINAL_EDIT_RETRY_MS);
     }

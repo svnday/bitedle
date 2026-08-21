@@ -112,7 +112,7 @@ function previousDay(gameDay: string): string {
 
 function buildProfile(
   rolls: RngdleDiscordRoll[],
-  leaderboard: RngdleLeaderboardEntry[],
+  standing: { allTimeRank: number; totalPlayers: number },
   currentGameDay: string,
 ): RngdleUserProfile | null {
   if (rolls.length === 0) return null;
@@ -134,7 +134,6 @@ function buildProfile(
     currentStreak += 1;
     cursor = previousDay(cursor);
   }
-  const leaderboardIndex = leaderboard.findIndex((entry) => entry.userId === newest.userId);
   const todayRoll = rolls.find((roll) => roll.gameDay === currentGameDay) ?? null;
   const previousBadgeIds = new Set(
     rolls
@@ -150,8 +149,8 @@ function buildProfile(
       : null,
     top: { gameDay: byScore[0].gameDay, result: byScore[0].current },
     worst: { gameDay: byScore.at(-1)!.gameDay, result: byScore.at(-1)!.current },
-    allTimeRank: leaderboardIndex === -1 ? leaderboard.length : leaderboardIndex + 1,
-    totalPlayers: Math.max(1, leaderboard.length),
+    allTimeRank: standing.allTimeRank,
+    totalPlayers: Math.max(1, standing.totalPlayers),
     games: rolls.length,
     careerEp: rolls.reduce((total, roll) => total + roll.current.creditedEp, 0),
     currentStreak,
@@ -318,7 +317,12 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
     const rolls = Object.values(this.db.rolls)
       .filter((roll) => roll.guildId === guildId && roll.userId === userId)
       .map(cloneRoll);
-    return buildProfile(rolls, await this.leaderboard(guildId, Number.MAX_SAFE_INTEGER), currentGameDay);
+    const leaderboard = await this.leaderboard(guildId, Number.MAX_SAFE_INTEGER);
+    const index = leaderboard.findIndex((entry) => entry.userId === userId);
+    return buildProfile(rolls, {
+      allTimeRank: index === -1 ? leaderboard.length : index + 1,
+      totalPlayers: Math.max(1, leaderboard.length),
+    }, currentGameDay);
   }
 }
 
@@ -498,11 +502,31 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
       SELECT * FROM rngdle_rolls
       WHERE guild_id = ${guildId} AND user_id = ${userId}
       ORDER BY initial_rolled_at DESC` as NeonRollRow[];
-    return buildProfile(
-      rows.map(neonRoll),
-      await this.leaderboard(guildId, 100_000),
-      currentGameDay,
-    );
+    if (rows.length === 0) return null;
+    // Rank computed in the database with the leaderboard's exact ordering,
+    // instead of shipping the entire aggregated leaderboard to find one index.
+    const standing = await this.sql`
+      WITH totals AS (
+        SELECT
+          user_id,
+          SUM((current_result->>'creditedEp')::bigint) AS total_ep,
+          COUNT(*)::int AS rolls,
+          (array_agg(display_name ORDER BY initial_rolled_at DESC))[1] AS display_name
+        FROM rngdle_rolls
+        WHERE guild_id = ${guildId}
+        GROUP BY user_id
+      ), ranked AS (
+        SELECT
+          user_id,
+          (ROW_NUMBER() OVER (ORDER BY total_ep DESC, rolls DESC, display_name ASC))::int AS rank,
+          (COUNT(*) OVER ())::int AS players
+        FROM totals
+      )
+      SELECT rank, players FROM ranked WHERE user_id = ${userId}` as Array<{ rank: number; players: number }>;
+    return buildProfile(rows.map(neonRoll), {
+      allTimeRank: standing[0]?.rank ?? 1,
+      totalPlayers: standing[0]?.players ?? 1,
+    }, currentGameDay);
   }
 }
 

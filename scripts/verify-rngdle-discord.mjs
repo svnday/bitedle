@@ -313,9 +313,13 @@ await delivery.deliverRngdleRoll({
   now: () => baseTime + 1000,
   sleep: async () => {},
 });
-assert.equal(requests.length, 2, "animated roll must be replaced by a static result");
-const animatedPayload = multipartPayload(requests[0]);
-const finalPayload = multipartPayload(requests[1]);
+assert.equal(requests.length, 3, "roll flow must post opener, animation, then the static result");
+assert.match(requests[0].contentType, /application\/json/, "the first edit must be the lightweight opener");
+const openerPayload = JSON.parse(requests[0].body.toString("utf8"));
+assert.match(v2Text(openerPayload), /is rolling…/);
+assert.equal(v2Buttons(openerPayload).length, 0, "the opener must not carry buttons");
+const animatedPayload = multipartPayload(requests[1]);
+const finalPayload = multipartPayload(requests[2]);
 for (const payload of [animatedPayload, finalPayload]) {
   assert.deepEqual(payload.allowed_mentions, { parse: [] });
   v2Container(payload);
@@ -346,9 +350,13 @@ await delivery.deliverRngdleRoll({
   stats: { ...resultStats, rerollDeltaEp: rerolledResult.creditedEp - firstResult.creditedEp },
   now: () => baseTime + 9 * 60 * 1000,
 });
-assert.equal(requests.length, 2, "rerolls must show the risk animation before the final result");
-const riskPayload = multipartPayload(requests[0]);
-const rerolledPayload = multipartPayload(requests[1]);
+assert.equal(requests.length, 3, "rerolls must post opener, risk animation, then the final result");
+assert.match(requests[0].contentType, /application\/json/, "the first reroll edit must be the lightweight opener");
+const rerollOpenerPayload = JSON.parse(requests[0].body.toString("utf8"));
+assert.match(v2Text(rerollOpenerPayload), /rolling the reroll risk/);
+assert.equal(v2Buttons(rerollOpenerPayload).length, 0, "the reroll opener must clear the buttons immediately");
+const riskPayload = multipartPayload(requests[1]);
+const rerolledPayload = multipartPayload(requests[2]);
 assertV2Attachment(riskPayload, "rngdle-reroll-risk.gif");
 assert.equal(v2Buttons(riskPayload).length, 0, "risk animation must not expose buttons while it is running");
 assertV2Attachment(rerolledPayload, "rngdle-result.png");
