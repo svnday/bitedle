@@ -3,6 +3,7 @@ import path from "node:path";
 import { ImageResponse } from "next/og";
 import sharp from "sharp";
 import type { RngdleLeaderboardEntry, RngdleUserProfile } from "./rngdle-discord-store";
+import { classifyRngdleScore } from "./rngdle/scoring";
 import type { RngdleBadge, RngdleResult } from "./rngdle/types";
 
 // The roll animation shares the still's canvas so the GIF settles into the
@@ -366,6 +367,18 @@ function panelBoxStyle(result: RngdleResult, settled: boolean): Record<string, u
  */
 type RngdlePanelLayer = "full" | "base" | "ep" | "empty";
 
+/**
+ * The "was -> is" arrow. Drawn rather than typed: a missing U+2192 in the
+ * bundled font would render as tofu in the middle of the card.
+ */
+function DowngradeArrow({ color, size }: { color: string; size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "flex" }}>
+      <path d="M4 12h14M12 5.5 18.5 12 12 18.5" fill="none" stroke={color} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 // Returned as a keyed array, not a fragment: satori treats a fragment child as
 // one flex-row box, which would flatten the panel's column stack sideways.
 function resultPanelBody(
@@ -379,14 +392,39 @@ function resultPanelBody(
   const color = blank || layer === "ep" ? "transparent" : themeColor;
   const epColor = blank || layer === "base" ? "transparent" : undefined;
   const chrome = blank || layer === "ep" ? "transparent" : undefined;
+  const faded = "#7b8399";
+
+  // After a reroll the card carries two readings of the same roll: what it was
+  // worth before the risk, and what it is worth now. Showing them either side
+  // of an arrow says what the penalty actually cost far more directly than a
+  // percentage does - and it puts the tier drop, which is the part players feel,
+  // where the tier already is. The base tier comes from the pre-penalty EP; the
+  // one on `result` is already the post-penalty tier.
+  const penalised = view.showPenalty && result.penaltyPercent !== null;
+  const baseRarityLabel = penalised ? classifyRngdleScore(result.rawEp).label : null;
+  const tierDropped = baseRarityLabel !== null && baseRarityLabel !== result.rarityLabel;
   return [
     view.lockedDigits === null
       ? <div key="digits" style={{ color, fontFamily: "Geist Mono", fontSize: 126, fontWeight: 700, lineHeight: 1, ...(layer === "ep" || layer === "empty" ? {} : { textShadow: DIGIT_GLOW(themeColor) }), display: "flex" }}>{view.digitsText}</div>
       : <div key="digits" style={{ display: "flex" }}>{animationDigits(view.digitsText, view.lockedDigits, color, view.settled && layer === "full")}</div>,
-    <div key="pill" style={{ marginTop: 18, padding: "7px 20px", borderRadius: 999, border: `1px solid ${chrome ?? (view.settled ? themeColor : "#3d465c")}`, color: chrome ?? (view.settled ? themeColor : "#68718a"), backgroundColor: chrome ?? (view.settled ? `${themeColor}14` : "rgba(255,255,255,.02)"), fontSize: 15, fontWeight: 700, display: "flex" }}>
-      {view.settled ? result.rarityLabel : "ROLLING"}
+    <div key="pill" style={{ marginTop: 18, padding: "7px 20px", borderRadius: 999, border: `1px solid ${chrome ?? (view.settled ? themeColor : "#3d465c")}`, color: chrome ?? (view.settled ? themeColor : "#68718a"), backgroundColor: chrome ?? (view.settled ? `${themeColor}14` : "rgba(255,255,255,.02)"), fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", gap: 9 }}>
+      {view.settled && tierDropped
+        ? [
+          <div key="was" style={{ color: chrome ?? faded, display: "flex" }}>{baseRarityLabel}</div>,
+          <DowngradeArrow key="arrow" color={chrome ?? faded} size={14} />,
+          <div key="now" style={{ display: "flex" }}>{result.rarityLabel}</div>,
+        ]
+        : (view.settled ? result.rarityLabel : "ROLLING")}
     </div>,
-    <div key="points" style={{ marginTop: 12, color: epColor ?? (view.settled ? "#f6f5fa" : "#5c6479"), fontFamily: "Geist Mono", fontSize: 34, fontWeight: 700, display: "flex" }}>{formatEp(view.pointsEp)} EP</div>,
+    <div key="points" style={{ marginTop: 12, fontFamily: "Geist Mono", fontSize: 34, fontWeight: 700, display: "flex", alignItems: "center", gap: 13 }}>
+      {penalised
+        ? [
+          <div key="was" style={{ color: epColor ?? faded, display: "flex" }}>{formatEp(result.rawEp)}</div>,
+          <DowngradeArrow key="arrow" color={epColor ?? faded} size={26} />,
+        ]
+        : null}
+      <div key="now" style={{ color: epColor ?? (view.settled ? "#f6f5fa" : "#5c6479"), display: "flex" }}>{formatEp(view.pointsEp)} EP</div>
+    </div>,
     view.showPenalty && result.penaltyPercent !== null ? (
       // Two different figures live here and used to sit unlabelled one above the
       // other, which read as "-8% of 3,824 = -593". It isn't: the top line is the
@@ -399,7 +437,7 @@ function resultPanelBody(
           <div style={{ display: "flex" }}>{stats.rerollDeltaEp !== null && stats.rerollDeltaEp >= 0 ? "+" : ""}{formatEp(stats.rerollDeltaEp ?? result.creditedEp - result.rawEp)} EP</div>
           <div style={{ color: chrome ?? "#8b93a7", fontSize: 10, fontWeight: 700, letterSpacing: 1.2, display: "flex" }}>VS FIRST ROLL</div>
         </div>
-        <div style={{ marginTop: 6, color, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>REROLL&nbsp;&nbsp;•&nbsp;&nbsp;-{result.penaltyPercent}% (-{formatEp(result.rawEp - result.creditedEp)} EP) FROM {formatEp(result.rawEp)} BASE</div>
+        <div style={{ marginTop: 6, color, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>REROLL&nbsp;&nbsp;•&nbsp;&nbsp;RISK -{result.penaltyPercent}%&nbsp;&nbsp;•&nbsp;&nbsp;-{formatEp(result.rawEp - result.creditedEp)} EP</div>
       </div>
     ) : null,
   ];

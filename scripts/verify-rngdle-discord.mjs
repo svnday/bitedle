@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import Module, { createRequire } from "node:module";
@@ -224,11 +225,40 @@ fs.writeFileSync(trashResultPath, await renderer.renderRngdleDiscordStill(trashR
   rerollDeltaEp: -6218,
 }));
 fs.writeFileSync(epicResultPath, await renderer.renderRngdleDiscordStill(epicResult, "Epic Tester", 2, 8, resultStats));
-fs.writeFileSync(mythicProfilePath, await renderer.renderRngdleDiscordProfile({
-  ...profile,
-  displayName: "Mythic Theme Tester",
-  top: { gameDay: "2026-08-16", result: mythicResult },
-}));
+
+// A rerolled card states the roll twice - what it was worth before the risk and
+// what it is worth after, either side of an arrow - because the drop is the part
+// a player actually feels. 219986 falls COMMON -> TRASH at 71%, so it exercises
+// both the tier arrow and the EP one.
+assert.equal(scoring.classifyRngdleScore(trashResult.rawEp).label, "COMMON");
+assert.equal(trashResult.rarityLabel, "TRASH");
+const rendererSource = fs.readFileSync(path.join(repoRoot, "src", "lib", "rngdle-discord-renderer.tsx"), "utf8");
+assert.match(rendererSource, /classifyRngdleScore\(result\.rawEp\)/, "the pre-penalty tier must be read off the pre-penalty EP");
+assert.match(rendererSource, /DowngradeArrow/, "the was -> is arrow is drawn, not typed");
+
+// The panel animates as one shared base plus a per-frame EP layer, and only the
+// EP layer is re-rendered per frame. Put the counting total on the base by
+// mistake and every settled frame freezes on whichever value the shared base
+// happened to be built from - the reveal still "plays", so nothing about
+// dimensions, duration or payloads notices. Count how many distinct renderings
+// the EP row actually takes across the reveal.
+{
+  const pages = gifMetadata.pages ?? 1;
+  const row = { left: 55, top: 340, width: 1090, height: 52 };
+  const seen = new Set();
+  for (let page = 0; page < pages; page += 1) {
+    const strip = await sharp(assets.animation, { page })
+      .extract(row)
+      .raw()
+      .toBuffer();
+    seen.add(createHash("sha1").update(strip).digest("hex"));
+  }
+  assert.ok(
+    seen.size >= 5,
+    `the EP total must climb through the reveal, but its row takes only ${seen.size} distinct forms across ${pages} frames`,
+  );
+}
+
 const riskAsset = await renderer.renderRngdleRiskAnimation(37);
 assert.equal(riskAsset.animation.subarray(0, 6).toString("ascii"), "GIF89a");
 fs.writeFileSync(riskPath, riskAsset.animation);
