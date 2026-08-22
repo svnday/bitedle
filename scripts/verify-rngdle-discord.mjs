@@ -55,6 +55,32 @@ process.env.BITEDLE_RNGDLE_FILE_DB_PATH = localDbPath;
 process.env.BITEDLE_RNGDLE_FINAL_EDIT_DELAY_MS = "0";
 
 const require = createRequire(import.meta.url);
+
+// Every suite here runs against the FileStore, so the Neon repository has never
+// been executed by a test - which is how a hardcoded reroll window once shipped.
+// Stubbing the driver lets its query path be exercised without a database. No
+// test wants the real driver; if one ever does, it must load before this point.
+const neonStatements = [];
+let neonTableExists = false;
+const neonModuleId = require.resolve("@neondatabase/serverless");
+require.cache[neonModuleId] = {
+  id: neonModuleId,
+  filename: neonModuleId,
+  loaded: true,
+  exports: {
+    neon: () => (strings) => {
+      const text = strings.join("?").replace(/\s+/g, " ").trim();
+      neonStatements.push(text);
+      if (/^CREATE TABLE/i.test(text)) { neonTableExists = true; return Promise.resolve([]); }
+      if (/^CREATE INDEX/i.test(text)) return Promise.resolve([]);
+      if (!neonTableExists) {
+        return Promise.reject(Object.assign(new Error('relation "rngdle_rolls" does not exist'), { code: "42P01" }));
+      }
+      return Promise.resolve([]);
+    },
+  },
+};
+
 const sharp = require("sharp");
 const scoring = require(path.join(compileDir, "rngdle", "scoring.js"));
 const storeModule = require(path.join(compileDir, "rngdle-discord-store.js"));
@@ -525,6 +551,49 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
 // These suites drive the file-backed store, so the Neon SQL never runs here.
 // A hardcoded reroll window in that UPDATE silently blocked every production
 // reroll past ten minutes while every test stayed green, so assert on it.
+// RNGDLE is played once a day, so nearly every interaction lands on a cold
+// instance. Confirming the schema before the first query therefore cost three
+// DDL round trips on almost every roll, not rarely. The query itself is the
+// cheapest existence check there is, so it goes first and the schema is only
+// built if Postgres says the table is missing.
+{
+  const repository = new storeModule.NeonRngdleDiscordRepository("postgres://stub");
+
+  neonStatements.length = 0;
+  await repository.getRoll("guild", "user", dayOne);
+  assert.match(neonStatements[0], /^SELECT/, "the query must go first - no schema pre-flight");
+  assert.match(neonStatements[1], /^CREATE TABLE/, "a missing table is built on the failure path");
+  assert.match(neonStatements[4], /^SELECT/, "and the query is retried once it exists");
+  assert.equal(neonStatements.length, 5);
+
+  // The case that actually matters: every request after the table exists.
+  neonStatements.length = 0;
+  await repository.getRoll("guild", "user", dayOne);
+  await repository.dailyStandings("guild", dayOne);
+  assert.equal(neonStatements.filter((text) => /^CREATE/i.test(text)).length, 0, "no DDL on the hot path");
+  assert.equal(neonStatements.length, 2, "one round trip per query and nothing else");
+
+  // Only undefined_table means "build the schema". Asserting the rejection is
+  // not enough - a blanket retry rejects with the same error - so what is
+  // checked is that no DDL was attempted in response to it.
+  neonStatements.length = 0;
+  require.cache[neonModuleId].exports.neon = () => (strings) => {
+    const text = strings.join("?").replace(/\s+/g, " ").trim();
+    neonStatements.push(text);
+    if (/^CREATE/i.test(text)) return Promise.resolve([]);
+    return Promise.reject(Object.assign(new Error("syntax error at or near"), { code: "42601" }));
+  };
+  await assert.rejects(
+    () => new storeModule.NeonRngdleDiscordRepository("postgres://stub").getRoll("g", "u", dayOne),
+    /syntax error/,
+  );
+  assert.deepEqual(
+    neonStatements.filter((text) => /^CREATE/i.test(text)),
+    [],
+    "a non-42P01 failure must not be mistaken for a missing table",
+  );
+}
+
 const storeSource = fs.readFileSync(path.join(repoRoot, "src", "lib", "rngdle-discord-store.ts"), "utf8");
 const rerollUpdate = /UPDATE rngdle_rolls SET[\s\S]*?RETURNING \*/.exec(storeSource)?.[0] ?? "";
 assert.ok(rerollUpdate, "the Neon reroll UPDATE should be findable");

@@ -362,17 +362,43 @@ function neonRoll(row: NeonRollRow): RngdleDiscordRoll {
   };
 }
 
+/** Postgres `undefined_table` - the only error the schema fallback should act on. */
+function isMissingTable(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "42P01";
+}
+
 export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
   private readonly sql: NeonQueryFunction<false, false>;
   private ready: Promise<void> | null = null;
 
   constructor(databaseUrl: string) {
-    this.sql = neon(databaseUrl);
+    const sql = neon(databaseUrl);
+    // The schema used to be confirmed before every first query on an instance:
+    // three sequential DDL round trips to Neon, ahead of any real work. That is
+    // memoised per instance, which sounds cheap until you notice RNGDLE is a
+    // once-a-day game - almost every interaction lands on a cold instance, so
+    // almost every roll paid for all three.
+    //
+    // The table has existed since the first deploy, so the query itself is the
+    // cheapest possible existence check. Assume it is there, and fall back to
+    // creating it only if Postgres says otherwise. Wrapping the tagged template
+    // rather than each method keeps all eleven queries untouched.
+    this.sql = ((strings: TemplateStringsArray, ...values: unknown[]) => (
+      sql(strings, ...values).catch(async (error: unknown) => {
+        if (!isMissingTable(error)) throw error;
+        await this.createSchema(sql);
+        return sql(strings, ...values);
+      })
+    )) as unknown as NeonQueryFunction<false, false>;
   }
 
-  private ensureSchema(): Promise<void> {
+  /**
+   * Only ever runs against a database that has never seen RNGDLE. Memoised so
+   * that a burst of queries racing the same missing table creates it once.
+   */
+  private createSchema(sql: NeonQueryFunction<false, false>): Promise<void> {
     this.ready ??= (async () => {
-      await this.sql`
+      await sql`
         CREATE TABLE IF NOT EXISTS rngdle_rolls (
           guild_id text NOT NULL,
           user_id text NOT NULL,
@@ -385,14 +411,13 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
           rerolled_at bigint,
           PRIMARY KEY (guild_id, user_id, game_day)
         )`;
-      await this.sql`CREATE INDEX IF NOT EXISTS rngdle_rolls_guild_day_idx ON rngdle_rolls (guild_id, game_day)`;
-      await this.sql`CREATE INDEX IF NOT EXISTS rngdle_rolls_guild_user_idx ON rngdle_rolls (guild_id, user_id)`;
+      await sql`CREATE INDEX IF NOT EXISTS rngdle_rolls_guild_day_idx ON rngdle_rolls (guild_id, game_day)`;
+      await sql`CREATE INDEX IF NOT EXISTS rngdle_rolls_guild_user_idx ON rngdle_rolls (guild_id, user_id)`;
     })();
     return this.ready;
   }
 
   async createInitial(input: RngdleDiscordRoll) {
-    await this.ensureSchema();
     const inserted = await this.sql`
       INSERT INTO rngdle_rolls (
         guild_id, user_id, game_day, display_name, avatar,
@@ -411,7 +436,6 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
   }
 
   async getRoll(guildId: string, userId: string, gameDay: string) {
-    await this.ensureSchema();
     const rows = await this.sql`
       SELECT * FROM rngdle_rolls
       WHERE guild_id = ${guildId} AND user_id = ${userId} AND game_day = ${gameDay}
@@ -428,7 +452,6 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
     result: RngdleResult;
     now: number;
   }): Promise<RngdleRerollOutcome> {
-    await this.ensureSchema();
     const updated = await this.sql`
       UPDATE rngdle_rolls SET
         display_name = ${input.displayName},
@@ -449,7 +472,6 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
   }
 
   async dailyStandings(guildId: string, gameDay: string): Promise<RngdleDailyStanding[]> {
-    await this.ensureSchema();
     const rows = await this.sql`
       SELECT user_id, display_name, (current_result->>'creditedEp')::bigint AS credited_ep
       FROM rngdle_rolls
@@ -466,7 +488,6 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
   }
 
   async leaderboard(guildId: string, limit = 25): Promise<RngdleLeaderboardEntry[]> {
-    await this.ensureSchema();
     const rows = await this.sql`
       SELECT
         user_id,
@@ -507,7 +528,6 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
   }
 
   async playerCount(guildId: string): Promise<number> {
-    await this.ensureSchema();
     const rows = await this.sql`
       SELECT COUNT(DISTINCT user_id)::int AS players
       FROM rngdle_rolls
@@ -516,7 +536,6 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
   }
 
   async userProfile(guildId: string, userId: string, currentGameDay: string): Promise<RngdleUserProfile | null> {
-    await this.ensureSchema();
     const rows = await this.sql`
       SELECT * FROM rngdle_rolls
       WHERE guild_id = ${guildId} AND user_id = ${userId}

@@ -284,6 +284,14 @@ function Header({ subtitle }: { subtitle: string }) {
 }
 
 /** The number's bloom, which only the landed roll wears. */
+// Both GIFs are mostly still: the risk animation moves a dot along a fixed
+// shell, and the roll animation changes one panel on a fixed card. Letting cgif
+// carry near-identical pixels over as transparency costs no encode time - that
+// is pinned by dithered quantisation and does not move - but it takes the risk
+// GIF from 520 KiB to 282 KiB, which every viewer in the channel downloads.
+// 8 was measured: it shifts 0.08% of pixels, where 32 shifts 10%.
+const GIF_INTER_FRAME_MAX_ERROR = 8;
+
 const DIGIT_GLOW = (color: string) => `0 0 34px ${color}55, 0 0 120px ${color}3a`;
 
 /**
@@ -1042,7 +1050,7 @@ export async function renderRngdleRiskAnimation(finalPercent: number): Promise<R
       channels: 4,
       pageHeight: RNGDLE_DISCORD_RISK_HEIGHT,
     },
-  }).gif({ loop: 1, delay: frames.map((frame) => frame.delay), colours: 64, effort: 1 }).toBuffer();
+  }).gif({ loop: 1, delay: frames.map((frame) => frame.delay), colours: 64, effort: 1, interFrameMaxError: GIF_INTER_FRAME_MAX_ERROR }).toBuffer();
   timer.mark("gif-encode");
   timer.log(`rngdle: risk ${finalPercent}%`);
 
@@ -1206,7 +1214,7 @@ export async function renderRngdleDiscordAnimation(
       channels: 4,
       pageHeight: GIF_HEIGHT,
     },
-  }).gif({ loop: 1, delay: frames.map((frame) => frame.delay), colours: 128, effort: 1 }).toBuffer();
+  }).gif({ loop: 1, delay: frames.map((frame) => frame.delay), colours: 128, effort: 1, interFrameMaxError: GIF_INTER_FRAME_MAX_ERROR }).toBuffer();
   timer.mark("gif-encode");
   timer.log(`rngdle: roll ${result.number}`);
   return {
