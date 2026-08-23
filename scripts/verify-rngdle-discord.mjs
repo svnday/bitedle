@@ -191,6 +191,13 @@ assert.equal(
   (renderer.RNGDLE_DISCORD_RESULT_WIDTH / renderer.RNGDLE_DISCORD_RESULT_HEIGHT).toFixed(3),
 );
 assert.equal(gifMetadata.delay.reduce((sum, delay) => sum + delay, 0), assets.durationMs);
+// The reveal plays more than once before it settles. Looping is what puts extra
+// animation on screen without adding a frame, so nothing is paid in render time
+// or download size. It must be a finite count: an infinite loop would encode as
+// a Netscape count of 0 and the card would never settle at all.
+assert.ok(assets.loops >= 2, "the reveal should replay before settling");
+assert.equal(gifPlayCount(assets.animation), assets.loops, "encoded play count must match the reported one");
+assert.notEqual(gifPlayCount(assets.animation), Infinity, "the reveal must stop, not loop forever");
 assert.equal(gifMetadata.delay.slice(0, 10).every((delay) => delay === 120), true, "the reel should spin with smooth 120ms ticks");
 const pngMetadata = await sharp(assets.still).metadata();
 assert.deepEqual({ width: pngMetadata.width, height: pngMetadata.height }, {
@@ -370,6 +377,25 @@ function multipartPayload(request) {
   return JSON.parse(body.slice(valueStart, valueEnd));
 }
 
+function multipartFile(request, filename) {
+  const boundary = /boundary=(.+)$/i.exec(request.contentType)?.[1];
+  assert.ok(boundary);
+  const CRLF = String.fromCharCode(13, 10);
+  const body = request.body;
+  const marker = body.indexOf(Buffer.from(`filename="${filename}"`));
+  assert.ok(marker > 0, `${filename} must be in the multipart body`);
+  const start = body.indexOf(Buffer.from(CRLF + CRLF), marker) + 4;
+  const end = body.indexOf(Buffer.from(CRLF + "--" + boundary), start);
+  return body.subarray(start, end);
+}
+
+/** Total plays encoded in the GIF: the Netscape block holds one fewer. */
+function gifPlayCount(gif) {
+  const marker = gif.indexOf(Buffer.from("NETSCAPE2.0"));
+  if (marker < 0) return 1;
+  return gif.readUInt16LE(marker + 13) === 0 ? Infinity : gif.readUInt16LE(marker + 13) + 1;
+}
+
 function v2Container(payload) {
   assert.equal(payload.flags, 32768);
   assert.equal(payload.content, null);
@@ -541,6 +567,19 @@ assert.notEqual(
 // Playback, hold, playback, hold - the two holds are what let a player read the
 // number before the risk starts, and the locked risk before the card settles.
 assert.equal(rerollSleeps.length, 4, `expected reveal playback, hold, risk playback, hold; got ${rerollSleeps.join(", ")}`);
+{
+  // Read the reveal back off the wire: delivery has to sit through every pass,
+  // or the final card lands on top of a GIF that is still playing.
+  const revealGif = multipartFile(requests[1], "rngdle-roll.gif");
+  const revealMeta = await sharp(revealGif, { animated: true }).metadata();
+  const onePass = revealMeta.delay.reduce((sum, delay) => sum + delay, 0);
+  const plays = gifPlayCount(revealGif);
+  assert.ok(plays >= 2);
+  assert.ok(
+    rerollSleeps[0] >= onePass * plays,
+    `delivery waited ${rerollSleeps[0]}ms for ${plays} plays of ${onePass}ms`,
+  );
+}
 assert.ok(rerollSleeps[1] >= 1_000, "a hold must separate the number reveal from the risk animation");
 assert.ok(rerollSleeps[2] >= riskAsset.durationMs, "the risk animation must play out before the card settles");
 assert.ok(rerollSleeps[3] >= 1_000, "a hold must separate the locked risk from the final card");

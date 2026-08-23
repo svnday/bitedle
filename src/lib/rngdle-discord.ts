@@ -449,6 +449,7 @@ export async function deliverRngdleRoll(input: {
 
   let animation: Buffer | null = null;
   let durationMs = 0;
+  let loops = 1;
   let still: Buffer | null = null;
 
   if (input.animate) {
@@ -457,6 +458,7 @@ export async function deliverRngdleRoll(input: {
     if (cached) {
       animation = cached.animation;
       durationMs = cached.durationMs;
+      loops = cached.loops;
     } else {
       try {
         const rendered = await renderRngdleDiscordAnimation(
@@ -468,6 +470,7 @@ export async function deliverRngdleRoll(input: {
         );
         animation = rendered.animation;
         durationMs = rendered.durationMs;
+        loops = rendered.loops;
         writeAssetCache(cacheKey, rendered);
       } catch (error) {
         // A failed GIF still leaves the final card worth delivering.
@@ -521,7 +524,8 @@ export async function deliverRngdleRoll(input: {
     : null;
 
   if (animationPosted) {
-    await waitForAnimation(durationMs);
+    // durationMs is one pass; the reveal is encoded to play `loops` of them.
+    await waitForAnimation(durationMs * loops);
     // Let the number sit at full value before anything starts taking EP off it.
     if (isReroll) await hold(REVEAL_HOLD_MS);
   }

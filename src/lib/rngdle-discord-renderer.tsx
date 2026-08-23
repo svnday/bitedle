@@ -92,6 +92,7 @@ export interface RngdleDiscordAssets {
   animation: Buffer;
   still: Buffer;
   durationMs: number;
+  loops: number;
 }
 
 export interface RngdleRiskAnimation {
@@ -291,6 +292,14 @@ function Header({ subtitle }: { subtitle: string }) {
 // GIF from 520 KiB to 282 KiB, which every viewer in the channel downloads.
 // 8 was measured: it shifts 0.08% of pixels, where 32 shifts 10%.
 const GIF_INTER_FRAME_MAX_ERROR = 8;
+
+// How many times the reveal plays before it settles on the final card. Looping
+// is the one way to put more animation on screen for free: the GIF is byte for
+// byte the same, so nothing is added to render time - which is the only latency
+// a player actually waits on - or to what every viewer downloads. Adding frames
+// would cost both. The last pass ends on the settled card and stays there, so
+// the still that replaces it is still a seamless swap.
+const ROLL_REVEAL_LOOPS = 2;
 
 const DIGIT_GLOW = (color: string) => `0 0 34px ${color}55, 0 0 120px ${color}3a`;
 
@@ -1089,7 +1098,9 @@ export function renderRngdleDiscordLeaderboard(entries: RngdleLeaderboardEntry[]
 
 export interface RngdleAnimationAssets {
   animation: Buffer;
+  /** One pass through the frames. Multiply by `loops` for total playback. */
   durationMs: number;
+  loops: number;
 }
 
 /**
@@ -1214,12 +1225,13 @@ export async function renderRngdleDiscordAnimation(
       channels: 4,
       pageHeight: GIF_HEIGHT,
     },
-  }).gif({ loop: 1, delay: frames.map((frame) => frame.delay), colours: 128, effort: 1, interFrameMaxError: GIF_INTER_FRAME_MAX_ERROR }).toBuffer();
+  }).gif({ loop: ROLL_REVEAL_LOOPS, delay: frames.map((frame) => frame.delay), colours: 128, effort: 1, interFrameMaxError: GIF_INTER_FRAME_MAX_ERROR }).toBuffer();
   timer.mark("gif-encode");
   timer.log(`rngdle: roll ${result.number}`);
   return {
     animation,
     durationMs: frames.reduce((total, frame) => total + frame.delay, 0),
+    loops: ROLL_REVEAL_LOOPS,
   };
 }
 
@@ -1230,10 +1242,11 @@ export async function renderRngdleDiscordAssets(
   playerCount: number,
   stats: RngdleResultCardStats,
 ): Promise<RngdleDiscordAssets> {
-  const { animation, durationMs } = await renderRngdleDiscordAnimation(result, playerName, rank, playerCount, stats);
+  const { animation, durationMs, loops } = await renderRngdleDiscordAnimation(result, playerName, rank, playerCount, stats);
   return {
     animation,
     still: await renderRngdleDiscordStill(result, playerName, rank, playerCount, stats),
     durationMs,
+    loops,
   };
 }
