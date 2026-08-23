@@ -97,7 +97,7 @@ const commands = [
   },
   {
     name: "rngdle",
-    description: "Roll RNGDLE or view this server's all-time leaderboard",
+    description: "Roll RNGDLE or view today's and all-time standings",
     type: 1,
     default_member_permissions: null,
     integration_types: [0],
@@ -107,6 +107,11 @@ const commands = [
         type: 1,
         name: "roll",
         description: "Make today's one RNGDLE roll",
+      },
+      {
+        type: 1,
+        name: "today",
+        description: "Show today's RNGDLE standings for this server",
       },
       {
         type: 1,

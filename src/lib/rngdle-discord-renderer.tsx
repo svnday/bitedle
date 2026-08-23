@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ImageResponse } from "next/og";
 import sharp from "sharp";
-import type { RngdleLeaderboardEntry, RngdleUserProfile } from "./rngdle-discord-store";
+import type { RngdleDailyStanding, RngdleLeaderboardEntry, RngdleUserProfile } from "./rngdle-discord-store";
 import { classifyRngdleScore } from "./rngdle/scoring";
 import type { RngdleBadge, RngdleResult } from "./rngdle/types";
 
@@ -840,7 +840,72 @@ function LeaderboardOrbitBackdrop() {
   );
 }
 
-function leaderboardImage(entries: RngdleLeaderboardEntry[], totalPlayers: number) {
+/**
+ * One board, two datasets. The daily standings render through the very same
+ * component as the all-time table rather than a copy of it, so the two cannot
+ * drift apart: only the heading, the captions and what each column says change.
+ */
+interface RngdleBoardRow {
+  key: string;
+  rank: number;
+  name: string;
+  /** Middle column - "26 GAMES" all-time, the tier for a single day. */
+  middle: string;
+  detailTop: string;
+  detailBottom: string;
+  penaltyPercent: number | null;
+  total: string;
+}
+
+interface RngdleBoard {
+  heading: string;
+  caption: string;
+  footerLeft: string;
+  footerRight: string;
+  rows: RngdleBoardRow[];
+}
+
+function allTimeBoard(entries: RngdleLeaderboardEntry[], totalPlayers: number): RngdleBoard {
+  return {
+    heading: "ALL-TIME LEADERBOARD",
+    caption: `${totalPlayers} PLAYERS  •  CAREER EP`,
+    footerLeft: "Ranked by total career EP",
+    footerRight: "Daily play builds your all-time total",
+    rows: entries.slice(0, 10).map((entry, index) => ({
+      key: entry.userId,
+      rank: index + 1,
+      name: entry.displayName,
+      middle: `${entry.rolls} GAMES`,
+      detailTop: `BEST ${entry.bestNumber}`,
+      detailBottom: `${formatEp(entry.bestEp)} EP`,
+      penaltyPercent: entry.bestPenaltyPercent,
+      total: `${formatEp(entry.totalEp)} EP`,
+    })),
+  };
+}
+
+function dailyBoard(standings: RngdleDailyStanding[], gameDay: string, totalPlayers: number): RngdleBoard {
+  const rolled = standings.length;
+  return {
+    heading: "TODAY'S LEADERBOARD",
+    caption: `${gameDay}  •  ${rolled} OF ${totalPlayers} ROLLED`,
+    footerLeft: "Ranked by today's credited EP",
+    footerRight: "Resets with the next drop",
+    // The computed rank, not the row index: tied scores genuinely share a place.
+    rows: standings.slice(0, 10).map((entry) => ({
+      key: entry.userId,
+      rank: entry.rank,
+      name: entry.displayName,
+      middle: entry.rarityLabel,
+      detailTop: `ROLL ${entry.number}`,
+      detailBottom: `${entry.badgeCount} ${entry.badgeCount === 1 ? "BADGE" : "BADGES"}`,
+      penaltyPercent: entry.penaltyPercent,
+      total: `${formatEp(entry.creditedEp)} EP`,
+    })),
+  };
+}
+
+function leaderboardImage(board: RngdleBoard) {
   return referenceShell(
     <>
       <div style={{ position: "absolute", left: 0, top: 0, width: 1200, height: 790, background: "linear-gradient(90deg, rgba(0,112,150,.20), rgba(28,24,58,.05) 46%, rgba(103,43,178,.34))", display: "flex" }} />
@@ -849,38 +914,38 @@ function leaderboardImage(entries: RngdleLeaderboardEntry[], totalPlayers: numbe
       <LeaderboardOrbitBackdrop />
       <div style={{ position: "absolute", left: 58, top: 42, display: "flex", flexDirection: "column" }}>
         <div style={{ fontSize: 27, fontWeight: 950, display: "flex" }}>RNGDLE</div>
-        <div style={{ marginTop: 17, fontSize: 37, fontWeight: 950, display: "flex" }}>ALL-TIME LEADERBOARD</div>
-        <div style={{ marginTop: 8, color: "#7f8ca5", fontSize: 15, display: "flex" }}>{totalPlayers} PLAYERS&nbsp;&nbsp;•&nbsp;&nbsp;CAREER EP</div>
+        <div style={{ marginTop: 17, fontSize: 37, fontWeight: 950, display: "flex" }}>{board.heading}</div>
+        <div style={{ marginTop: 8, color: "#7f8ca5", fontSize: 15, display: "flex" }}>{board.caption}</div>
       </div>
       <div style={{ position: "absolute", left: 51, top: 187, width: 1098, display: "flex", flexDirection: "column", gap: 8 }}>
-        {entries.slice(0, 10).map((entry, index) => {
+        {board.rows.map((entry, index) => {
           const accent = index === 0 ? "#24d8ff" : index <= 6 ? "#f0a300" : "#ff4caf";
           const borderColor = index === 0 ? "#24d8ff" : index <= 6 ? "#b87900" : "#26303f";
           const gamesColor = index === 0 ? "#24d8ff" : index <= 6 ? "#ffad00" : "#ff55b6";
           const bestColor = index >= 7 ? "#ff55b6" : "#f2f0f7";
           const rankColor = index === 0 ? "#ffd02e" : index === 1 ? "#dce5ef" : index === 2 ? "#ff8735" : "#718098";
           return (
-            <div key={entry.userId} style={{ width: 1098, height: 47, borderRadius: 14, border: `1px solid ${borderColor}`, background: index <= 6 ? "linear-gradient(90deg, rgba(28,35,40,.88), rgba(65,43,81,.65))" : "linear-gradient(90deg, rgba(18,25,34,.82), rgba(28,25,45,.64))", display: "flex", alignItems: "center" }}>
-              <div style={{ width: 92, paddingLeft: 19, color: rankColor, fontFamily: "Geist Mono", fontSize: 17, fontWeight: 700, display: "flex" }}>#{index + 1}</div>
-              <div style={{ width: 355, fontSize: 17, fontWeight: 700, display: "flex" }}>{clipped(entry.displayName, 32)}</div>
-              <div style={{ width: 220, color: gamesColor, fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, display: "flex" }}>{entry.rolls} GAMES</div>
+            <div key={entry.key} style={{ width: 1098, height: 47, borderRadius: 14, border: `1px solid ${borderColor}`, background: index <= 6 ? "linear-gradient(90deg, rgba(28,35,40,.88), rgba(65,43,81,.65))" : "linear-gradient(90deg, rgba(18,25,34,.82), rgba(28,25,45,.64))", display: "flex", alignItems: "center" }}>
+              <div style={{ width: 92, paddingLeft: 19, color: rankColor, fontFamily: "Geist Mono", fontSize: 17, fontWeight: 700, display: "flex" }}>#{entry.rank}</div>
+              <div style={{ width: 355, fontSize: 17, fontWeight: 700, display: "flex" }}>{clipped(entry.name, 32)}</div>
+              <div style={{ width: 220, color: gamesColor, fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, display: "flex" }}>{entry.middle}</div>
               <div style={{ width: 250, display: "flex", flexDirection: "column" }}>
-                <div style={{ color: bestColor, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>BEST {entry.bestNumber}</div>
+                <div style={{ color: bestColor, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>{entry.detailTop}</div>
                 <div style={{ marginTop: 3, color: index >= 7 ? accent : "#b7b5c5", fontFamily: "Geist Mono", fontSize: 8.5, display: "flex", alignItems: "center", gap: 3 }}>
-                  <div style={{ display: "flex" }}>{formatEp(entry.bestEp)} EP</div>
-                  {entry.bestPenaltyPercent === null ? null : (
+                  <div style={{ display: "flex" }}>{entry.detailBottom}</div>
+                  {entry.penaltyPercent === null ? null : (
                     <svg width="9" height="9" viewBox="0 0 15 15"><path d="M12.4 5.2A5.2 5.2 0 1 0 12 10.4" fill="none" stroke={index >= 7 ? accent : "#b7b5c5"} strokeWidth="2" strokeLinecap="round" /><path d="M10.1 3.9h2.8v2.8" fill="none" stroke={index >= 7 ? accent : "#b7b5c5"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                   )}
-                  {entry.bestPenaltyPercent === null ? null : <div style={{ display: "flex" }}>-{entry.bestPenaltyPercent}%</div>}
+                  {entry.penaltyPercent === null ? null : <div style={{ display: "flex" }}>-{entry.penaltyPercent}%</div>}
                 </div>
               </div>
-              <div style={{ width: 181, paddingRight: 15, justifyContent: "flex-end", whiteSpace: "nowrap", fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, letterSpacing: -.25, display: "flex" }}>{formatEp(entry.totalEp)} EP</div>
+              <div style={{ width: 181, paddingRight: 15, justifyContent: "flex-end", whiteSpace: "nowrap", fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, letterSpacing: -.25, display: "flex" }}>{entry.total}</div>
             </div>
           );
         })}
       </div>
-      <div style={{ position: "absolute", left: 58, bottom: 37, color: "#718098", fontSize: 13, display: "flex" }}>Ranked by total career EP</div>
-      <div style={{ position: "absolute", left: 900, width: 242, bottom: 37, color: "#718098", fontSize: 13, justifyContent: "flex-end", display: "flex" }}>Daily play builds your all-time total</div>
+      <div style={{ position: "absolute", left: 58, bottom: 37, color: "#718098", fontSize: 13, display: "flex" }}>{board.footerLeft}</div>
+      <div style={{ position: "absolute", left: 900, width: 242, bottom: 37, color: "#718098", fontSize: 13, justifyContent: "flex-end", display: "flex" }}>{board.footerRight}</div>
     </>,
     "#0b2837",
     "#3c1b70",
@@ -1090,7 +1155,19 @@ export function renderRngdleDiscordProfile(profile: RngdleUserProfile): Promise<
 
 export function renderRngdleDiscordLeaderboard(entries: RngdleLeaderboardEntry[], totalPlayers = entries.length): Promise<Buffer> {
   return render(
-    leaderboardImage(entries, totalPlayers),
+    leaderboardImage(allTimeBoard(entries, totalPlayers)),
+    RNGDLE_DISCORD_LEADERBOARD_WIDTH,
+    RNGDLE_DISCORD_LEADERBOARD_HEIGHT,
+  );
+}
+
+export function renderRngdleDiscordDailyLeaderboard(
+  standings: RngdleDailyStanding[],
+  gameDay: string,
+  totalPlayers = standings.length,
+): Promise<Buffer> {
+  return render(
+    leaderboardImage(dailyBoard(standings, gameDay, totalPlayers)),
     RNGDLE_DISCORD_LEADERBOARD_WIDTH,
     RNGDLE_DISCORD_LEADERBOARD_HEIGHT,
   );

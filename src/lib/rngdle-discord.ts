@@ -1,4 +1,4 @@
-import type { RngdleDiscordRoll, RngdleLeaderboardEntry, RngdleUserProfile } from "./rngdle-discord-store";
+import type { RngdleDailyStanding, RngdleDiscordRoll, RngdleLeaderboardEntry, RngdleUserProfile } from "./rngdle-discord-store";
 import {
   RNGDLE_DISCORD_GIF_FILENAME,
   RNGDLE_DISCORD_LEADERBOARD_FILENAME,
@@ -6,6 +6,7 @@ import {
   RNGDLE_DISCORD_PROFILE_FILENAME,
   RNGDLE_DISCORD_RISK_GIF_FILENAME,
   renderRngdleDiscordAnimation,
+  renderRngdleDiscordDailyLeaderboard,
   renderRngdleDiscordLeaderboard,
   renderRngdleDiscordProfile,
   renderRngdleRiskAnimation,
@@ -55,6 +56,7 @@ export const RNGDLE_REROLL_LEGACY_CONFIRM_PREFIX = "rngdle-reroll-go:v1:";
 export const RNGDLE_REPLAY_CUSTOM_ID_PREFIX = "rngdle-replay:v1:";
 export const RNGDLE_REROLL_BUTTON_LABEL = "Reroll 1-99% Risk";
 export const RNGDLE_LEADERBOARD_BUTTON_ID = "rngdle-leaderboard:v1";
+export const RNGDLE_TODAY_BUTTON_ID = "rngdle-today:v1";
 export const RNGDLE_PROFILE_BUTTON_ID = "rngdle-profile:v1";
 
 export function rngdleRerollCustomId(gameDay: string, userId: string): string {
@@ -264,6 +266,7 @@ function resultComponents(roll: RngdleDiscordRoll, now: number) {
     });
   }
   buttons.push(
+    { type: 2, style: 2, label: "Today", custom_id: RNGDLE_TODAY_BUTTON_ID },
     { type: 2, style: 2, label: "Leaderboard", custom_id: RNGDLE_LEADERBOARD_BUTTON_ID },
     { type: 2, style: 1, label: "My Profile", custom_id: RNGDLE_PROFILE_BUTTON_ID },
   );
@@ -657,6 +660,48 @@ export async function deliverRngdleLeaderboard(input: {
     allowed_mentions: { parse: [] }, components: [], attachments: [],
   }, fetchImpl);
   if (!fallback.ok) throw new Error(`RNGDLE leaderboard delivery failed (${await responseError(fallback)})`);
+}
+
+export async function deliverRngdleDailyLeaderboard(input: {
+  applicationId: string;
+  token: string;
+  standings: RngdleDailyStanding[];
+  gameDay: string;
+  totalPlayers?: number;
+  attachmentSizeLimit?: number;
+  fetchImpl?: typeof fetch;
+}): Promise<void> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const url = webhookUrl(input.applicationId, input.token);
+  if (input.standings.length === 0) {
+    await patchJson(url, {
+      content: "No one has rolled RNGDLE yet today.",
+      allowed_mentions: { parse: [] }, components: [], attachments: [],
+    }, fetchImpl);
+    return;
+  }
+  const heading = `📅 **RNGDLE today — ${input.gameDay}**`;
+  const image = await renderRngdleDiscordDailyLeaderboard(
+    input.standings,
+    input.gameDay,
+    input.totalPlayers ?? input.standings.length,
+  );
+  if (image.byteLength <= safeLimit(input.attachmentSizeLimit)) {
+    const response = await patchMultipart(url, {
+      content: heading,
+      allowed_mentions: { parse: [] }, components: [],
+      attachments: [{ id: 0, filename: RNGDLE_DISCORD_LEADERBOARD_FILENAME, description: `RNGDLE daily standings for ${input.gameDay}` }],
+    }, image, RNGDLE_DISCORD_LEADERBOARD_FILENAME, "image/png", fetchImpl);
+    if (response.ok) return;
+  }
+  const lines = input.standings.slice(0, 10).map((entry) =>
+    `**${entry.rank}.** ${escapeDiscordText(entry.displayName)} — ${entry.number.toLocaleString("en-US")} · ${entry.creditedEp.toLocaleString("en-US")} EP`,
+  );
+  const fallback = await patchJson(url, {
+    content: [heading, ...lines].join("\n"),
+    allowed_mentions: { parse: [] }, components: [], attachments: [],
+  }, fetchImpl);
+  if (!fallback.ok) throw new Error(`RNGDLE daily leaderboard delivery failed (${await responseError(fallback)})`);
 }
 
 export async function deliverRngdleProfile(input: {

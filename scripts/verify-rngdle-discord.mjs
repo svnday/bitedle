@@ -62,6 +62,7 @@ const require = createRequire(import.meta.url);
 // test wants the real driver; if one ever does, it must load before this point.
 const neonStatements = [];
 let neonTableExists = false;
+let neonDailyRows = [];
 const neonModuleId = require.resolve("@neondatabase/serverless");
 require.cache[neonModuleId] = {
   id: neonModuleId,
@@ -76,6 +77,10 @@ require.cache[neonModuleId] = {
       if (!neonTableExists) {
         return Promise.reject(Object.assign(new Error('relation "rngdle_rolls" does not exist'), { code: "42P01" }));
       }
+      // Postgres hands numerics back as strings over the wire, and a missing
+      // penalty as NULL. The daily projection is recognisable by its badge
+      // count, and returning a row for it is what exercises the mapping.
+      if (text.includes("jsonb_array_length(current_result")) return Promise.resolve(neonDailyRows);
       return Promise.resolve([]);
     },
   },
@@ -215,6 +220,7 @@ const epicResultPath = path.join(tempDir, "rngdle-result-epic.png");
 const mythicProfilePath = path.join(tempDir, "rngdle-profile-mythic.png");
 const riskPath = path.join(tempDir, renderer.RNGDLE_DISCORD_RISK_GIF_FILENAME);
 const riskFinalPath = path.join(tempDir, "rngdle-reroll-risk-final.png");
+const dailyBoardPath = path.join(tempDir, "rngdle-daily-board.png");
 const badgeFramePath = path.join(tempDir, "rngdle-badge-frame.png");
 fs.writeFileSync(gifPath, assets.animation);
 fs.writeFileSync(pngPath, assets.still);
@@ -445,13 +451,13 @@ for (const payload of [animatedPayload, finalPayload]) {
   assert.deepEqual(payload.allowed_mentions, { parse: [] });
   v2Container(payload);
   const buttons = v2Buttons(payload);
-  assert.equal(buttons[0].label, "Leaderboard");
-  assert.equal(buttons[0].style, 2);
-  assert.equal(buttons[1].label, "My Profile");
-  assert.equal(buttons[1].style, 1);
-  assert.equal(buttons[2].style, 4);
-  assert.equal(buttons[2].label, "Reroll 1-99% Risk");
-  assert.match(buttons[2].custom_id, /^rngdle-reroll:v1:/);
+  assert.deepEqual(buttons.map((button) => button.label), ["Today", "Leaderboard", "My Profile", "Reroll 1-99% Risk"]);
+  assert.equal(buttons[0].custom_id, "rngdle-today:v1");
+  assert.equal(buttons[1].style, 2);
+  assert.equal(buttons[2].style, 1);
+  assert.equal(buttons[3].style, 4);
+  assert.match(buttons[3].custom_id, /^rngdle-reroll:v1:/);
+  assert.ok(buttons.length <= 5, "Discord allows five buttons to an action row");
 }
 // The container's accent stripe is up from the moment the message posts, well
 // before the GIF reaches the number. It must not be the roll's rarity until the
@@ -491,7 +497,7 @@ const rerolledPayload = multipartPayload(requests[2]);
 assertV2Attachment(riskPayload, "rngdle-reroll-risk.gif");
 assert.equal(v2Buttons(riskPayload).length, 0, "risk animation must not expose buttons while it is running");
 assertV2Attachment(rerolledPayload, "rngdle-result.png");
-assert.deepEqual(v2Buttons(rerolledPayload).map((button) => button.label), ["Replay", "Leaderboard", "My Profile"]);
+assert.deepEqual(v2Buttons(rerolledPayload).map((button) => button.label), ["Replay", "Today", "Leaderboard", "My Profile"]);
 assert.match(v2Buttons(rerolledPayload)[0].custom_id, /^rngdle-replay:v1:/);
 assert.equal(v2Buttons(rerolledPayload).some((button) => button.label === "Reroll 1-99% Risk"), false);
 assert.equal(v2Text(rerolledPayload), delivery.rngdleResultContent(reroll.roll, 2, 2, resultStats.newBadges, baseTime + 9 * 60 * 1000));
@@ -595,6 +601,34 @@ await delivery.deliverRngdleProfile({
 });
 assert.equal(multipartPayload(requests[0]).attachments[0].filename, "rngdle-profile.png");
 
+// Daily board delivery, while the stub webhook is still listening.
+{
+  requests.length = 0;
+  await delivery.deliverRngdleDailyLeaderboard({
+    applicationId: guildA,
+    token: "rngdle-daily-test",
+    standings,
+    gameDay: dayOne,
+    totalPlayers: 19,
+  });
+  assert.equal(requests.length, 1);
+  const dailyPayload = multipartPayload(requests[0]);
+  assert.match(dailyPayload.content, /RNGDLE today/);
+  assert.match(dailyPayload.content, new RegExp(dayOne));
+  assert.equal(dailyPayload.attachments[0].filename, "rngdle-leaderboard.png");
+
+  // An empty day must say so rather than rendering a board of nothing.
+  requests.length = 0;
+  await delivery.deliverRngdleDailyLeaderboard({
+    applicationId: guildA,
+    token: "rngdle-daily-empty",
+    standings: [],
+    gameDay: dayOne,
+  });
+  assert.equal(requests.length, 1);
+  assert.match(JSON.parse(requests[0].body.toString("utf8")).content, /No one has rolled RNGDLE yet today/);
+}
+
 await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 
 const commandSource = fs.readFileSync(path.join(repoRoot, "scripts", "register-discord-commands.mjs"), "utf8");
@@ -618,6 +652,24 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
   assert.match(neonStatements[1], /^CREATE TABLE/, "a missing table is built on the failure path");
   assert.match(neonStatements[4], /^SELECT/, "and the query is retried once it exists");
   assert.equal(neonStatements.length, 5);
+
+  // Every suite above ran on the FileStore, so this projection had never been
+  // executed. It is the half that reaches production.
+  neonDailyRows = [
+    { user_id: "a", display_name: "Rerolled", credited_ep: "1244", number: "219986",
+      rarity: "trash", rarity_label: "TRASH", penalty_percent: "71", badge_count: "9" },
+    { user_id: "b", display_name: "Clean", credited_ep: "5219", number: "569354",
+      rarity: "common", rarity_label: "COMMON", penalty_percent: null, badge_count: "13" },
+  ];
+  const neonStandings = await repository.dailyStandings("guild", dayOne);
+  assert.deepEqual(neonStandings.map((entry) => entry.displayName), ["Clean", "Rerolled"], "ordered by credited EP");
+  assert.deepEqual(neonStandings.map((entry) => entry.rank), [1, 2]);
+  assert.deepEqual(
+    neonStandings.map((entry) => [entry.number, entry.rarityLabel, entry.penaltyPercent, entry.badgeCount]),
+    [[569354, "COMMON", null, 13], [219986, "TRASH", 71, 9]],
+    "Postgres strings must come back as numbers, and a missing penalty as null",
+  );
+  neonDailyRows = [];
 
   // The case that actually matters: every request after the table exists.
   neonStatements.length = 0;
@@ -646,6 +698,42 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
     "a non-42P01 failure must not be mistaken for a missing table",
   );
 }
+
+// The daily board reads the standings the game already computes for the rank on
+// every card, so it costs no extra storage - but those rows had to carry more
+// than an EP total to be worth showing. Both stores must agree on that shape.
+{
+  const standings = await repository.dailyStandings(guildA, dayOne);
+  assert.ok(standings.length >= 2);
+  const mine = standings.find((entry) => entry.userId === userA);
+  assert.ok(mine, "the rerolled player must appear in the day's standings");
+  assert.equal(mine.number, rerolledResult.number);
+  assert.equal(mine.creditedEp, rerolledResult.creditedEp);
+  assert.equal(mine.rarityLabel, rerolledResult.rarityLabel);
+  assert.equal(mine.penaltyPercent, 37, "a rerolled row has to say so");
+  assert.equal(mine.badgeCount, rerolledResult.badges.length);
+  // Ranks come from the shared helper, so ties share a place rather than
+  // being split by row order.
+  assert.deepEqual(
+    standings.map((entry) => entry.rank),
+    [...standings].sort((a, b) => b.creditedEp - a.creditedEp).map((entry) => entry.rank),
+    "standings must arrive already ordered by credited EP",
+  );
+
+  // One renderer serves both boards, so they cannot drift apart. Same canvas.
+  const dailyImage = await renderer.renderRngdleDiscordDailyLeaderboard(standings, dayOne, 19);
+  const dailyMeta = await sharp(dailyImage).metadata();
+  assert.equal(dailyMeta.width, renderer.RNGDLE_DISCORD_LEADERBOARD_WIDTH);
+  assert.equal(dailyMeta.height, renderer.RNGDLE_DISCORD_LEADERBOARD_HEIGHT);
+  fs.writeFileSync(dailyBoardPath, dailyImage);
+
+}
+
+// /rngdle today has to be registered, or the subcommand the button shares a
+// code path with cannot be reached by command at all.
+assert.match(commandSource, /name: "today"/);
+assert.match(routeSource, /subcommand === "today"/);
+assert.match(routeSource, /RNGDLE_TODAY_BUTTON_ID/);
 
 const storeSource = fs.readFileSync(path.join(repoRoot, "src", "lib", "rngdle-discord-store.ts"), "utf8");
 const rerollUpdate = /UPDATE rngdle_rolls SET[\s\S]*?RETURNING \*/.exec(storeSource)?.[0] ?? "";
@@ -754,3 +842,4 @@ console.log(`Rendered Epic result: ${epicResultPath}`);
 console.log(`Rendered Mythic profile: ${mythicProfilePath}`);
 console.log(`Rendered reroll risk GIF: ${riskPath}`);
 console.log(`Rendered reroll risk final frame: ${riskFinalPath}`);
+console.log(`Rendered daily board: ${dailyBoardPath}`);

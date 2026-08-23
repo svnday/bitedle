@@ -33,6 +33,13 @@ export interface RngdleDailyStanding {
   displayName: string;
   creditedEp: number;
   rank: number;
+  // Everything below already lives in the row's current_result, so the daily
+  // board costs no extra storage and no migration - only a wider projection.
+  number: number;
+  rarity: RngdleResult["rarity"];
+  rarityLabel: string;
+  penaltyPercent: number | null;
+  badgeCount: number;
 }
 
 export interface RngdleProfileRoll {
@@ -262,6 +269,11 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
         userId: roll.userId,
         displayName: roll.displayName,
         creditedEp: roll.current.creditedEp,
+        number: roll.current.number,
+        rarity: roll.current.rarity,
+        rarityLabel: roll.current.rarityLabel,
+        penaltyPercent: roll.current.penaltyPercent,
+        badgeCount: roll.current.badges.length,
       })));
   }
 
@@ -473,17 +485,35 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
 
   async dailyStandings(guildId: string, gameDay: string): Promise<RngdleDailyStanding[]> {
     const rows = await this.sql`
-      SELECT user_id, display_name, (current_result->>'creditedEp')::bigint AS credited_ep
+      SELECT
+        user_id,
+        display_name,
+        (current_result->>'creditedEp')::bigint AS credited_ep,
+        (current_result->>'number')::bigint AS number,
+        current_result->>'rarity' AS rarity,
+        current_result->>'rarityLabel' AS rarity_label,
+        current_result->>'penaltyPercent' AS penalty_percent,
+        jsonb_array_length(current_result->'badges') AS badge_count
       FROM rngdle_rolls
       WHERE guild_id = ${guildId} AND game_day = ${gameDay}` as Array<{
         user_id: string;
         display_name: string;
         credited_ep: string | number;
+        number: string | number;
+        rarity: RngdleResult["rarity"];
+        rarity_label: string;
+        penalty_percent: string | null;
+        badge_count: string | number;
       }>;
     return rankedDaily(rows.map((row) => ({
       userId: row.user_id,
       displayName: row.display_name,
       creditedEp: Number(row.credited_ep),
+      number: Number(row.number),
+      rarity: row.rarity,
+      rarityLabel: row.rarity_label,
+      penaltyPercent: row.penalty_percent === null ? null : Number(row.penalty_percent),
+      badgeCount: Number(row.badge_count),
     })));
   }
 

@@ -48,6 +48,7 @@ import {
 import { BITEBALL_MAX_QUESTION_LENGTH, selectBiteballAnswer } from "@/lib/biteball";
 import { deliverBiteballResponse } from "@/lib/biteball-discord";
 import {
+  deliverRngdleDailyLeaderboard,
   deliverRngdleLeaderboard,
   deliverRngdleError,
   deliverRngdleNotice,
@@ -61,6 +62,7 @@ import {
   RNGDLE_REPLAY_CUSTOM_ID_PREFIX,
   RNGDLE_REROLL_LEGACY_CONFIRM_PREFIX,
   RNGDLE_REROLL_MODAL_CUSTOM_ID_PREFIX,
+  RNGDLE_TODAY_BUTTON_ID,
   RNGDLE_REROLL_CUSTOM_ID_PREFIX,
   rngdleRerollAcknowledged,
   rngdleRerollModal,
@@ -848,6 +850,27 @@ async function processRngdleCommand(
       return;
     }
 
+    if (subcommand === "today") {
+      // dailyStandings is already computed on every roll to put a rank on the
+      // card, so the daily board is the same read the game was doing anyway.
+      const gameDay = rngdleGameDay();
+      const [standings, totalPlayers] = await Promise.all([
+        repository.dailyStandings(guildId, gameDay),
+        repository.playerCount(guildId),
+      ]);
+      await deliverRngdleDailyLeaderboard({
+        applicationId,
+        token,
+        standings,
+        gameDay,
+        // The caption reads "N OF M ROLLED", so M is everyone who has ever
+        // played here, not just whoever has rolled so far today.
+        totalPlayers: Math.max(totalPlayers, standings.length),
+        attachmentSizeLimit: body.attachment_size_limit,
+      });
+      return;
+    }
+
     const gameDay = rngdleGameDay();
     if (subcommand === "user") {
       const target = profileUser ?? user;
@@ -933,8 +956,8 @@ function handleRngdle(body: Interaction): NextResponse {
   }
 
   const subcommand = body.data?.options?.[0]?.name;
-  if (subcommand !== "roll" && subcommand !== "leaderboard" && subcommand !== "user") {
-    return reply("Choose /rngdle roll, /rngdle leaderboard, or /rngdle user.", true);
+  if (subcommand !== "roll" && subcommand !== "leaderboard" && subcommand !== "today" && subcommand !== "user") {
+    return reply("Choose /rngdle roll, /rngdle today, /rngdle leaderboard, or /rngdle user.", true);
   }
   const targetValue = body.data?.options?.[0]?.options?.find((option) => option.name === "player")?.value;
   const target = typeof targetValue === "string" ? body.data?.resolved?.users?.[targetValue] : undefined;
@@ -1132,7 +1155,7 @@ async function processRngdleReplay(
   }
 }
 
-function handleRngdleUtilityButton(body: Interaction, mode: "leaderboard" | "user"): NextResponse {
+function handleRngdleUtilityButton(body: Interaction, mode: "leaderboard" | "today" | "user"): NextResponse {
   if (!body.guild_id || !body.application_id || !body.token) {
     return reply("Run that RNGDLE action in a server.", true);
   }
@@ -1161,6 +1184,7 @@ function isRngdleInteraction(body: Interaction): boolean {
   return customId.startsWith(RNGDLE_REROLL_CUSTOM_ID_PREFIX)
     || customId.startsWith(RNGDLE_REROLL_LEGACY_CONFIRM_PREFIX)
     || customId.startsWith(RNGDLE_REPLAY_CUSTOM_ID_PREFIX)
+    || customId === RNGDLE_TODAY_BUTTON_ID
     || customId === RNGDLE_LEADERBOARD_BUTTON_ID
     || customId === RNGDLE_PROFILE_BUTTON_ID;
 }
@@ -1241,6 +1265,10 @@ export async function POST(request: NextRequest) {
 
   if (body?.type === 3 && body?.data?.custom_id?.startsWith(RNGDLE_REPLAY_CUSTOM_ID_PREFIX)) {
     return handleRngdleReplay(body);
+  }
+
+  if (body?.type === 3 && body?.data?.custom_id === RNGDLE_TODAY_BUTTON_ID) {
+    return handleRngdleUtilityButton(body, "today");
   }
 
   if (body?.type === 3 && body?.data?.custom_id === RNGDLE_LEADERBOARD_BUTTON_ID) {
