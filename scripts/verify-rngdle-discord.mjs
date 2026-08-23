@@ -427,6 +427,16 @@ for (const payload of [animatedPayload, finalPayload]) {
   assert.equal(buttons[2].label, "Reroll 1-99% Risk");
   assert.match(buttons[2].custom_id, /^rngdle-reroll:v1:/);
 }
+// The container's accent stripe is up from the moment the message posts, well
+// before the GIF reaches the number. It must not be the roll's rarity until the
+// card on screen has settled, or a gold bar announces a mythic before a single
+// digit lands. 569354 is common; the fixture only proves this if the two
+// accents actually differ, which is asserted rather than assumed.
+{
+  const accentOf = (payload) => v2Container(payload).accent_color;
+  assert.notEqual(accentOf(openerPayload), accentOf(finalPayload), "the pre-reveal accent must not be the result's");
+  assert.equal(accentOf(openerPayload), accentOf(animatedPayload), "opener and reveal are both pre-reveal");
+}
 assertV2Attachment(animatedPayload, "rngdle-roll.gif");
 assertV2Attachment(finalPayload, "rngdle-result.png");
 assert.match(v2Text(finalPayload), /risk window closes <t:\d+:R>/);
@@ -516,12 +526,16 @@ assert.equal(v2Buttons(revealPayload).length, 0, "the reveal must not expose but
 assert.equal(v2Buttons(sequenceRiskPayload).length, 0, "risk animation must not expose buttons while it is running");
 
 const accentOf = (payload) => v2Container(payload).accent_color;
-assert.equal(accentOf(revealPayload), accentOf(sequenceOpener), "the opener must wear the pre-penalty accent");
-assert.equal(accentOf(revealPayload), accentOf(sequenceRiskPayload), "the risk plays against the unpenalised reveal");
+assert.equal(accentOf(revealPayload), accentOf(sequenceOpener), "opener and reveal are both pre-reveal");
+assert.notEqual(accentOf(revealPayload), accentOf(sequenceRiskPayload), "the accent stays neutral until the number lands");
+assert.notEqual(accentOf(revealPayload), accentOf(sequenceFinalPayload));
+// Once the reveal has played, the number and its pre-penalty tier are on
+// screen, so the risk phase wears that tier - and only the post-penalty tier is
+// still to come. rare -> uncommon, so those two accents must differ.
 assert.notEqual(
-  accentOf(revealPayload),
+  accentOf(sequenceRiskPayload),
   accentOf(sequenceFinalPayload),
-  "the reveal must be drawn from the unpenalised score, so its accent differs once the penalty lands",
+  "the risk phase wears the unpenalised tier, the final card the penalised one",
 );
 
 // Playback, hold, playback, hold - the two holds are what let a player read the

@@ -28,7 +28,13 @@ const FINAL_EDIT_RETRY_MS = 250;
 const REVEAL_HOLD_MS = 2_600;
 const RISK_HOLD_MS = 2_200;
 const DISCORD_COMPONENTS_V2_FLAG = 1 << 15;
-const RNGDLE_MESSAGE_ACCENTS: Record<RngdleDiscordRoll["current"]["rarity"], number> = {
+// The container's accent stripe is message chrome: it is on screen from the
+// moment the message appears, long before the GIF reaches the number. Painting
+// it the roll's rarity gave the result away - a gold bar means mythic before a
+// single digit has landed - so it stays neutral until the card on screen has
+// actually settled. "pending" matches the card's own pre-reveal grey.
+const RNGDLE_MESSAGE_ACCENTS: Record<RngdleDiscordRoll["current"]["rarity"] | "pending", number> = {
+  pending: 0x8b93a7,
   trash: 0x667896,
   common: 0x8d91a3,
   uncommon: 0x21cfa5,
@@ -320,8 +326,8 @@ function rngdleRollPayload(input: {
   header?: string | null;
   footer: string;
   includeActions?: boolean;
-  /** Defaults to the final rarity; set while an earlier phase is on screen. */
-  accentRarity?: RngdleDiscordRoll["current"]["rarity"];
+  /** Defaults to the final rarity; "pending" while the number is still hidden. */
+  accentRarity?: keyof typeof RNGDLE_MESSAGE_ACCENTS;
 }): Record<string, unknown> {
   const containerComponents: Record<string, unknown>[] = [];
   if (input.header) containerComponents.push({ type: 10, content: input.header });
@@ -435,7 +441,7 @@ export async function deliverRngdleRoll(input: {
       now: now(),
       footer: `🎰 **${escapeDiscordText(input.roll.displayName)} is ${isReroll ? "rerolling" : "rolling"}…**`,
       includeActions: false,
-      accentRarity: revealResult.rarity,
+      accentRarity: "pending",
     }),
     attachments: [],
   }, fetchImpl);
@@ -483,7 +489,7 @@ export async function deliverRngdleRoll(input: {
         description: "RNGDLE number and badge reveal",
         ...animationCopy,
         includeActions: input.roll.rerolledAt === null,
-        accentRarity: revealResult.rarity,
+        accentRarity: "pending",
       }),
       attachments: [{ id: 0, filename: RNGDLE_DISCORD_GIF_FILENAME, description: "RNGDLE number and badge reveal" }],
     }, animation, RNGDLE_DISCORD_GIF_FILENAME, "image/gif", fetchImpl);
@@ -531,6 +537,9 @@ export async function deliverRngdleRoll(input: {
           description: "RNGDLE reroll risk selection from 1 to 99 percent",
           footer: `🎲 **${escapeDiscordText(input.roll.displayName)} is rolling the reroll risk…**`,
           includeActions: false,
+          // Not "pending": the reveal has already played, so the number and its
+          // pre-penalty tier are on screen. Only the post-penalty tier is still
+          // to come, and that arrives with the final card.
           accentRarity: revealResult.rarity,
         }),
         attachments: [{ id: 0, filename: RNGDLE_DISCORD_RISK_GIF_FILENAME, description: "RNGDLE reroll risk selection from 1 to 99 percent" }],
