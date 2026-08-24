@@ -709,6 +709,61 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
   );
 }
 
+// The rarest-badge column has to be each player's own best badge ever, which is
+// not the same as the badge on their best roll. 713579 scores 1,458,510 with a
+// +1,449,277 badge; 0 taken at 99% risk scores less, 1,399,271, but carries Zero
+// at +100,000,100. A column that tracked the best roll's badge would show
+// Straight Flush here. It must show Zero.
+{
+  const boardGuild = "guild-rarest-badge";
+  const highScore = scoring.scoreRngdleNumber(713579);
+  const rareBadge = scoring.scoreRngdleNumber(0, 99);
+  assert.ok(highScore.creditedEp > rareBadge.creditedEp, "the fixture must keep the better score off the rarer badge");
+  assert.ok(rareBadge.badges[0].ep > highScore.badges[0].ep);
+
+  for (const [gameDay, result] of [["2026-09-01", highScore], ["2026-09-02", rareBadge]]) {
+    await repository.createInitial({
+      guildId: boardGuild, userId: "player-one", displayName: "Player One", avatar: null,
+      gameDay, initial: result, current: result, initialRolledAt: Date.parse(`${gameDay}T00:00:00Z`), rerolledAt: null,
+    });
+  }
+  // A second player, so a leaked badge from someone else would be visible.
+  const otherResult = scoring.scoreRngdleNumber(569354);
+  await repository.createInitial({
+    guildId: boardGuild, userId: "player-two", displayName: "Player Two", avatar: null,
+    gameDay: "2026-09-01", initial: otherResult, current: otherResult,
+    initialRolledAt: Date.parse("2026-09-01T00:00:00Z"), rerolledAt: null,
+  });
+
+  const board = await repository.leaderboard(boardGuild, 10);
+  const one = board.find((entry) => entry.userId === "player-one");
+  const two = board.find((entry) => entry.userId === "player-two");
+  assert.ok(one && two);
+  assert.equal(one.bestNumber, highScore.number, "best roll is still the highest-scoring one");
+  assert.equal(one.rarestBadgeLabel, rareBadge.badges[0].label, "but the badge comes from the lower-scoring roll");
+  assert.equal(one.rarestBadgeEp, rareBadge.badges[0].ep);
+  assert.notEqual(one.rarestBadgeLabel, highScore.badges[0].label, "the best roll's badge must not win by default");
+
+  // Per player, not per guild: Player Two keeps their own, far weaker badge.
+  assert.equal(two.rarestBadgeLabel, otherResult.badges[0].label);
+  assert.equal(two.rarestBadgeEp, otherResult.badges[0].ep);
+  assert.ok(two.rarestBadgeEp < one.rarestBadgeEp, "one player's badge must not leak into another's row");
+
+  // Separate array_agg calls over the same rows can disagree when the sort key
+  // ties, pairing a label from one roll with an EP from another. Every ordering
+  // in that query is made total with game_day, which is unique per player.
+  const storeSourceForBoard = fs.readFileSync(path.join(repoRoot, "src", "lib", "rngdle-discord-store.ts"), "utf8");
+  const leaderboardQuery = /async leaderboard\([\s\S]*?GROUP BY user_id/.exec(storeSourceForBoard)?.[0] ?? "";
+  assert.ok(leaderboardQuery, "the Neon leaderboard query should be findable");
+  const aggregates = leaderboardQuery.split("array_agg(").slice(1);
+  assert.ok(aggregates.length >= 8, `expected every column to be aggregated, found ${aggregates.length}`);
+  for (const aggregate of aggregates) {
+    const clause = aggregate.slice(0, aggregate.indexOf("[1]"));
+    assert.match(clause, /ORDER BY/);
+    assert.match(clause, /game_day DESC/, `aggregate ordering without a tiebreaker: ${clause.slice(0, 90)}`);
+  }
+}
+
 // The daily board reads the standings the game already computes for the rank on
 // every card, so it costs no extra storage - but those rows had to carry more
 // than an EP total to be worth showing. Both stores must agree on that shape.

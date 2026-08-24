@@ -45,7 +45,12 @@ import {
   BITESWEEPER_WEBHOOK_TOKEN_TTL_MS,
   type BitesweeperPreviewPlayer,
 } from "@/lib/bitesweeper-discord-preview";
-import { BITEBALL_MAX_QUESTION_LENGTH, selectBiteballAnswer } from "@/lib/biteball";
+import {
+  BITEBALL_MAX_QUESTION_LENGTH,
+  selectAffirmativeBiteballAnswer,
+  selectBiteballAnswer,
+  shouldForceAffirmativeBiteballAnswer,
+} from "@/lib/biteball";
 import { deliverBiteballResponse } from "@/lib/biteball-discord";
 import {
   deliverRngdleDailyLeaderboard,
@@ -794,7 +799,10 @@ function handleBiteball(body: Interaction): NextResponse {
 
   // Pick once before background delivery so the animation, still, message
   // text, and any fallback all receive the same answer.
-  const answer = selectBiteballAnswer();
+  const requester = body.member?.user ?? body.user;
+  const answer = shouldForceAffirmativeBiteballAnswer(requester?.username, question)
+    ? selectAffirmativeBiteballAnswer()
+    : selectBiteballAnswer();
   const delivery = {
     applicationId: body.application_id,
     token: body.token,

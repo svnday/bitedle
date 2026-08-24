@@ -547,18 +547,24 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
     const rows = await this.sql`
       SELECT
         user_id,
-        (array_agg(display_name ORDER BY initial_rolled_at DESC))[1] AS display_name,
-        (array_agg(avatar ORDER BY initial_rolled_at DESC))[1] AS avatar,
+        (array_agg(display_name ORDER BY initial_rolled_at DESC, game_day DESC))[1] AS display_name,
+        (array_agg(avatar ORDER BY initial_rolled_at DESC, game_day DESC))[1] AS avatar,
         SUM((current_result->>'creditedEp')::bigint) AS total_ep,
         COUNT(*)::int AS rolls,
-        (array_agg((current_result->>'number')::int ORDER BY (current_result->>'creditedEp')::bigint DESC))[1] AS best_number,
-        (array_agg((current_result->>'creditedEp')::bigint ORDER BY (current_result->>'creditedEp')::bigint DESC))[1] AS best_ep,
-        (array_agg((current_result->>'penaltyPercent')::int ORDER BY (current_result->>'creditedEp')::bigint DESC))[1] AS best_penalty_percent,
-        (array_agg(current_result->>'rarity' ORDER BY (current_result->>'creditedEp')::bigint DESC))[1] AS best_rarity,
+        (array_agg((current_result->>'number')::int ORDER BY (current_result->>'creditedEp')::bigint DESC, game_day DESC))[1] AS best_number,
+        (array_agg((current_result->>'creditedEp')::bigint ORDER BY (current_result->>'creditedEp')::bigint DESC, game_day DESC))[1] AS best_ep,
+        (array_agg((current_result->>'penaltyPercent')::int ORDER BY (current_result->>'creditedEp')::bigint DESC, game_day DESC))[1] AS best_penalty_percent,
+        (array_agg(current_result->>'rarity' ORDER BY (current_result->>'creditedEp')::bigint DESC, game_day DESC))[1] AS best_rarity,
         -- Ordered by badge EP, not roll EP: the rarest badge a player has ever
-        -- earned is often not on their highest-scoring roll.
-        (array_agg(current_result->'badges'->0->>'label' ORDER BY (current_result->'badges'->0->>'ep')::bigint DESC NULLS LAST))[1] AS rarest_badge_label,
-        (array_agg((current_result->'badges'->0->>'ep')::bigint ORDER BY (current_result->'badges'->0->>'ep')::bigint DESC NULLS LAST))[1] AS rarest_badge_ep
+        -- earned is often not on their highest-scoring roll. Each roll's
+        -- badges->0 is already that roll's best, so the maximum across a
+        -- player's rolls is the best badge that player has ever earned.
+        -- Every ORDER BY here carries game_day as a tiebreaker. These are
+        -- separate aggregates over the same rows, and without a total ordering
+        -- two rolls tied on the sort key could resolve differently per column,
+        -- pairing a label from one roll with an EP from another.
+        (array_agg(current_result->'badges'->0->>'label' ORDER BY (current_result->'badges'->0->>'ep')::bigint DESC NULLS LAST, game_day DESC))[1] AS rarest_badge_label,
+        (array_agg((current_result->'badges'->0->>'ep')::bigint ORDER BY (current_result->'badges'->0->>'ep')::bigint DESC NULLS LAST, game_day DESC))[1] AS rarest_badge_ep
       FROM rngdle_rolls
       WHERE guild_id = ${guildId}
       GROUP BY user_id

@@ -40,6 +40,10 @@ export const BITEBALL_ANSWERS: readonly BiteballAnswer[] = [
 
 export type BiteballRandomIndex = (upperExclusive: number) => number;
 
+const BITEBALL_AFFIRMATIVE_ANSWERS = BITEBALL_ANSWERS.filter(
+  (answer) => answer.category === "affirmative",
+);
+
 function secureRandomIndex(upperExclusive: number): number {
   if (!Number.isSafeInteger(upperExclusive) || upperExclusive <= 0) {
     throw new RangeError("Biteball answer count must be a positive integer.");
@@ -61,10 +65,33 @@ function secureRandomIndex(upperExclusive: number): number {
 export function selectBiteballAnswer(
   randomIndex: BiteballRandomIndex = secureRandomIndex,
 ): BiteballAnswer {
-  const index = randomIndex(BITEBALL_ANSWERS.length);
-  if (!Number.isSafeInteger(index) || index < 0 || index >= BITEBALL_ANSWERS.length) {
+  return selectFromAnswers(BITEBALL_ANSWERS, randomIndex);
+}
+
+export function selectAffirmativeBiteballAnswer(
+  randomIndex: BiteballRandomIndex = secureRandomIndex,
+): BiteballAnswer {
+  return selectFromAnswers(BITEBALL_AFFIRMATIVE_ANSWERS, randomIndex);
+}
+
+export function shouldForceAffirmativeBiteballAnswer(
+  requesterUsername: string | undefined,
+  question: string,
+): boolean {
+  return (
+    requesterUsername?.toLocaleLowerCase("en-US") === "sundei" &&
+    /(^|[^a-z0-9_])kizb([^a-z0-9_]|$)/i.test(question)
+  );
+}
+
+function selectFromAnswers(
+  answers: readonly BiteballAnswer[],
+  randomIndex: BiteballRandomIndex,
+): BiteballAnswer {
+  const index = randomIndex(answers.length);
+  if (!Number.isSafeInteger(index) || index < 0 || index >= answers.length) {
     throw new RangeError(`Invalid Biteball answer index: ${index}`);
   }
 
-  return BITEBALL_ANSWERS[index];
+  return answers[index];
 }

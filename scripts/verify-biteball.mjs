@@ -91,6 +91,23 @@ for (const invalidIndex of [-1, 20, 1.2, Number.NaN]) {
   assert.throws(() => biteball.selectBiteballAnswer(() => invalidIndex), RangeError);
 }
 
+for (let index = 0; index < 10; index += 1) {
+  const answer = biteball.selectAffirmativeBiteballAnswer((upperExclusive) => {
+    assert.equal(upperExclusive, 10);
+    return index;
+  });
+  assert.equal(answer.category, "affirmative");
+  assert.equal(answer, answers[index]);
+}
+assert.throws(() => biteball.selectAffirmativeBiteballAnswer(() => 10), RangeError);
+
+assert.equal(biteball.shouldForceAffirmativeBiteballAnswer("sundei", "Will kizb win?"), true);
+assert.equal(biteball.shouldForceAffirmativeBiteballAnswer("SUNDEI", "Is KIZB ready?"), true);
+assert.equal(biteball.shouldForceAffirmativeBiteballAnswer("sundei", "What about kizb's roll?"), true);
+assert.equal(biteball.shouldForceAffirmativeBiteballAnswer("someone-else", "Will kizb win?"), false);
+assert.equal(biteball.shouldForceAffirmativeBiteballAnswer("sundei", "Will anyone win?"), false);
+assert.equal(biteball.shouldForceAffirmativeBiteballAnswer("sundei", "Will kizball win?"), false);
+
 const types = fs.readFileSync(path.join(repoRoot, "src", "lib", "types.ts"), "utf8");
 const tabs = fs.readFileSync(path.join(repoRoot, "src", "components", "GameTabs.tsx"), "utf8");
 const nav = fs.readFileSync(path.join(repoRoot, "src", "components", "GameNav.tsx"), "utf8");
