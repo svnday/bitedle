@@ -26,6 +26,11 @@ export interface RngdleLeaderboardEntry {
   bestEp: number;
   bestPenaltyPercent: number | null;
   bestRarity: RngdleResult["rarity"];
+  // The engine returns a roll's badges sorted by EP descending, and its top
+  // badge is always the rarest one that actually scored - checked across the
+  // range, where the only exceptions are EP ties that render identically.
+  rarestBadgeLabel: string | null;
+  rarestBadgeEp: number | null;
 }
 
 export interface RngdleDailyStanding {
@@ -40,6 +45,8 @@ export interface RngdleDailyStanding {
   rarityLabel: string;
   penaltyPercent: number | null;
   badgeCount: number;
+  rarestBadgeLabel: string | null;
+  rarestBadgeEp: number | null;
 }
 
 export interface RngdleProfileRoll {
@@ -274,6 +281,8 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
         rarityLabel: roll.current.rarityLabel,
         penaltyPercent: roll.current.penaltyPercent,
         badgeCount: roll.current.badges.length,
+        rarestBadgeLabel: roll.current.badges[0]?.label ?? null,
+        rarestBadgeEp: roll.current.badges[0]?.ep ?? null,
       })));
   }
 
@@ -293,6 +302,8 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
           bestEp: roll.current.creditedEp,
           bestPenaltyPercent: roll.current.penaltyPercent,
           bestRarity: roll.current.rarity,
+          rarestBadgeLabel: roll.current.badges[0]?.label ?? null,
+          rarestBadgeEp: roll.current.badges[0]?.ep ?? null,
           latestAt: roll.initialRolledAt,
         });
       } else {
@@ -303,6 +314,13 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
           previous.bestEp = roll.current.creditedEp;
           previous.bestPenaltyPercent = roll.current.penaltyPercent;
           previous.bestRarity = roll.current.rarity;
+        }
+        // Tracked independently of the best score: a player's rarest badge is
+        // often not on their highest-EP roll.
+        const top = roll.current.badges[0];
+        if (top && top.ep > (previous.rarestBadgeEp ?? -1)) {
+          previous.rarestBadgeLabel = top.label;
+          previous.rarestBadgeEp = top.ep;
         }
         if (roll.initialRolledAt > previous.latestAt) {
           previous.displayName = roll.displayName;
@@ -324,6 +342,8 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
         bestEp: entry.bestEp,
         bestPenaltyPercent: entry.bestPenaltyPercent,
         bestRarity: entry.bestRarity,
+        rarestBadgeLabel: entry.rarestBadgeLabel,
+        rarestBadgeEp: entry.rarestBadgeEp,
       }));
   }
 
@@ -493,7 +513,9 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
         current_result->>'rarity' AS rarity,
         current_result->>'rarityLabel' AS rarity_label,
         current_result->>'penaltyPercent' AS penalty_percent,
-        jsonb_array_length(current_result->'badges') AS badge_count
+        jsonb_array_length(current_result->'badges') AS badge_count,
+        current_result->'badges'->0->>'label' AS rarest_badge_label,
+        (current_result->'badges'->0->>'ep')::bigint AS rarest_badge_ep
       FROM rngdle_rolls
       WHERE guild_id = ${guildId} AND game_day = ${gameDay}` as Array<{
         user_id: string;
@@ -504,6 +526,8 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
         rarity_label: string;
         penalty_percent: string | null;
         badge_count: string | number;
+        rarest_badge_label: string | null;
+        rarest_badge_ep: string | null;
       }>;
     return rankedDaily(rows.map((row) => ({
       userId: row.user_id,
@@ -514,6 +538,8 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
       rarityLabel: row.rarity_label,
       penaltyPercent: row.penalty_percent === null ? null : Number(row.penalty_percent),
       badgeCount: Number(row.badge_count),
+      rarestBadgeLabel: row.rarest_badge_label,
+      rarestBadgeEp: row.rarest_badge_ep === null ? null : Number(row.rarest_badge_ep),
     })));
   }
 
@@ -528,7 +554,11 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
         (array_agg((current_result->>'number')::int ORDER BY (current_result->>'creditedEp')::bigint DESC))[1] AS best_number,
         (array_agg((current_result->>'creditedEp')::bigint ORDER BY (current_result->>'creditedEp')::bigint DESC))[1] AS best_ep,
         (array_agg((current_result->>'penaltyPercent')::int ORDER BY (current_result->>'creditedEp')::bigint DESC))[1] AS best_penalty_percent,
-        (array_agg(current_result->>'rarity' ORDER BY (current_result->>'creditedEp')::bigint DESC))[1] AS best_rarity
+        (array_agg(current_result->>'rarity' ORDER BY (current_result->>'creditedEp')::bigint DESC))[1] AS best_rarity,
+        -- Ordered by badge EP, not roll EP: the rarest badge a player has ever
+        -- earned is often not on their highest-scoring roll.
+        (array_agg(current_result->'badges'->0->>'label' ORDER BY (current_result->'badges'->0->>'ep')::bigint DESC NULLS LAST))[1] AS rarest_badge_label,
+        (array_agg((current_result->'badges'->0->>'ep')::bigint ORDER BY (current_result->'badges'->0->>'ep')::bigint DESC NULLS LAST))[1] AS rarest_badge_ep
       FROM rngdle_rolls
       WHERE guild_id = ${guildId}
       GROUP BY user_id
@@ -543,6 +573,8 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
         best_ep: string | number;
         best_penalty_percent: string | number | null;
         best_rarity: RngdleResult["rarity"];
+        rarest_badge_label: string | null;
+        rarest_badge_ep: string | null;
       }>;
     return rows.map((row) => ({
       userId: row.user_id,
@@ -554,6 +586,8 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
       bestEp: Number(row.best_ep),
       bestPenaltyPercent: row.best_penalty_percent === null ? null : Number(row.best_penalty_percent),
       bestRarity: row.best_rarity,
+      rarestBadgeLabel: row.rarest_badge_label,
+      rarestBadgeEp: row.rarest_badge_ep === null ? null : Number(row.rarest_badge_ep),
     }));
   }
 

@@ -246,6 +246,9 @@ const leaderboardStyleReference = [
   bestPenaltyPercent,
   totalEp,
   bestRarity,
+  rarestBadgeLabel: ["Very Very Nice", "Strobogrammatic", "Palindrome", "2 Consecutive Numbers Repeated", "Zipper",
+    "Binary Soul", "Fibonacci Number", "Lucky Seven (Divisible)", "Feather", "Nice"][index],
+  rarestBadgeEp: [100000100, 502513, 50025, 1659, 246914, 1538463, 3333337, 700, 2667, 2024][index],
 }));
 fs.writeFileSync(leaderboardStyleReferencePath, await renderer.renderRngdleDiscordLeaderboard(leaderboardStyleReference, 39));
 fs.writeFileSync(profilePath, await renderer.renderRngdleDiscordProfile(profile));
@@ -657,9 +660,11 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
   // executed. It is the half that reaches production.
   neonDailyRows = [
     { user_id: "a", display_name: "Rerolled", credited_ep: "1244", number: "219986",
-      rarity: "trash", rarity_label: "TRASH", penalty_percent: "71", badge_count: "9" },
+      rarity: "trash", rarity_label: "TRASH", penalty_percent: "71", badge_count: "9",
+      rarest_badge_label: "Blackjack", rarest_badge_ep: "2521" },
     { user_id: "b", display_name: "Clean", credited_ep: "5219", number: "569354",
-      rarity: "common", rarity_label: "COMMON", penalty_percent: null, badge_count: "13" },
+      rarity: "common", rarity_label: "COMMON", penalty_percent: null, badge_count: "13",
+      rarest_badge_label: null, rarest_badge_ep: null },
   ];
   const neonStandings = await repository.dailyStandings("guild", dayOne);
   assert.deepEqual(neonStandings.map((entry) => entry.displayName), ["Clean", "Rerolled"], "ordered by credited EP");
@@ -668,6 +673,11 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
     neonStandings.map((entry) => [entry.number, entry.rarityLabel, entry.penaltyPercent, entry.badgeCount]),
     [[569354, "COMMON", null, 13], [219986, "TRASH", 71, 9]],
     "Postgres strings must come back as numbers, and a missing penalty as null",
+  );
+  assert.deepEqual(
+    neonStandings.map((entry) => [entry.rarestBadgeLabel, entry.rarestBadgeEp]),
+    [[null, null], ["Blackjack", 2521]],
+    "the badge EP is a bigint over the wire, and a badgeless roll must stay null",
   );
   neonDailyRows = [];
 
@@ -712,6 +722,15 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
   assert.equal(mine.rarityLabel, rerolledResult.rarityLabel);
   assert.equal(mine.penaltyPercent, 37, "a rerolled row has to say so");
   assert.equal(mine.badgeCount, rerolledResult.badges.length);
+  // The board shows the rarest badge, which is the roll's top-EP one: the
+  // engine returns badges sorted by EP descending and the leader is always the
+  // rarest that actually scored.
+  assert.equal(mine.rarestBadgeLabel, rerolledResult.badges[0].label);
+  assert.equal(mine.rarestBadgeEp, rerolledResult.badges[0].ep);
+  assert.ok(
+    rerolledResult.badges.every((badge) => badge.ep <= rerolledResult.badges[0].ep),
+    "badges[0] must really be the highest-EP badge on the roll",
+  );
   // Ranks come from the shared helper, so ties share a place rather than
   // being split by row order.
   assert.deepEqual(
@@ -721,6 +740,10 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
   );
 
   // One renderer serves both boards, so they cannot drift apart. Same canvas.
+  const rendererSourceForBoards = fs.readFileSync(path.join(repoRoot, "src", "lib", "rngdle-discord-renderer.tsx"), "utf8");
+  assert.match(rendererSourceForBoards, /rarestBadgeLabel/, "both boards must show the rarest badge");
+  assert.doesNotMatch(rendererSourceForBoards, /GAMES`/, "the games count column is gone");
+
   const dailyImage = await renderer.renderRngdleDiscordDailyLeaderboard(standings, dayOne, 19);
   const dailyMeta = await sharp(dailyImage).metadata();
   assert.equal(dailyMeta.width, renderer.RNGDLE_DISCORD_LEADERBOARD_WIDTH);
