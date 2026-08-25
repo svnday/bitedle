@@ -855,22 +855,31 @@ interface RngdleBoardRow {
   penaltyPercent: number | null;
   /** Right of the score: the rarest badge behind it, and what it paid. */
   badgeTop: string;
-  badgeBottom: string;
+  badgeEp: string;
+  /** The badge's own wording, exactly as the roll card's chips state it. */
+  badgeDesc: string;
   total: string;
 }
 
 interface RngdleBoard {
   heading: string;
   caption: string;
+  /** Column headings. Each board names its own, since the score differs. */
+  columns: { player: string; score: string; badge: string; total: string };
   footerLeft: string;
   footerRight: string;
   rows: RngdleBoardRow[];
 }
 
+// Widened from 250 at the name column's expense, to give the badge's own
+// wording a line of its own without wrapping it.
+const BOARD_COLUMNS = { rank: 92, name: 295, score: 220, badge: 310, total: 181 } as const;
+
 function allTimeBoard(entries: RngdleLeaderboardEntry[], totalPlayers: number): RngdleBoard {
   return {
     heading: "ALL-TIME LEADERBOARD",
-    caption: `${totalPlayers} PLAYERS  •  CAREER EP  •  RAREST BADGE`,
+    caption: `${totalPlayers} PLAYERS`,
+    columns: { player: "PLAYER", score: "BEST ROLL", badge: "RAREST BADGE EVER", total: "CAREER EP" },
     footerLeft: "Ranked by total career EP",
     footerRight: "Daily play builds your all-time total",
     rows: entries.slice(0, 10).map((entry, index) => ({
@@ -880,8 +889,9 @@ function allTimeBoard(entries: RngdleLeaderboardEntry[], totalPlayers: number): 
       scoreTop: `BEST ${entry.bestNumber}`,
       scoreBottom: `${formatEp(entry.bestEp)} EP`,
       penaltyPercent: entry.bestPenaltyPercent,
-      badgeTop: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), 22) : "NO BADGES",
-      badgeBottom: entry.rarestBadgeEp ? `+${formatEp(entry.rarestBadgeEp)} EP` : "",
+      badgeTop: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), 24) : "NO BADGES",
+      badgeEp: entry.rarestBadgeEp ? `+${formatEp(entry.rarestBadgeEp)} EP` : "",
+      badgeDesc: clipped(entry.rarestBadgeDesc ?? "", 58),
       total: `${formatEp(entry.totalEp)} EP`,
     })),
   };
@@ -892,6 +902,7 @@ function dailyBoard(standings: RngdleDailyStanding[], gameDay: string, totalPlay
   return {
     heading: "TODAY'S LEADERBOARD",
     caption: `${gameDay}  •  ${rolled} OF ${totalPlayers} ROLLED`,
+    columns: { player: "PLAYER", score: "TODAY'S ROLL", badge: "RAREST BADGE", total: "TODAY'S EP" },
     footerLeft: "Ranked by today's credited EP",
     footerRight: "Resets with the next drop",
     // The computed rank, not the row index: tied scores genuinely share a place.
@@ -902,8 +913,9 @@ function dailyBoard(standings: RngdleDailyStanding[], gameDay: string, totalPlay
       scoreTop: `ROLL ${entry.number}`,
       scoreBottom: entry.rarityLabel,
       penaltyPercent: entry.penaltyPercent,
-      badgeTop: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), 22) : "NO BADGES",
-      badgeBottom: entry.rarestBadgeEp ? `+${formatEp(entry.rarestBadgeEp)} EP` : "",
+      badgeTop: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), 24) : "NO BADGES",
+      badgeEp: entry.rarestBadgeEp ? `+${formatEp(entry.rarestBadgeEp)} EP` : "",
+      badgeDesc: clipped(entry.rarestBadgeDesc ?? "", 58),
       total: `${formatEp(entry.creditedEp)} EP`,
     })),
   };
@@ -921,7 +933,14 @@ function leaderboardImage(board: RngdleBoard) {
         <div style={{ marginTop: 17, fontSize: 37, fontWeight: 950, display: "flex" }}>{board.heading}</div>
         <div style={{ marginTop: 8, color: "#7f8ca5", fontSize: 15, display: "flex" }}>{board.caption}</div>
       </div>
-      <div style={{ position: "absolute", left: 51, top: 187, width: 1098, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ position: "absolute", left: 51, top: 173, width: 1098, height: 14, display: "flex", alignItems: "center", color: "#6d7a91", fontSize: 10, fontWeight: 700, letterSpacing: 1.4 }}>
+        <div style={{ width: BOARD_COLUMNS.rank, paddingLeft: 19, display: "flex" }}>#</div>
+        <div style={{ width: BOARD_COLUMNS.name, display: "flex" }}>{board.columns.player}</div>
+        <div style={{ width: BOARD_COLUMNS.score, display: "flex" }}>{board.columns.score}</div>
+        <div style={{ width: BOARD_COLUMNS.badge, display: "flex" }}>{board.columns.badge}</div>
+        <div style={{ width: BOARD_COLUMNS.total, paddingRight: 15, justifyContent: "flex-end", display: "flex" }}>{board.columns.total}</div>
+      </div>
+      <div style={{ position: "absolute", left: 51, top: 193, width: 1098, display: "flex", flexDirection: "column", gap: 7 }}>
         {board.rows.map((entry, index) => {
           const accent = index === 0 ? "#24d8ff" : index <= 6 ? "#f0a300" : "#ff4caf";
           const borderColor = index === 0 ? "#24d8ff" : index <= 6 ? "#b87900" : "#26303f";
@@ -930,9 +949,9 @@ function leaderboardImage(board: RngdleBoard) {
           const rankColor = index === 0 ? "#ffd02e" : index === 1 ? "#dce5ef" : index === 2 ? "#ff8735" : "#718098";
           return (
             <div key={entry.key} style={{ width: 1098, height: 47, borderRadius: 14, border: `1px solid ${borderColor}`, background: index <= 6 ? "linear-gradient(90deg, rgba(28,35,40,.88), rgba(65,43,81,.65))" : "linear-gradient(90deg, rgba(18,25,34,.82), rgba(28,25,45,.64))", display: "flex", alignItems: "center" }}>
-              <div style={{ width: 92, paddingLeft: 19, color: rankColor, fontFamily: "Geist Mono", fontSize: 17, fontWeight: 700, display: "flex" }}>#{entry.rank}</div>
-              <div style={{ width: 355, fontSize: 17, fontWeight: 700, display: "flex" }}>{clipped(entry.name, 32)}</div>
-              <div style={{ width: 220, display: "flex", flexDirection: "column" }}>
+              <div style={{ width: BOARD_COLUMNS.rank, paddingLeft: 19, color: rankColor, fontFamily: "Geist Mono", fontSize: 17, fontWeight: 700, display: "flex" }}>#{entry.rank}</div>
+              <div style={{ width: BOARD_COLUMNS.name, fontSize: 17, fontWeight: 700, display: "flex" }}>{clipped(entry.name, 26)}</div>
+              <div style={{ width: BOARD_COLUMNS.score, display: "flex", flexDirection: "column" }}>
                 <div style={{ color: gamesColor, fontFamily: "Geist Mono", fontSize: 13, fontWeight: 700, display: "flex" }}>{entry.scoreTop}</div>
                 <div style={{ marginTop: 3, color: index >= 7 ? accent : "#b7b5c5", fontFamily: "Geist Mono", fontSize: 8.5, display: "flex", alignItems: "center", gap: 3 }}>
                   <div style={{ display: "flex" }}>{entry.scoreBottom}</div>
@@ -942,11 +961,14 @@ function leaderboardImage(board: RngdleBoard) {
                   {entry.penaltyPercent === null ? null : <div style={{ display: "flex" }}>-{entry.penaltyPercent}%</div>}
                 </div>
               </div>
-              <div style={{ width: 250, display: "flex", flexDirection: "column" }}>
-                <div style={{ color: bestColor, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>{entry.badgeTop}</div>
-                <div style={{ marginTop: 3, color: index >= 7 ? accent : "#b7b5c5", fontFamily: "Geist Mono", fontSize: 8.5, display: "flex" }}>{entry.badgeBottom}</div>
+              <div style={{ width: BOARD_COLUMNS.badge, display: "flex", flexDirection: "column" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <div style={{ color: bestColor, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>{entry.badgeTop}</div>
+                  <div style={{ color: index >= 7 ? accent : "#b7b5c5", fontFamily: "Geist Mono", fontSize: 8.5, fontWeight: 700, display: "flex" }}>{entry.badgeEp}</div>
+                </div>
+                <div style={{ marginTop: 3, color: "#8a8fa0", fontSize: 8.5, display: "flex" }}>{entry.badgeDesc}</div>
               </div>
-              <div style={{ width: 181, paddingRight: 15, justifyContent: "flex-end", whiteSpace: "nowrap", fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, letterSpacing: -.25, display: "flex" }}>{entry.total}</div>
+              <div style={{ width: BOARD_COLUMNS.total, paddingRight: 15, justifyContent: "flex-end", whiteSpace: "nowrap", fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, letterSpacing: -.25, display: "flex" }}>{entry.total}</div>
             </div>
           );
         })}

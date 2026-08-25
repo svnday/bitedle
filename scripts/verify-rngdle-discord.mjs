@@ -661,10 +661,10 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
   neonDailyRows = [
     { user_id: "a", display_name: "Rerolled", credited_ep: "1244", number: "219986",
       rarity: "trash", rarity_label: "TRASH", penalty_percent: "71", badge_count: "9",
-      rarest_badge_label: "Blackjack", rarest_badge_ep: "2521" },
+      rarest_badge_label: "Blackjack", rarest_badge_desc: "Digits sum exactly to 21.", rarest_badge_ep: "2521" },
     { user_id: "b", display_name: "Clean", credited_ep: "5219", number: "569354",
       rarity: "common", rarity_label: "COMMON", penalty_percent: null, badge_count: "13",
-      rarest_badge_label: null, rarest_badge_ep: null },
+      rarest_badge_label: null, rarest_badge_desc: null, rarest_badge_ep: null },
   ];
   const neonStandings = await repository.dailyStandings("guild", dayOne);
   assert.deepEqual(neonStandings.map((entry) => entry.displayName), ["Clean", "Rerolled"], "ordered by credited EP");
@@ -742,6 +742,7 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
   assert.equal(one.bestNumber, highScore.number, "best roll is still the highest-scoring one");
   assert.equal(one.rarestBadgeLabel, rareBadge.badges[0].label, "but the badge comes from the lower-scoring roll");
   assert.equal(one.rarestBadgeEp, rareBadge.badges[0].ep);
+  assert.equal(one.rarestBadgeDesc, rareBadge.badges[0].desc, "the description must follow its own badge");
   assert.notEqual(one.rarestBadgeLabel, highScore.badges[0].label, "the best roll's badge must not win by default");
 
   // Per player, not per guild: Player Two keeps their own, far weaker badge.
@@ -782,6 +783,9 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
   // rarest that actually scored.
   assert.equal(mine.rarestBadgeLabel, rerolledResult.badges[0].label);
   assert.equal(mine.rarestBadgeEp, rerolledResult.badges[0].ep);
+  // The board states the badge in its own words, as the roll card's chips do.
+  assert.equal(mine.rarestBadgeDesc, rerolledResult.badges[0].desc);
+  assert.ok(mine.rarestBadgeDesc.length > 0);
   assert.ok(
     rerolledResult.badges.every((badge) => badge.ep <= rerolledResult.badges[0].ep),
     "badges[0] must really be the highest-EP badge on the roll",
@@ -798,6 +802,12 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
   const rendererSourceForBoards = fs.readFileSync(path.join(repoRoot, "src", "lib", "rngdle-discord-renderer.tsx"), "utf8");
   assert.match(rendererSourceForBoards, /rarestBadgeLabel/, "both boards must show the rarest badge");
   assert.doesNotMatch(rendererSourceForBoards, /GAMES`/, "the games count column is gone");
+  // Every column is named in a header row, and each board names its own.
+  for (const heading of ["PLAYER", "BEST ROLL", "RAREST BADGE EVER", "CAREER EP", "TODAY'S ROLL", "TODAY'S EP"]) {
+    assert.ok(rendererSourceForBoards.includes(heading), `missing column heading: ${heading}`);
+  }
+  assert.match(rendererSourceForBoards, /board\.columns\.player/);
+  assert.match(rendererSourceForBoards, /board\.columns\.badge/);
 
   const dailyImage = await renderer.renderRngdleDiscordDailyLeaderboard(standings, dayOne, 19);
   const dailyMeta = await sharp(dailyImage).metadata();
