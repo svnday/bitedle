@@ -518,6 +518,56 @@ assert.match(
   assert.match(v2Text(rerolledPayload), new RegExp(`${Math.abs(swingEp).toLocaleString("en-US")} EP vs first roll`));
 }
 
+// The reveal shows the new number at full value, so everything around it has to
+// agree. Career EP and today's rank are both read after the reroll is committed
+// and therefore already carry the penalised total - a player who knows what
+// their career stood at a minute ago could read the loss straight off the
+// reveal, before the risk animation had drawn a thing.
+{
+  const penalised = scoring.scoreRngdleNumber(752, 87);
+  const fullValue = scoring.scoreRngdleNumber(752);
+  assert.equal(penalised.creditedEp, 31_779);
+  assert.equal(fullValue.creditedEp, 244_456);
+
+  const careerBefore = 500_000;
+  const committed = { ...resultStats, careerEp: careerBefore + penalised.creditedEp, rerollDeltaEp: -1_000 };
+  const reveal = delivery.rngdleRevealStats(committed, penalised.creditedEp, fullValue.creditedEp);
+  assert.equal(reveal.careerEp, careerBefore + fullValue.creditedEp, "career must read as if the risk took nothing");
+  assert.notEqual(reveal.careerEp, committed.careerEp, "the committed total would give the outcome away");
+  assert.equal(reveal.rerollDeltaEp, null, "there is no swing to report until the risk has run");
+  assert.equal(reveal.currentStreak, committed.currentStreak, "everything else is left alone");
+
+  // A player whose only roll is today: the reveal must show the full value, not
+  // the penalised one, which is the starkest version of the same leak.
+  const firstEver = delivery.rngdleRevealStats(
+    { ...resultStats, careerEp: penalised.creditedEp },
+    penalised.creditedEp,
+    fullValue.creditedEp,
+  );
+  assert.equal(firstEver.careerEp, fullValue.creditedEp);
+
+  // Rank, same idea: where the roll would sit before the risk took anything.
+  const standings = [
+    { userId: "rival-high", creditedEp: 900_000 },
+    { userId: "me", creditedEp: penalised.creditedEp },
+    { userId: "rival-mid", creditedEp: 100_000 },
+    { userId: "rival-low", creditedEp: 1_000 },
+  ];
+  assert.equal(delivery.rngdleRevealRank(standings, "me", fullValue.creditedEp), 2, "244,456 is behind 900,000 but ahead of 100,000");
+  assert.equal(delivery.rngdleRevealRank(standings, "me", 950_000), 1, "a full-value roll that leads must show first");
+  assert.equal(delivery.rngdleRevealRank(standings, "me", 500), 4);
+  assert.equal(delivery.rngdleRevealRank([], "me", 10), 1, "an empty board still ranks first");
+
+  // The helpers being right is only half of it - delivery has to actually use
+  // them for the reveal, and the route has to supply the pre-risk rank.
+  const deliverySource = fs.readFileSync(path.join(repoRoot, "src", "lib", "rngdle-discord.ts"), "utf8");
+  assert.match(deliverySource, /revealStats = isReroll[\s\S]{0,120}rngdleRevealStats\(/);
+  assert.match(deliverySource, /const revealRank = isReroll \? input\.revealRank \?\? input\.rank : input\.rank;/);
+  assert.match(deliverySource, /renderRngdleDiscordAnimation\([\s\S]{0,80}revealRank,/, "the reveal must render at the pre-risk rank");
+  const routeSourceForReveal = fs.readFileSync(path.join(repoRoot, "src", "app", "api", "discord", "interactions", "route.ts"), "utf8");
+  assert.match(routeSourceForReveal, /revealRank: rngdleRevealRank\(standings, user\.id, outcome\.roll\.current\.rawEp\)/);
+}
+
 // The reroll plays as four beats: opener, the new number at full value, the
 // risk drawn against it, then the settled card. 10,531 scores 9,817 EP (rare)
 // and lands at 6,184 (uncommon) once 37% is taken off, so the container accent

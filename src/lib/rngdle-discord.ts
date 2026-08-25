@@ -392,12 +392,42 @@ async function responseError(response: Response): Promise<string> {
   return `${response.status}${body ? `: ${body.slice(0, 300)}` : ""}`;
 }
 
+/**
+ * The card's footer as it should read during a reroll's reveal, before the risk
+ * is drawn. Career EP and today's rank are both computed after the reroll is
+ * committed, so they already carry the penalised total - which hands the
+ * outcome to anyone who knows what their career stood at a minute ago. Both are
+ * restated as they would read with this roll at full value, matching the panel.
+ */
+export function rngdleRevealStats(
+  stats: RngdleResultCardStats,
+  penalisedCreditedEp: number,
+  fullValueEp: number,
+): RngdleResultCardStats {
+  return {
+    ...stats,
+    rerollDeltaEp: null,
+    careerEp: stats.careerEp - penalisedCreditedEp + fullValueEp,
+  };
+}
+
+/** Where a roll would sit today if the risk took nothing from it. */
+export function rngdleRevealRank(
+  standings: readonly { userId: string; creditedEp: number }[],
+  userId: string,
+  fullValueEp: number,
+): number {
+  return 1 + standings.filter((entry) => entry.userId !== userId && entry.creditedEp > fullValueEp).length;
+}
+
 export async function deliverRngdleRoll(input: {
   applicationId: string;
   token: string;
   roll: RngdleDiscordRoll;
   rank: number;
   playerCount: number;
+  /** Rank this roll would hold at full value, for the pre-risk reveal. */
+  revealRank?: number;
   stats: RngdleResultCardStats;
   animate: boolean;
   riskAnimationPercent?: number;
@@ -434,7 +464,16 @@ export async function deliverRngdleRoll(input: {
   // "-37% FROM …" line before the risk has run would give the outcome away.
   const isReroll = input.riskAnimationPercent !== undefined;
   const revealResult = isReroll ? scoreRngdleNumber(input.roll.current.number) : input.roll.current;
-  const revealStats = isReroll ? { ...input.stats, rerollDeltaEp: null } : input.stats;
+  // The panel was already unpenalised, but the card's footer was not: career EP
+  // and today's rank are both read after the reroll is committed, so they
+  // already carried the penalised total - handing the outcome to anyone who
+  // knows what their career stood at, before the risk had been drawn. Both are
+  // restated as they would read with this roll at full value, so the whole
+  // reveal describes one consistent moment.
+  const revealStats = isReroll
+    ? rngdleRevealStats(input.stats, input.roll.current.creditedEp, revealResult.creditedEp)
+    : input.stats;
+  const revealRank = isReroll ? input.revealRank ?? input.rank : input.rank;
 
   // Clear Discord's "thinking…" (or a reroll's stale buttons) immediately with
   // a text-only edit; every render below happens behind a visible message.
@@ -456,7 +495,7 @@ export async function deliverRngdleRoll(input: {
   let still: Buffer | null = null;
 
   if (input.animate) {
-    const cacheKey = assetCacheKey(input.roll, revealResult, input.rank, input.playerCount, revealStats);
+    const cacheKey = assetCacheKey(input.roll, revealResult, revealRank, input.playerCount, revealStats);
     const cached = readAssetCache(cacheKey);
     if (cached) {
       animation = cached.animation;
@@ -467,7 +506,7 @@ export async function deliverRngdleRoll(input: {
         const rendered = await renderRngdleDiscordAnimation(
           revealResult,
           input.roll.displayName,
-          input.rank,
+          revealRank,
           input.playerCount,
           revealStats,
         );

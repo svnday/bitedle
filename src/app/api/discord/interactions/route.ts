@@ -71,6 +71,7 @@ import {
   RNGDLE_REROLL_CUSTOM_ID_PREFIX,
   rngdleRerollAcknowledged,
   rngdleRerollModal,
+  rngdleRevealRank,
   takePendingRngdlePenalty,
 } from "@/lib/rngdle-discord";
 import { getRngdleDiscordRepository } from "@/lib/rngdle-discord-store";
@@ -1087,6 +1088,9 @@ async function processRngdleReroll(
         rerollDeltaEp: outcome.roll.current.creditedEp - outcome.roll.initial.creditedEp,
       },
       riskAnimationPercent: penalty,
+      // Where this roll would sit if the risk took nothing, so the reveal's
+      // rank matches the full-value number it is showing.
+      revealRank: rngdleRevealRank(standings, user.id, outcome.roll.current.rawEp),
       attachmentSizeLimit: body.attachment_size_limit,
     });
   } catch (error) {
