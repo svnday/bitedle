@@ -151,6 +151,14 @@ assert.equal(leaderA.rolls, 2);
 assert.equal(leaderA.totalEp, rerolledResult.creditedEp + firstResult.creditedEp);
 assert.equal(leaderA.bestEp, Math.max(rerolledResult.creditedEp, firstResult.creditedEp));
 assert.equal(leaderA.bestRarity, leaderA.bestEp === firstResult.creditedEp ? firstResult.rarity : rerolledResult.rarity);
+assert.equal(leaderA.worstEp, Math.min(rerolledResult.creditedEp, firstResult.creditedEp));
+assert.equal(leaderA.worstNumber, leaderA.worstEp === firstResult.creditedEp ? firstResult.number : rerolledResult.number);
+assert.equal(
+  leaderA.worstPenaltyPercent,
+  leaderA.worstEp === firstResult.creditedEp ? firstResult.penaltyPercent : rerolledResult.penaltyPercent,
+  "the penalty must follow its own roll, not the best one",
+);
+assert.ok(leaderA.worstEp < leaderA.bestEp, "the two ends of this career must not be the same roll");
 assert.equal((await repository.leaderboard(guildB)).length, 1, "historical leaderboard is guild-isolated");
 
 const profile = await repository.userProfile(guildA, userA, "2026-08-21");
@@ -225,18 +233,22 @@ const badgeFramePath = path.join(tempDir, "rngdle-badge-frame.png");
 fs.writeFileSync(gifPath, assets.animation);
 fs.writeFileSync(pngPath, assets.still);
 fs.writeFileSync(leaderboardPath, await renderer.renderRngdleDiscordLeaderboard(leaderboard));
+// The widest strings the board can be handed, so the reference image shows
+// whether every column still fits: the longest names, a 9-digit rarest badge,
+// and a worst roll whose EP and penalty are both present.
 const leaderboardStyleReference = [
-  ["Kippie Hagridstein", 26, 19, 4551163, null, 4742902, "mythic"],
-  ["sundei", 27, 628315, 700727, 86, 1006722, "mythic"],
-  ["139rerka", 26, 693141, 339717, null, 992402, "mythic"],
-  ["Dini", 27, 777714, 416343, null, 761549, "mythic"],
-  ["iteman", 26, 10005, 186603, null, 701218, "mythic"],
-  ["Coconut (free Jadey)", 23, 446969, 353766, null, 682588, "mythic"],
-  ["Wyay (official)", 24, 557788, 199038, null, 607792, "mythic"],
-  ["regress", 24, 620156, 79568, 26, 461930, "anomaly"],
-  ["Hueqi", 26, 692077, 89641, null, 447167, "anomaly"],
-  ["Fixlation", 27, 773469, 142388, 58, 407094, "anomaly"],
-].map(([displayName, rolls, bestNumber, bestEp, bestPenaltyPercent, totalEp, bestRarity], index) => ({
+  ["Kippie Hagridstein", 26, 19, 4551163, null, 4742902, "mythic", 218043, 1204, null],
+  ["sundei", 27, 628315, 700727, 86, 1006722, "mythic", 511390, 318, 74],
+  ["139rerka", 26, 693141, 339717, null, 992402, "mythic", 104778, 2960, null],
+  ["Dini", 27, 777714, 416343, null, 761549, "mythic", 350021, 1877, null],
+  ["iteman", 26, 10005, 186603, null, 701218, "mythic", 660431, 903, 41],
+  ["Coconut (free Jadey)", 23, 446969, 353766, null, 682588, "mythic", 128806, 2415, null],
+  ["Wyay (official)", 24, 557788, 199038, null, 607792, "mythic", 903112, 640, 63],
+  ["regress", 24, 620156, 79568, 26, 461930, "anomaly", 274509, 1188, null],
+  ["Hueqi", 26, 692077, 89641, null, 447167, "anomaly", 480263, 2074, null],
+  ["Fixlation", 27, 773469, 142388, 58, 407094, "anomaly", 615930, 355, 92],
+].map(([displayName, rolls, bestNumber, bestEp, bestPenaltyPercent, totalEp, bestRarity,
+  worstNumber, worstEp, worstPenaltyPercent], index) => ({
   userId: `legacy-${index}`,
   displayName,
   avatar: null,
@@ -246,6 +258,9 @@ const leaderboardStyleReference = [
   bestPenaltyPercent,
   totalEp,
   bestRarity,
+  worstNumber,
+  worstEp,
+  worstPenaltyPercent,
   rarestBadgeLabel: ["Very Very Nice", "Strobogrammatic", "Palindrome", "2 Consecutive Numbers Repeated", "Zipper",
     "Binary Soul", "Fibonacci Number", "Lucky Seven (Divisible)", "Feather", "Nice"][index],
   rarestBadgeEp: [100000100, 502513, 50025, 1659, 246914, 1538463, 3333337, 700, 2667, 2024][index],
@@ -790,6 +805,9 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
   const two = board.find((entry) => entry.userId === "player-two");
   assert.ok(one && two);
   assert.equal(one.bestNumber, highScore.number, "best roll is still the highest-scoring one");
+  assert.equal(one.worstNumber, rareBadge.number, "and the worst is the other end of the same pair");
+  assert.equal(one.worstEp, rareBadge.creditedEp);
+  assert.equal(two.worstEp, otherResult.creditedEp, "a single roll is a player's best and worst at once");
   assert.equal(one.rarestBadgeLabel, rareBadge.badges[0].label, "but the badge comes from the lower-scoring roll");
   assert.equal(one.rarestBadgeEp, rareBadge.badges[0].ep);
   assert.equal(one.rarestBadgeDesc, rareBadge.badges[0].desc, "the description must follow its own badge");

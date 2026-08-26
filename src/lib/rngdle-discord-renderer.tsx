@@ -845,14 +845,21 @@ function LeaderboardOrbitBackdrop() {
  * component as the all-time table rather than a copy of it, so the two cannot
  * drift apart: only the heading, the captions and what each column says change.
  */
+/** Two lines and a reroll marker - the shape every score column is drawn in. */
+interface RngdleBoardScore {
+  top: string;
+  bottom: string;
+  penaltyPercent: number | null;
+}
+
 interface RngdleBoardRow {
   key: string;
   rank: number;
   name: string;
   /** Middle column: the score, with the reroll marker attached to it. */
-  scoreTop: string;
-  scoreBottom: string;
-  penaltyPercent: number | null;
+  score: RngdleBoardScore;
+  /** The all-time table's second score column. Null on a board without one. */
+  worst: RngdleBoardScore | null;
   /** Right of the score: the rarest badge behind it, and what it paid. */
   badgeTop: string;
   badgeEp: string;
@@ -864,34 +871,72 @@ interface RngdleBoardRow {
 interface RngdleBoard {
   heading: string;
   caption: string;
+  layout: RngdleBoardLayout;
   /** Column headings. Each board names its own, since the score differs. */
-  columns: { player: string; score: string; badge: string; total: string };
+  columns: { player: string; score: string; worst: string | null; badge: string; total: string };
   footerLeft: string;
   footerRight: string;
   rows: RngdleBoardRow[];
 }
 
-// Widened from 250 at the name column's expense, to give the badge's own
-// wording a line of its own without wrapping it.
-const BOARD_COLUMNS = { rank: 92, name: 295, score: 220, badge: 310, total: 181 } as const;
+/**
+ * Column widths, each set summing to the 1098-wide row, plus the character
+ * budgets that keep a cell's text inside its own column. The badge column was
+ * widened from 250 at the name column's expense, to give the badge's own
+ * wording a line of its own without wrapping it.
+ */
+interface RngdleBoardLayout {
+  rank: number;
+  name: number;
+  score: number;
+  /** 0 on a board with no worst-EP column, which then renders no such cell. */
+  worst: number;
+  badge: number;
+  total: number;
+  nameLimit: number;
+  badgeLabelLimit: number;
+  badgeDescLimit: number;
+}
+
+// The all-time table pays for its worst-EP column out of the name, score and
+// badge columns. The daily board has no such column - a day is a single roll,
+// whose worst is its best - so it keeps the widths it already had.
+const ALL_TIME_LAYOUT: RngdleBoardLayout = {
+  rank: 92, name: 235, score: 150, worst: 150, badge: 290, total: 181,
+  nameLimit: 20, badgeLabelLimit: 22, badgeDescLimit: 54,
+};
+const DAILY_LAYOUT: RngdleBoardLayout = {
+  rank: 92, name: 295, score: 220, worst: 0, badge: 310, total: 181,
+  nameLimit: 26, badgeLabelLimit: 24, badgeDescLimit: 58,
+};
 
 function allTimeBoard(entries: RngdleLeaderboardEntry[], totalPlayers: number): RngdleBoard {
   return {
     heading: "ALL-TIME LEADERBOARD",
     caption: `${totalPlayers} PLAYERS`,
-    columns: { player: "PLAYER", score: "BEST ROLL", badge: "RAREST BADGE EVER", total: "CAREER EP" },
+    layout: ALL_TIME_LAYOUT,
+    columns: { player: "PLAYER", score: "BEST ROLL", worst: "WORST EP", badge: "RAREST BADGE EVER", total: "CAREER EP" },
     footerLeft: "Ranked by total career EP",
     footerRight: "Daily play builds your all-time total",
     rows: entries.slice(0, 10).map((entry, index) => ({
       key: entry.userId,
       rank: index + 1,
       name: entry.displayName,
-      scoreTop: `BEST ${entry.bestNumber}`,
-      scoreBottom: `${formatEp(entry.bestEp)} EP`,
-      penaltyPercent: entry.bestPenaltyPercent,
-      badgeTop: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), 24) : "NO BADGES",
+      score: {
+        top: `BEST ${entry.bestNumber}`,
+        bottom: `${formatEp(entry.bestEp)} EP`,
+        penaltyPercent: entry.bestPenaltyPercent,
+      },
+      // The EP leads in this column, since that is what it is named by; the
+      // roll that earned so little sits underneath it.
+      worst: {
+        top: `${formatEp(entry.worstEp)} EP`,
+        bottom: `ROLL ${entry.worstNumber}`,
+        penaltyPercent: entry.worstPenaltyPercent,
+      },
+      badgeTop: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), ALL_TIME_LAYOUT.badgeLabelLimit) : "NO BADGES",
       badgeEp: entry.rarestBadgeEp ? `+${formatEp(entry.rarestBadgeEp)} EP` : "",
-      badgeDesc: clipped(entry.rarestBadgeDesc ?? "", 58),
+      badgeDesc: clipped(entry.rarestBadgeDesc ?? "", ALL_TIME_LAYOUT.badgeDescLimit),
       total: `${formatEp(entry.totalEp)} EP`,
     })),
   };
@@ -902,7 +947,8 @@ function dailyBoard(standings: RngdleDailyStanding[], gameDay: string, totalPlay
   return {
     heading: "TODAY'S LEADERBOARD",
     caption: `${gameDay}  •  ${rolled} OF ${totalPlayers} ROLLED`,
-    columns: { player: "PLAYER", score: "TODAY'S ROLL", badge: "RAREST BADGE", total: "TODAY'S EP" },
+    layout: DAILY_LAYOUT,
+    columns: { player: "PLAYER", score: "TODAY'S ROLL", worst: null, badge: "RAREST BADGE", total: "TODAY'S EP" },
     footerLeft: "Ranked by today's credited EP",
     footerRight: "Resets with the next drop",
     // The computed rank, not the row index: tied scores genuinely share a place.
@@ -910,18 +956,47 @@ function dailyBoard(standings: RngdleDailyStanding[], gameDay: string, totalPlay
       key: entry.userId,
       rank: entry.rank,
       name: entry.displayName,
-      scoreTop: `ROLL ${entry.number}`,
-      scoreBottom: entry.rarityLabel,
-      penaltyPercent: entry.penaltyPercent,
-      badgeTop: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), 24) : "NO BADGES",
+      score: {
+        top: `ROLL ${entry.number}`,
+        bottom: entry.rarityLabel,
+        penaltyPercent: entry.penaltyPercent,
+      },
+      // A day is one roll per player, whose worst would only restate its best.
+      worst: null,
+      badgeTop: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), DAILY_LAYOUT.badgeLabelLimit) : "NO BADGES",
       badgeEp: entry.rarestBadgeEp ? `+${formatEp(entry.rarestBadgeEp)} EP` : "",
-      badgeDesc: clipped(entry.rarestBadgeDesc ?? "", 58),
+      badgeDesc: clipped(entry.rarestBadgeDesc ?? "", DAILY_LAYOUT.badgeDescLimit),
       total: `${formatEp(entry.creditedEp)} EP`,
     })),
   };
 }
 
+/**
+ * A score column. The best and worst cells share it, so the two ends of a
+ * career cannot drift into different type or lose the reroll marker apart.
+ */
+function BoardScoreCell({ width, score, topColor, subColor }: {
+  width: number;
+  score: RngdleBoardScore;
+  topColor: string;
+  subColor: string;
+}) {
+  return (
+    <div style={{ width, display: "flex", flexDirection: "column" }}>
+      <div style={{ color: topColor, fontFamily: "Geist Mono", fontSize: 13, fontWeight: 700, display: "flex" }}>{score.top}</div>
+      <div style={{ marginTop: 3, color: subColor, fontFamily: "Geist Mono", fontSize: 8.5, display: "flex", alignItems: "center", gap: 3 }}>
+        <div style={{ display: "flex" }}>{score.bottom}</div>
+        {score.penaltyPercent === null ? null : (
+          <svg width="9" height="9" viewBox="0 0 15 15"><path d="M12.4 5.2A5.2 5.2 0 1 0 12 10.4" fill="none" stroke={subColor} strokeWidth="2" strokeLinecap="round" /><path d="M10.1 3.9h2.8v2.8" fill="none" stroke={subColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        )}
+        {score.penaltyPercent === null ? null : <div style={{ display: "flex" }}>-{score.penaltyPercent}%</div>}
+      </div>
+    </div>
+  );
+}
+
 function leaderboardImage(board: RngdleBoard) {
+  const layout = board.layout;
   return referenceShell(
     <>
       <div style={{ position: "absolute", left: 0, top: 0, width: 1200, height: 790, background: "linear-gradient(90deg, rgba(0,112,150,.20), rgba(28,24,58,.05) 46%, rgba(103,43,178,.34))", display: "flex" }} />
@@ -934,11 +1009,12 @@ function leaderboardImage(board: RngdleBoard) {
         <div style={{ marginTop: 8, color: "#7f8ca5", fontSize: 15, display: "flex" }}>{board.caption}</div>
       </div>
       <div style={{ position: "absolute", left: 51, top: 173, width: 1098, height: 14, display: "flex", alignItems: "center", color: "#6d7a91", fontSize: 10, fontWeight: 700, letterSpacing: 1.4 }}>
-        <div style={{ width: BOARD_COLUMNS.rank, paddingLeft: 19, display: "flex" }}>#</div>
-        <div style={{ width: BOARD_COLUMNS.name, display: "flex" }}>{board.columns.player}</div>
-        <div style={{ width: BOARD_COLUMNS.score, display: "flex" }}>{board.columns.score}</div>
-        <div style={{ width: BOARD_COLUMNS.badge, display: "flex" }}>{board.columns.badge}</div>
-        <div style={{ width: BOARD_COLUMNS.total, paddingRight: 15, justifyContent: "flex-end", display: "flex" }}>{board.columns.total}</div>
+        <div style={{ width: layout.rank, paddingLeft: 19, display: "flex" }}>#</div>
+        <div style={{ width: layout.name, display: "flex" }}>{board.columns.player}</div>
+        <div style={{ width: layout.score, display: "flex" }}>{board.columns.score}</div>
+        {board.columns.worst === null ? null : <div style={{ width: layout.worst, display: "flex" }}>{board.columns.worst}</div>}
+        <div style={{ width: layout.badge, display: "flex" }}>{board.columns.badge}</div>
+        <div style={{ width: layout.total, paddingRight: 15, justifyContent: "flex-end", display: "flex" }}>{board.columns.total}</div>
       </div>
       <div style={{ position: "absolute", left: 51, top: 193, width: 1098, display: "flex", flexDirection: "column", gap: 7 }}>
         {board.rows.map((entry, index) => {
@@ -949,26 +1025,23 @@ function leaderboardImage(board: RngdleBoard) {
           const rankColor = index === 0 ? "#ffd02e" : index === 1 ? "#dce5ef" : index === 2 ? "#ff8735" : "#718098";
           return (
             <div key={entry.key} style={{ width: 1098, height: 47, borderRadius: 14, border: `1px solid ${borderColor}`, background: index <= 6 ? "linear-gradient(90deg, rgba(28,35,40,.88), rgba(65,43,81,.65))" : "linear-gradient(90deg, rgba(18,25,34,.82), rgba(28,25,45,.64))", display: "flex", alignItems: "center" }}>
-              <div style={{ width: BOARD_COLUMNS.rank, paddingLeft: 19, color: rankColor, fontFamily: "Geist Mono", fontSize: 17, fontWeight: 700, display: "flex" }}>#{entry.rank}</div>
-              <div style={{ width: BOARD_COLUMNS.name, fontSize: 17, fontWeight: 700, display: "flex" }}>{clipped(entry.name, 26)}</div>
-              <div style={{ width: BOARD_COLUMNS.score, display: "flex", flexDirection: "column" }}>
-                <div style={{ color: gamesColor, fontFamily: "Geist Mono", fontSize: 13, fontWeight: 700, display: "flex" }}>{entry.scoreTop}</div>
-                <div style={{ marginTop: 3, color: index >= 7 ? accent : "#b7b5c5", fontFamily: "Geist Mono", fontSize: 8.5, display: "flex", alignItems: "center", gap: 3 }}>
-                  <div style={{ display: "flex" }}>{entry.scoreBottom}</div>
-                  {entry.penaltyPercent === null ? null : (
-                    <svg width="9" height="9" viewBox="0 0 15 15"><path d="M12.4 5.2A5.2 5.2 0 1 0 12 10.4" fill="none" stroke={index >= 7 ? accent : "#b7b5c5"} strokeWidth="2" strokeLinecap="round" /><path d="M10.1 3.9h2.8v2.8" fill="none" stroke={index >= 7 ? accent : "#b7b5c5"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                  )}
-                  {entry.penaltyPercent === null ? null : <div style={{ display: "flex" }}>-{entry.penaltyPercent}%</div>}
-                </div>
-              </div>
-              <div style={{ width: BOARD_COLUMNS.badge, display: "flex", flexDirection: "column" }}>
+              <div style={{ width: layout.rank, paddingLeft: 19, color: rankColor, fontFamily: "Geist Mono", fontSize: 17, fontWeight: 700, display: "flex" }}>#{entry.rank}</div>
+              <div style={{ width: layout.name, fontSize: 17, fontWeight: 700, display: "flex" }}>{clipped(entry.name, layout.nameLimit)}</div>
+              <BoardScoreCell width={layout.score} score={entry.score} topColor={gamesColor} subColor={index >= 7 ? accent : "#b7b5c5"} />
+              {/* Unranked colouring on purpose: the worst column stays the dim
+                  twin of the best one on every row, so the top three do not
+                  light up the number they would rather not be shown by. */}
+              {entry.worst === null ? null : (
+                <BoardScoreCell width={layout.worst} score={entry.worst} topColor="#b7b5c5" subColor="#8a8fa0" />
+              )}
+              <div style={{ width: layout.badge, display: "flex", flexDirection: "column" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                   <div style={{ color: bestColor, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>{entry.badgeTop}</div>
                   <div style={{ color: index >= 7 ? accent : "#b7b5c5", fontFamily: "Geist Mono", fontSize: 8.5, fontWeight: 700, display: "flex" }}>{entry.badgeEp}</div>
                 </div>
                 <div style={{ marginTop: 3, color: "#8a8fa0", fontSize: 8.5, display: "flex" }}>{entry.badgeDesc}</div>
               </div>
-              <div style={{ width: BOARD_COLUMNS.total, paddingRight: 15, justifyContent: "flex-end", whiteSpace: "nowrap", fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, letterSpacing: -.25, display: "flex" }}>{entry.total}</div>
+              <div style={{ width: layout.total, paddingRight: 15, justifyContent: "flex-end", whiteSpace: "nowrap", fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, letterSpacing: -.25, display: "flex" }}>{entry.total}</div>
             </div>
           );
         })}

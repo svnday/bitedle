@@ -26,6 +26,11 @@ export interface RngdleLeaderboardEntry {
   bestEp: number;
   bestPenaltyPercent: number | null;
   bestRarity: RngdleResult["rarity"];
+  // The other end of the same career: the cheapest roll a player has ever been
+  // credited for, tracked separately from the best rather than derived from it.
+  worstNumber: number;
+  worstEp: number;
+  worstPenaltyPercent: number | null;
   // The engine returns a roll's badges sorted by EP descending, and its top
   // badge is always the rarest one that actually scored - checked across the
   // range, where the only exceptions are EP ties that render identically.
@@ -305,6 +310,9 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
           bestEp: roll.current.creditedEp,
           bestPenaltyPercent: roll.current.penaltyPercent,
           bestRarity: roll.current.rarity,
+          worstNumber: roll.current.number,
+          worstEp: roll.current.creditedEp,
+          worstPenaltyPercent: roll.current.penaltyPercent,
           rarestBadgeLabel: roll.current.badges[0]?.label ?? null,
           rarestBadgeDesc: roll.current.badges[0]?.desc ?? null,
           rarestBadgeEp: roll.current.badges[0]?.ep ?? null,
@@ -318,6 +326,11 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
           previous.bestEp = roll.current.creditedEp;
           previous.bestPenaltyPercent = roll.current.penaltyPercent;
           previous.bestRarity = roll.current.rarity;
+        }
+        if (roll.current.creditedEp < previous.worstEp) {
+          previous.worstNumber = roll.current.number;
+          previous.worstEp = roll.current.creditedEp;
+          previous.worstPenaltyPercent = roll.current.penaltyPercent;
         }
         // Tracked independently of the best score: a player's rarest badge is
         // often not on their highest-EP roll.
@@ -347,6 +360,9 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
         bestEp: entry.bestEp,
         bestPenaltyPercent: entry.bestPenaltyPercent,
         bestRarity: entry.bestRarity,
+        worstNumber: entry.worstNumber,
+        worstEp: entry.worstEp,
+        worstPenaltyPercent: entry.worstPenaltyPercent,
         rarestBadgeLabel: entry.rarestBadgeLabel,
         rarestBadgeDesc: entry.rarestBadgeDesc,
         rarestBadgeEp: entry.rarestBadgeEp,
@@ -564,6 +580,12 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
         (array_agg((current_result->>'creditedEp')::bigint ORDER BY (current_result->>'creditedEp')::bigint DESC, game_day DESC))[1] AS best_ep,
         (array_agg((current_result->>'penaltyPercent')::int ORDER BY (current_result->>'creditedEp')::bigint DESC, game_day DESC))[1] AS best_penalty_percent,
         (array_agg(current_result->>'rarity' ORDER BY (current_result->>'creditedEp')::bigint DESC, game_day DESC))[1] AS best_rarity,
+        -- The same aggregate read from the other end. Like the badge columns
+        -- below, game_day breaks the tie so that a number and its EP cannot be
+        -- taken from two different rolls that happened to score the same.
+        (array_agg((current_result->>'number')::int ORDER BY (current_result->>'creditedEp')::bigint ASC, game_day DESC))[1] AS worst_number,
+        (array_agg((current_result->>'creditedEp')::bigint ORDER BY (current_result->>'creditedEp')::bigint ASC, game_day DESC))[1] AS worst_ep,
+        (array_agg((current_result->>'penaltyPercent')::int ORDER BY (current_result->>'creditedEp')::bigint ASC, game_day DESC))[1] AS worst_penalty_percent,
         -- Ordered by badge EP, not roll EP: the rarest badge a player has ever
         -- earned is often not on their highest-scoring roll. Each roll's
         -- badges->0 is already that roll's best, so the maximum across a
@@ -589,6 +611,9 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
         best_ep: string | number;
         best_penalty_percent: string | number | null;
         best_rarity: RngdleResult["rarity"];
+        worst_number: string | number;
+        worst_ep: string | number;
+        worst_penalty_percent: string | number | null;
         rarest_badge_label: string | null;
         rarest_badge_desc: string | null;
         rarest_badge_ep: string | null;
@@ -603,6 +628,9 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
       bestEp: Number(row.best_ep),
       bestPenaltyPercent: row.best_penalty_percent === null ? null : Number(row.best_penalty_percent),
       bestRarity: row.best_rarity,
+      worstNumber: Number(row.worst_number),
+      worstEp: Number(row.worst_ep),
+      worstPenaltyPercent: row.worst_penalty_percent === null ? null : Number(row.worst_penalty_percent),
       rarestBadgeLabel: row.rarest_badge_label,
       rarestBadgeDesc: row.rarest_badge_desc,
       rarestBadgeEp: row.rarest_badge_ep === null ? null : Number(row.rarest_badge_ep),
