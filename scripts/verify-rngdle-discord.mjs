@@ -469,13 +469,25 @@ for (const payload of [animatedPayload, finalPayload]) {
   assert.deepEqual(payload.allowed_mentions, { parse: [] });
   v2Container(payload);
   const buttons = v2Buttons(payload);
-  assert.deepEqual(buttons.map((button) => button.label), ["Today", "Leaderboard", "My Profile", "Reroll 1-99% Risk"]);
+  assert.deepEqual(buttons.slice(0, 3).map((button) => button.label), ["Today", "Leaderboard", "My Profile"]);
   assert.equal(buttons[0].custom_id, "rngdle-today:v1");
   assert.equal(buttons[1].style, 2);
   assert.equal(buttons[2].style, 1);
-  assert.equal(buttons[3].style, 4);
-  assert.match(buttons[3].custom_id, /^rngdle-reroll:v1:/);
   assert.ok(buttons.length <= 5, "Discord allows five buttons to an action row");
+}
+// The reroll spends the day's only reroll and cannot be undone, so it must not
+// be pressable while the GIF is still counting up to the number it is about.
+// It arrives with the settled still, alongside the buttons already on screen.
+assert.deepEqual(
+  v2Buttons(animatedPayload).map((button) => button.label),
+  ["Today", "Leaderboard", "My Profile"],
+  "the reveal must not carry the reroll while it is playing",
+);
+{
+  const rerollButton = v2Buttons(finalPayload)[3];
+  assert.equal(rerollButton.label, "Reroll 1-99% Risk");
+  assert.equal(rerollButton.style, 4);
+  assert.match(rerollButton.custom_id, /^rngdle-reroll:v1:/);
 }
 // The container's accent stripe is up from the moment the message posts, well
 // before the GIF reaches the number. It must not be the roll's rarity until the

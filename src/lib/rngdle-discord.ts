@@ -255,7 +255,13 @@ function escapeDiscordText(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/([*_~`|>])/g, "\\$1").replace(/@/g, "@\u200b");
 }
 
-function resultComponents(roll: RngdleDiscordRoll, now: number) {
+/**
+ * @param allowReroll The navigation buttons ride along with the reveal, but the
+ *   reroll does not: it spends the day's only reroll on a number the player
+ *   cannot see yet, and it cannot be taken back. It joins the row once the
+ *   still has landed and the card is done moving.
+ */
+function resultComponents(roll: RngdleDiscordRoll, now: number, allowReroll = true) {
   const buttons: Record<string, unknown>[] = [];
   if (roll.rerolledAt !== null) {
     buttons.push({
@@ -270,7 +276,7 @@ function resultComponents(roll: RngdleDiscordRoll, now: number) {
     { type: 2, style: 2, label: "Leaderboard", custom_id: RNGDLE_LEADERBOARD_BUTTON_ID },
     { type: 2, style: 1, label: "My Profile", custom_id: RNGDLE_PROFILE_BUTTON_ID },
   );
-  if (roll.rerolledAt === null && canRerollRngdle(roll.initialRolledAt, roll.rerolledAt, now)) {
+  if (allowReroll && roll.rerolledAt === null && canRerollRngdle(roll.initialRolledAt, roll.rerolledAt, now)) {
     buttons.push({
       type: 2,
       style: 4,
@@ -329,6 +335,8 @@ function rngdleRollPayload(input: {
   header?: string | null;
   footer: string;
   includeActions?: boolean;
+  /** Defaults to true; false holds the reroll back while the card is animating. */
+  includeReroll?: boolean;
   /** Defaults to the final rarity; "pending" while the number is still hidden. */
   accentRarity?: keyof typeof RNGDLE_MESSAGE_ACCENTS;
 }): Record<string, unknown> {
@@ -355,7 +363,7 @@ function rngdleRollPayload(input: {
         accent_color: RNGDLE_MESSAGE_ACCENTS[input.accentRarity ?? input.roll.current.rarity],
         components: containerComponents,
       },
-      ...(input.includeActions === false ? [] : resultComponents(input.roll, input.now)),
+      ...(input.includeActions === false ? [] : resultComponents(input.roll, input.now, input.includeReroll !== false)),
     ],
   };
 }
@@ -534,6 +542,8 @@ export async function deliverRngdleRoll(input: {
         description: "RNGDLE number and badge reveal",
         ...animationCopy,
         includeActions: input.roll.rerolledAt === null,
+        // The GIF is still counting up to the number this decision is about.
+        includeReroll: false,
         accentRarity: "pending",
       }),
       attachments: [{ id: 0, filename: RNGDLE_DISCORD_GIF_FILENAME, description: "RNGDLE number and badge reveal" }],
