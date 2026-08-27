@@ -120,6 +120,11 @@ const commands = [
       },
       {
         type: 1,
+        name: "regrets",
+        description: "Show the hall of shame: the rerolls that came out behind",
+      },
+      {
+        type: 1,
         name: "user",
         description: "Show your or another player's RNGDLE profile",
         options: [

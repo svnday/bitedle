@@ -2,7 +2,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ImageResponse } from "next/og";
 import sharp from "sharp";
-import type { RngdleDailyStanding, RngdleLeaderboardEntry, RngdleUserProfile } from "./rngdle-discord-store";
+import type {
+  RngdleDailyStanding,
+  RngdleLeaderboardEntry,
+  RngdleRegretEntry,
+  RngdleRegretTotals,
+  RngdleUserProfile,
+} from "./rngdle-discord-store";
 import { classifyRngdleScore } from "./rngdle/scoring";
 import type { RngdleBadge, RngdleResult } from "./rngdle/types";
 
@@ -22,6 +28,7 @@ export const RNGDLE_DISCORD_GIF_FILENAME = "rngdle-roll.gif";
 export const RNGDLE_DISCORD_RISK_GIF_FILENAME = "rngdle-reroll-risk.gif";
 export const RNGDLE_DISCORD_PNG_FILENAME = "rngdle-result.png";
 export const RNGDLE_DISCORD_LEADERBOARD_FILENAME = "rngdle-leaderboard.png";
+export const RNGDLE_DISCORD_REGRETS_FILENAME = "rngdle-hall-of-shame.png";
 export const RNGDLE_DISCORD_PROFILE_FILENAME = "rngdle-profile.png";
 
 const ROLL_THEMES: Record<RngdleResult["rarity"], {
@@ -861,11 +868,24 @@ interface RngdleBoardRow {
   /** The all-time table's second score column. Null on a board without one. */
   worst: RngdleBoardScore | null;
   /** Right of the score: the rarest badge behind it, and what it paid. */
-  badgeTop: string;
-  badgeEp: string;
-  /** The badge's own wording, exactly as the roll card's chips state it. */
-  badgeDesc: string;
+  badge: RngdleBoardBadge;
   total: string;
+}
+
+/**
+ * The fourth column. A badge board fills it with a label and what the badge
+ * paid; the Hall of Shame fills it with the tier a reroll fell through, which
+ * is why the second label and its arrow are part of the shape rather than
+ * punctuation inside the first.
+ */
+interface RngdleBoardBadge {
+  label: string;
+  /** Drawn after the label where a board states a downgrade; null otherwise. */
+  arrowTo: string | null;
+  /** Trailing figure, e.g. what the badge paid. Empty renders nothing. */
+  ep: string;
+  /** The second line: the badge's own wording, or the day it went wrong. */
+  desc: string;
 }
 
 interface RngdleBoard {
@@ -909,6 +929,12 @@ const DAILY_LAYOUT: RngdleBoardLayout = {
   rank: 92, name: 295, score: 220, worst: 0, badge: 310, total: 181,
   nameLimit: 26, badgeLabelLimit: 24, badgeDescLimit: 58,
 };
+// Two score columns of equal weight: the Hall of Shame is a before-and-after,
+// and sizing "kept" above "gave up" would editorialise the comparison.
+const REGRETS_LAYOUT: RngdleBoardLayout = {
+  rank: 92, name: 235, score: 185, worst: 185, badge: 220, total: 181,
+  nameLimit: 20, badgeLabelLimit: 10, badgeDescLimit: 30,
+};
 
 function allTimeBoard(entries: RngdleLeaderboardEntry[], totalPlayers: number): RngdleBoard {
   return {
@@ -934,9 +960,12 @@ function allTimeBoard(entries: RngdleLeaderboardEntry[], totalPlayers: number): 
         bottom: `ROLL ${entry.worstNumber}`,
         penaltyPercent: entry.worstPenaltyPercent,
       },
-      badgeTop: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), ALL_TIME_LAYOUT.badgeLabelLimit) : "NO BADGES",
-      badgeEp: entry.rarestBadgeEp ? `+${formatEp(entry.rarestBadgeEp)} EP` : "",
-      badgeDesc: clipped(entry.rarestBadgeDesc ?? "", ALL_TIME_LAYOUT.badgeDescLimit),
+      badge: {
+        label: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), ALL_TIME_LAYOUT.badgeLabelLimit) : "NO BADGES",
+        arrowTo: null,
+        ep: entry.rarestBadgeEp ? `+${formatEp(entry.rarestBadgeEp)} EP` : "",
+        desc: clipped(entry.rarestBadgeDesc ?? "", ALL_TIME_LAYOUT.badgeDescLimit),
+      },
       total: `${formatEp(entry.totalEp)} EP`,
     })),
   };
@@ -963,10 +992,59 @@ function dailyBoard(standings: RngdleDailyStanding[], gameDay: string, totalPlay
       },
       // A day is one roll per player, whose worst would only restate its best.
       worst: null,
-      badgeTop: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), DAILY_LAYOUT.badgeLabelLimit) : "NO BADGES",
-      badgeEp: entry.rarestBadgeEp ? `+${formatEp(entry.rarestBadgeEp)} EP` : "",
-      badgeDesc: clipped(entry.rarestBadgeDesc ?? "", DAILY_LAYOUT.badgeDescLimit),
+      badge: {
+        label: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), DAILY_LAYOUT.badgeLabelLimit) : "NO BADGES",
+        arrowTo: null,
+        ep: entry.rarestBadgeEp ? `+${formatEp(entry.rarestBadgeEp)} EP` : "",
+        desc: clipped(entry.rarestBadgeDesc ?? "", DAILY_LAYOUT.badgeDescLimit),
+      },
       total: `${formatEp(entry.creditedEp)} EP`,
+    })),
+  };
+}
+
+/**
+ * The Hall of Shame. Every row is one reroll that came out behind, read left to
+ * right as the trade it was: what they kept, what they gave up, the tier it
+ * fell through, and the damage. Ranked by that damage, which is why EP LOST
+ * sits in the rightmost column - the same place the other two boards keep the
+ * figure they are ranked by.
+ */
+function regretsBoard(entries: RngdleRegretEntry[], totals: RngdleRegretTotals): RngdleBoard {
+  return {
+    heading: "HALL OF SHAME",
+    caption: `${totals.regrets} ${totals.regrets === 1 ? "REGRET" : "REGRETS"}  •  ${formatEp(totals.epBurned)} EP BURNED`,
+    layout: REGRETS_LAYOUT,
+    columns: { player: "PLAYER", score: "KEPT", worst: "GAVE UP", badge: "TIER LOST", total: "EP LOST" },
+    footerLeft: "Ranked by EP given up to a reroll",
+    footerRight: "One reroll a day. No takebacks.",
+    rows: entries.slice(0, 10).map((entry, index) => ({
+      // A player can hold several rows, so the day is part of the identity.
+      key: `${entry.userId}:${entry.gameDay}`,
+      rank: index + 1,
+      name: entry.displayName,
+      // The penalty rides on what they kept, since that is the number it was
+      // taken off - the roll they gave up never had one.
+      score: {
+        top: `${formatEp(entry.keptEp)} EP`,
+        bottom: `ROLL ${entry.keptNumber}`,
+        penaltyPercent: entry.penaltyPercent,
+      },
+      worst: {
+        top: `${formatEp(entry.gaveUpEp)} EP`,
+        bottom: `ROLL ${entry.gaveUpNumber}`,
+        penaltyPercent: null,
+      },
+      badge: {
+        label: entry.gaveUpRarityLabel,
+        // A reroll can lose EP without losing a tier. Naming the same tier
+        // twice either side of an arrow would invent a fall that never
+        // happened, so it is stated once.
+        arrowTo: entry.gaveUpRarityLabel === entry.keptRarityLabel ? null : entry.keptRarityLabel,
+        ep: "",
+        desc: entry.gameDay,
+      },
+      total: `-${formatEp(entry.epLost)} EP`,
     })),
   };
 }
@@ -991,6 +1069,32 @@ function BoardScoreCell({ width, score, topColor, subColor }: {
         )}
         {score.penaltyPercent === null ? null : <div style={{ display: "flex" }}>-{score.penaltyPercent}%</div>}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The badge column. The arrow is the card's DowngradeArrow rather than a typed
+ * U+2192, which the bundled font would render as tofu.
+ */
+function BoardBadgeCell({ width, badge, labelColor, epColor }: {
+  width: number;
+  badge: RngdleBoardBadge;
+  labelColor: string;
+  epColor: string;
+}) {
+  const labelStyle = { color: labelColor, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" } as const;
+  return (
+    <div style={{ width, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={labelStyle}>{badge.label}</div>
+        {badge.arrowTo === null ? null : <DowngradeArrow color={epColor} size={11} />}
+        {badge.arrowTo === null ? null : <div style={labelStyle}>{badge.arrowTo}</div>}
+        {badge.ep === "" ? null : (
+          <div style={{ color: epColor, fontFamily: "Geist Mono", fontSize: 8.5, fontWeight: 700, display: "flex" }}>{badge.ep}</div>
+        )}
+      </div>
+      <div style={{ marginTop: 3, color: "#8a8fa0", fontSize: 8.5, display: "flex" }}>{badge.desc}</div>
     </div>
   );
 }
@@ -1034,13 +1138,12 @@ function leaderboardImage(board: RngdleBoard) {
               {entry.worst === null ? null : (
                 <BoardScoreCell width={layout.worst} score={entry.worst} topColor="#b7b5c5" subColor="#8a8fa0" />
               )}
-              <div style={{ width: layout.badge, display: "flex", flexDirection: "column" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                  <div style={{ color: bestColor, fontFamily: "Geist Mono", fontSize: 11, fontWeight: 700, display: "flex" }}>{entry.badgeTop}</div>
-                  <div style={{ color: index >= 7 ? accent : "#b7b5c5", fontFamily: "Geist Mono", fontSize: 8.5, fontWeight: 700, display: "flex" }}>{entry.badgeEp}</div>
-                </div>
-                <div style={{ marginTop: 3, color: "#8a8fa0", fontSize: 8.5, display: "flex" }}>{entry.badgeDesc}</div>
-              </div>
+              <BoardBadgeCell
+                width={layout.badge}
+                badge={entry.badge}
+                labelColor={bestColor}
+                epColor={index >= 7 ? accent : "#b7b5c5"}
+              />
               <div style={{ width: layout.total, paddingRight: 15, justifyContent: "flex-end", whiteSpace: "nowrap", fontFamily: "Geist Mono", fontSize: 15, fontWeight: 700, letterSpacing: -.25, display: "flex" }}>{entry.total}</div>
             </div>
           );
@@ -1258,6 +1361,17 @@ export function renderRngdleDiscordProfile(profile: RngdleUserProfile): Promise<
 export function renderRngdleDiscordLeaderboard(entries: RngdleLeaderboardEntry[], totalPlayers = entries.length): Promise<Buffer> {
   return render(
     leaderboardImage(allTimeBoard(entries, totalPlayers)),
+    RNGDLE_DISCORD_LEADERBOARD_WIDTH,
+    RNGDLE_DISCORD_LEADERBOARD_HEIGHT,
+  );
+}
+
+export function renderRngdleDiscordRegrets(
+  entries: RngdleRegretEntry[],
+  totals: RngdleRegretTotals = { regrets: entries.length, epBurned: entries.reduce((sum, entry) => sum + entry.epLost, 0) },
+): Promise<Buffer> {
+  return render(
+    leaderboardImage(regretsBoard(entries, totals)),
     RNGDLE_DISCORD_LEADERBOARD_WIDTH,
     RNGDLE_DISCORD_LEADERBOARD_HEIGHT,
   );

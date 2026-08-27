@@ -1,13 +1,22 @@
-import type { RngdleDailyStanding, RngdleDiscordRoll, RngdleLeaderboardEntry, RngdleUserProfile } from "./rngdle-discord-store";
+import type {
+  RngdleDailyStanding,
+  RngdleDiscordRoll,
+  RngdleLeaderboardEntry,
+  RngdleRegretEntry,
+  RngdleRegretTotals,
+  RngdleUserProfile,
+} from "./rngdle-discord-store";
 import {
   RNGDLE_DISCORD_GIF_FILENAME,
   RNGDLE_DISCORD_LEADERBOARD_FILENAME,
+  RNGDLE_DISCORD_REGRETS_FILENAME,
   RNGDLE_DISCORD_PNG_FILENAME,
   RNGDLE_DISCORD_PROFILE_FILENAME,
   RNGDLE_DISCORD_RISK_GIF_FILENAME,
   renderRngdleDiscordAnimation,
   renderRngdleDiscordDailyLeaderboard,
   renderRngdleDiscordLeaderboard,
+  renderRngdleDiscordRegrets,
   renderRngdleDiscordProfile,
   renderRngdleRiskAnimation,
   renderRngdleDiscordStill,
@@ -58,6 +67,7 @@ export const RNGDLE_REROLL_BUTTON_LABEL = "Reroll 1-99% Risk";
 export const RNGDLE_LEADERBOARD_BUTTON_ID = "rngdle-leaderboard:v1";
 export const RNGDLE_TODAY_BUTTON_ID = "rngdle-today:v1";
 export const RNGDLE_PROFILE_BUTTON_ID = "rngdle-profile:v1";
+export const RNGDLE_REGRETS_BUTTON_ID = "rngdle-regrets:v1";
 
 export function rngdleRerollCustomId(gameDay: string, userId: string): string {
   return `${RNGDLE_REROLL_CUSTOM_ID_PREFIX}${gameDay}:${userId}`;
@@ -696,7 +706,8 @@ export async function deliverRngdleLeaderboard(input: {
   if (image.byteLength <= safeLimit(input.attachmentSizeLimit)) {
     const response = await patchMultipart(url, {
       content: "🏆 **RNGDLE all-time leaderboard**",
-      allowed_mentions: { parse: [] }, components: [],
+      allowed_mentions: { parse: [] },
+      components: [{ type: 1, components: [{ type: 2, style: 2, label: "Hall of Shame", custom_id: RNGDLE_REGRETS_BUTTON_ID }] }],
       attachments: [{ id: 0, filename: RNGDLE_DISCORD_LEADERBOARD_FILENAME, description: "RNGDLE all-time guild leaderboard" }],
     }, image, RNGDLE_DISCORD_LEADERBOARD_FILENAME, "image/png", fetchImpl);
     if (response.ok) return;
@@ -709,6 +720,44 @@ export async function deliverRngdleLeaderboard(input: {
     allowed_mentions: { parse: [] }, components: [], attachments: [],
   }, fetchImpl);
   if (!fallback.ok) throw new Error(`RNGDLE leaderboard delivery failed (${await responseError(fallback)})`);
+}
+
+export async function deliverRngdleRegrets(input: {
+  applicationId: string;
+  token: string;
+  entries: RngdleRegretEntry[];
+  totals: RngdleRegretTotals;
+  attachmentSizeLimit?: number;
+  fetchImpl?: typeof fetch;
+}): Promise<void> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const url = webhookUrl(input.applicationId, input.token);
+  if (input.entries.length === 0) {
+    await patchJson(url, {
+      // Stated as the achievement it is, rather than as an empty board.
+      content: "No one in this server has regretted a reroll yet.",
+      allowed_mentions: { parse: [] }, components: [], attachments: [],
+    }, fetchImpl);
+    return;
+  }
+  const heading = "🗑️ **RNGDLE hall of shame**";
+  const image = await renderRngdleDiscordRegrets(input.entries, input.totals);
+  if (image.byteLength <= safeLimit(input.attachmentSizeLimit)) {
+    const response = await patchMultipart(url, {
+      content: heading,
+      allowed_mentions: { parse: [] }, components: [],
+      attachments: [{ id: 0, filename: RNGDLE_DISCORD_REGRETS_FILENAME, description: "RNGDLE hall of shame - the rerolls that came out behind" }],
+    }, image, RNGDLE_DISCORD_REGRETS_FILENAME, "image/png", fetchImpl);
+    if (response.ok) return;
+  }
+  const lines = input.entries.slice(0, 10).map((entry, index) =>
+    `**${index + 1}.** ${escapeDiscordText(entry.displayName)} — gave up ${entry.gaveUpEp.toLocaleString("en-US")} EP for ${entry.keptEp.toLocaleString("en-US")} EP (-${entry.epLost.toLocaleString("en-US")} EP)`,
+  );
+  const fallback = await patchJson(url, {
+    content: [heading, ...lines].join("\n"),
+    allowed_mentions: { parse: [] }, components: [], attachments: [],
+  }, fetchImpl);
+  if (!fallback.ok) throw new Error(`RNGDLE hall of shame delivery failed (${await responseError(fallback)})`);
 }
 
 export async function deliverRngdleDailyLeaderboard(input: {
@@ -767,7 +816,13 @@ export async function deliverRngdleProfile(input: {
     const response = await patchMultipart(url, {
       content: `👤 **${escapeDiscordText(input.profile.displayName)}'s RNGDLE profile**`,
       allowed_mentions: { parse: [] },
-      components: [{ type: 1, components: [{ type: 2, style: 2, label: "Leaderboard", custom_id: RNGDLE_LEADERBOARD_BUTTON_ID }] }],
+      components: [{
+        type: 1,
+        components: [
+          { type: 2, style: 2, label: "Leaderboard", custom_id: RNGDLE_LEADERBOARD_BUTTON_ID },
+          { type: 2, style: 2, label: "Hall of Shame", custom_id: RNGDLE_REGRETS_BUTTON_ID },
+        ],
+      }],
       attachments: [{ id: 0, filename: RNGDLE_DISCORD_PROFILE_FILENAME, description: `${input.profile.displayName}'s RNGDLE profile` }],
     }, image, RNGDLE_DISCORD_PROFILE_FILENAME, "image/png", fetchImpl);
     if (response.ok) return;

@@ -229,6 +229,7 @@ const mythicProfilePath = path.join(tempDir, "rngdle-profile-mythic.png");
 const riskPath = path.join(tempDir, renderer.RNGDLE_DISCORD_RISK_GIF_FILENAME);
 const riskFinalPath = path.join(tempDir, "rngdle-reroll-risk-final.png");
 const dailyBoardPath = path.join(tempDir, "rngdle-daily-board.png");
+const regretsBoardPath = path.join(tempDir, "rngdle-hall-of-shame.png");
 const badgeFramePath = path.join(tempDir, "rngdle-badge-frame.png");
 fs.writeFileSync(gifPath, assets.animation);
 fs.writeFileSync(pngPath, assets.still);
@@ -889,6 +890,102 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
   assert.match(rendererSourceForBoards, /board\.columns\.player/);
   assert.match(rendererSourceForBoards, /board\.columns\.badge/);
 
+  // The hall of shame ranks rerolls, not players, so its suite has to prove
+  // the three things that distinguishes it from a per-player board: a repeat
+  // name, a winning reroll left off, and a non-reroller absent entirely.
+  {
+    const shameGuild = "guild-hall-of-shame";
+    // scoreRngdleNumber(n, risk) applies the penalty, so each pair below is a
+    // real trade at real EP rather than a hand-written loss.
+    const trades = [
+      ["serial", "Serial Rerollerson", "2026-09-01", 628315, 219986, 71],
+      ["serial", "Serial Rerollerson", "2026-09-02", 777714, 219986, 71],
+      ["once", "One Bad Call", "2026-09-01", 693141, 266143, 58],
+      // Lost EP without losing a tier, which is the board's no-arrow case.
+      ["flat", "Flat Tyre", "2026-09-01", 569354, 266143, 20],
+      // Came out ahead: a reroll is only a regret when it cost something.
+      ["lucky", "Lucky Rerollerson", "2026-09-01", 563190, 569354, 5],
+    ];
+    for (const [userId, displayName, gameDay, gaveUp, kept, risk] of trades) {
+      const initial = scoring.scoreRngdleNumber(gaveUp);
+      const current = scoring.scoreRngdleNumber(kept, risk);
+      await repository.createInitial({
+        guildId: shameGuild, userId, displayName, avatar: null, gameDay,
+        initial, current,
+        initialRolledAt: Date.parse(`${gameDay}T00:00:00Z`),
+        rerolledAt: Date.parse(`${gameDay}T00:05:00Z`),
+      });
+    }
+    // Never touched their reroll, and holds the guild's best roll besides.
+    const untouched = scoring.scoreRngdleNumber(777714);
+    await repository.createInitial({
+      guildId: shameGuild, userId: "steady", displayName: "Never Rerolls", avatar: null,
+      gameDay: "2026-09-01", initial: untouched, current: untouched,
+      initialRolledAt: Date.parse("2026-09-01T00:00:00Z"), rerolledAt: null,
+    });
+
+    const regrets = await repository.regrets(shameGuild, 10);
+    assert.equal(regrets.length, 4, "only the rerolls that came out behind are regrets");
+    assert.equal(
+      regrets.filter((entry) => entry.userId === "serial").length,
+      2,
+      "one player holds a row per reroll they regret - the board ranks moments, not people",
+    );
+    assert.equal(regrets.some((entry) => entry.userId === "lucky"), false, "a reroll that gained is not a regret");
+    assert.equal(regrets.some((entry) => entry.userId === "steady"), false, "a player who never rerolled is absent, not zero");
+    for (const entry of regrets) {
+      assert.ok(entry.epLost > 0, "every row must have cost something");
+      assert.equal(entry.epLost, entry.gaveUpEp - entry.keptEp, "the loss is the trade, stated once");
+      assert.ok(entry.gaveUpEp > entry.keptEp);
+    }
+    for (let index = 1; index < regrets.length; index += 1) {
+      assert.ok(regrets[index - 1].epLost >= regrets[index].epLost, "ranked by what the reroll cost");
+    }
+    // The rows carry both ends of the swap, or the board cannot tell the story.
+    const worst = regrets[0];
+    const worstGaveUp = scoring.scoreRngdleNumber(628315);
+    const worstKept = scoring.scoreRngdleNumber(219986, 71);
+    assert.equal(worst.userId, "serial");
+    assert.deepEqual(
+      [worst.gaveUpNumber, worst.gaveUpEp, worst.gaveUpRarityLabel],
+      [628315, worstGaveUp.creditedEp, worstGaveUp.rarityLabel],
+    );
+    assert.deepEqual(
+      [worst.keptNumber, worst.keptEp, worst.keptRarityLabel, worst.penaltyPercent],
+      [219986, worstKept.creditedEp, worstKept.rarityLabel, 71],
+    );
+    assert.notEqual(worst.gaveUpRarityLabel, worst.keptRarityLabel, "the fixture must exercise the tier arrow");
+    // And the other branch: a loss that stayed inside its tier states the tier
+    // once, rather than inventing a fall by naming it either side of an arrow.
+    const flat = regrets.find((entry) => entry.userId === "flat");
+    assert.ok(flat, "the same-tier loss must reach the board");
+    assert.equal(flat.gaveUpRarityLabel, flat.keptRarityLabel);
+    assert.ok(flat.epLost > 0);
+
+    const totals = await repository.regretTotals(shameGuild);
+    assert.equal(totals.regrets, 4, "the caption counts every regret in the guild, not the rows on show");
+    assert.equal(totals.epBurned, regrets.reduce((sum, entry) => sum + entry.epLost, 0));
+    assert.equal((await repository.regrets(guildB, 10)).length, 0, "the hall of shame is guild-isolated");
+
+    const shameImage = await renderer.renderRngdleDiscordRegrets(regrets, { regrets: 47, epBurned: 7_863_977 });
+    const shameMeta = await sharp(shameImage).metadata();
+    assert.equal(shameMeta.width, renderer.RNGDLE_DISCORD_LEADERBOARD_WIDTH);
+    assert.equal(shameMeta.height, renderer.RNGDLE_DISCORD_LEADERBOARD_HEIGHT);
+    fs.writeFileSync(regretsBoardPath, shameImage);
+
+    // Same canvas as the other two boards, and the name is on it.
+    for (const heading of ["HALL OF SHAME", "KEPT", "GAVE UP", "TIER LOST", "EP LOST"]) {
+      assert.ok(rendererSourceForBoards.includes(heading), `missing hall of shame heading: ${heading}`);
+    }
+    // The arrow is drawn, not typed: the bundled font has no U+2192 and would
+    // render tofu between the two tiers.
+    assert.match(rendererSourceForBoards, /arrowTo === null \? null : <DowngradeArrow/);
+    assert.doesNotMatch(rendererSourceForBoards, /\u2192/, "no typed arrow may reach the board");
+
+    // A row key has to survive the same player twice or React collapses them.
+    assert.match(rendererSourceForBoards, /key: `\$\{entry\.userId\}:\$\{entry\.gameDay\}`/);
+  }
+
   const dailyImage = await renderer.renderRngdleDiscordDailyLeaderboard(standings, dayOne, 19);
   const dailyMeta = await sharp(dailyImage).metadata();
   assert.equal(dailyMeta.width, renderer.RNGDLE_DISCORD_LEADERBOARD_WIDTH);
@@ -901,6 +998,16 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
 // code path with cannot be reached by command at all.
 assert.match(commandSource, /name: "today"/);
 assert.match(routeSource, /subcommand === "today"/);
+
+// Same for the hall of shame, which is reachable two ways: the subcommand and
+// the button on the boards that had room for it. Both have to land on the same
+// code path, and the button has to survive the route's RNGDLE ownership check
+// or it is answered by nothing at all.
+assert.match(commandSource, /name: "regrets"/);
+assert.match(routeSource, /subcommand === "regrets"/);
+assert.match(routeSource, /custom_id === RNGDLE_REGRETS_BUTTON_ID/);
+assert.match(routeSource, /\|\| customId === RNGDLE_REGRETS_BUTTON_ID/, "the button must be claimed as an RNGDLE interaction");
+assert.equal(delivery.RNGDLE_REGRETS_BUTTON_ID, "rngdle-regrets:v1");
 assert.match(routeSource, /RNGDLE_TODAY_BUTTON_ID/);
 
 const storeSource = fs.readFileSync(path.join(repoRoot, "src", "lib", "rngdle-discord-store.ts"), "utf8");
@@ -1011,3 +1118,4 @@ console.log(`Rendered Mythic profile: ${mythicProfilePath}`);
 console.log(`Rendered reroll risk GIF: ${riskPath}`);
 console.log(`Rendered reroll risk final frame: ${riskFinalPath}`);
 console.log(`Rendered daily board: ${dailyBoardPath}`);
+console.log(`Rendered hall of shame: ${regretsBoardPath}`);

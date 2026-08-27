@@ -55,6 +55,7 @@ import { deliverBiteballResponse } from "@/lib/biteball-discord";
 import {
   deliverRngdleDailyLeaderboard,
   deliverRngdleLeaderboard,
+  deliverRngdleRegrets,
   deliverRngdleError,
   deliverRngdleNotice,
   deliverRngdleProfile,
@@ -63,6 +64,7 @@ import {
   parseRngdleRerollModalCustomId,
   parseRngdleRerollOpenCustomId,
   RNGDLE_LEADERBOARD_BUTTON_ID,
+  RNGDLE_REGRETS_BUTTON_ID,
   RNGDLE_PROFILE_BUTTON_ID,
   RNGDLE_REPLAY_CUSTOM_ID_PREFIX,
   RNGDLE_REROLL_LEGACY_CONFIRM_PREFIX,
@@ -859,6 +861,23 @@ async function processRngdleCommand(
       return;
     }
 
+    if (subcommand === "regrets") {
+      // Ten rows and a guild-wide caption, the same shape as the all-time
+      // board: the totals count every regret, not just the ten on show.
+      const [entries, totals] = await Promise.all([
+        repository.regrets(guildId, 10),
+        repository.regretTotals(guildId),
+      ]);
+      await deliverRngdleRegrets({
+        applicationId,
+        token,
+        entries,
+        totals,
+        attachmentSizeLimit: body.attachment_size_limit,
+      });
+      return;
+    }
+
     if (subcommand === "today") {
       // dailyStandings is already computed on every roll to put a rank on the
       // card, so the daily board is the same read the game was doing anyway.
@@ -1167,7 +1186,7 @@ async function processRngdleReplay(
   }
 }
 
-function handleRngdleUtilityButton(body: Interaction, mode: "leaderboard" | "today" | "user"): NextResponse {
+function handleRngdleUtilityButton(body: Interaction, mode: "leaderboard" | "regrets" | "today" | "user"): NextResponse {
   if (!body.guild_id || !body.application_id || !body.token) {
     return reply("Run that RNGDLE action in a server.", true);
   }
@@ -1198,6 +1217,7 @@ function isRngdleInteraction(body: Interaction): boolean {
     || customId.startsWith(RNGDLE_REPLAY_CUSTOM_ID_PREFIX)
     || customId === RNGDLE_TODAY_BUTTON_ID
     || customId === RNGDLE_LEADERBOARD_BUTTON_ID
+    || customId === RNGDLE_REGRETS_BUTTON_ID
     || customId === RNGDLE_PROFILE_BUTTON_ID;
 }
 
@@ -1285,6 +1305,10 @@ export async function POST(request: NextRequest) {
 
   if (body?.type === 3 && body?.data?.custom_id === RNGDLE_LEADERBOARD_BUTTON_ID) {
     return handleRngdleUtilityButton(body, "leaderboard");
+  }
+
+  if (body?.type === 3 && body?.data?.custom_id === RNGDLE_REGRETS_BUTTON_ID) {
+    return handleRngdleUtilityButton(body, "regrets");
   }
 
   if (body?.type === 3 && body?.data?.custom_id === RNGDLE_PROFILE_BUTTON_ID) {
