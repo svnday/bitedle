@@ -836,7 +836,7 @@ function rngdleDeliveryRank(
 async function processRngdleCommand(
   body: Interaction,
   user: InteractionUser & { id: string },
-  subcommand: string,
+  subcommand: RngdleSubcommand,
   profileUser?: InteractionUser & { id: string },
 ): Promise<void> {
   const guildId = body.guild_id!;
@@ -974,6 +974,19 @@ async function processRngdleCommand(
   }
 }
 
+/**
+ * The subcommands /rngdle answers, stated once. The guard below and the message
+ * it turns strangers away with are both read from this list, so a subcommand
+ * cannot be registered with Discord and handled here while the guard quietly
+ * refuses it - which is exactly how /rngdle regrets shipped unreachable.
+ */
+const RNGDLE_SUBCOMMANDS = ["roll", "today", "leaderboard", "regrets", "user"] as const;
+type RngdleSubcommand = (typeof RNGDLE_SUBCOMMANDS)[number];
+
+function isRngdleSubcommand(value: string | undefined): value is RngdleSubcommand {
+  return RNGDLE_SUBCOMMANDS.includes(value as RngdleSubcommand);
+}
+
 function handleRngdle(body: Interaction): NextResponse {
   if (!body.guild_id) {
     return reply("Run /rngdle in a server so rolls and leaderboards stay guild-scoped.", true);
@@ -984,8 +997,9 @@ function handleRngdle(body: Interaction): NextResponse {
   }
 
   const subcommand = body.data?.options?.[0]?.name;
-  if (subcommand !== "roll" && subcommand !== "leaderboard" && subcommand !== "today" && subcommand !== "user") {
-    return reply("Choose /rngdle roll, /rngdle today, /rngdle leaderboard, or /rngdle user.", true);
+  if (!isRngdleSubcommand(subcommand)) {
+    const named = RNGDLE_SUBCOMMANDS.map((name) => `/rngdle ${name}`);
+    return reply(`Choose ${named.slice(0, -1).join(", ")}, or ${named[named.length - 1]}.`, true);
   }
   const targetValue = body.data?.options?.[0]?.options?.find((option) => option.name === "player")?.value;
   const target = typeof targetValue === "string" ? body.data?.resolved?.users?.[targetValue] : undefined;
@@ -1186,7 +1200,7 @@ async function processRngdleReplay(
   }
 }
 
-function handleRngdleUtilityButton(body: Interaction, mode: "leaderboard" | "regrets" | "today" | "user"): NextResponse {
+function handleRngdleUtilityButton(body: Interaction, mode: RngdleSubcommand): NextResponse {
   if (!body.guild_id || !body.application_id || !body.token) {
     return reply("Run that RNGDLE action in a server.", true);
   }

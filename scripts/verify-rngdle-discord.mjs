@@ -1006,6 +1006,34 @@ assert.match(routeSource, /subcommand === "today"/);
 assert.match(commandSource, /name: "regrets"/);
 assert.match(routeSource, /subcommand === "regrets"/);
 assert.match(routeSource, /custom_id === RNGDLE_REGRETS_BUTTON_ID/);
+
+// A subcommand has to clear three gates: registered with Discord, admitted by
+// the guard in handleRngdle, and dispatched by processRngdleCommand. They used
+// to be three hand-written lists, and /rngdle regrets shipped through two of
+// them - registered and handled, then refused by a guard still naming the four
+// subcommands it knew. Cross-checked here rather than eyeballed.
+{
+  const declared = /const RNGDLE_SUBCOMMANDS = \[([^\]]+)\] as const;/.exec(routeSource);
+  assert.ok(declared, "the subcommands must be stated in one list the guard reads");
+  const names = [...declared[1].matchAll(/"(\w+)"/g)].map((match) => match[1]);
+  assert.ok(names.includes("regrets") && names.length >= 5);
+
+  // Nothing may be dispatched that the guard would turn away at the door.
+  for (const [, dispatched] of routeSource.matchAll(/subcommand === "(\w+)"/g)) {
+    assert.ok(names.includes(dispatched), `/rngdle ${dispatched} is handled but the guard refuses it`);
+  }
+  // And nothing may be admitted that no one can type.
+  for (const name of names) {
+    assert.match(commandSource, new RegExp(`name: "${name}"`), `/rngdle ${name} is not registered with Discord`);
+  }
+  // The guard has to read that list rather than keep a copy of it.
+  assert.match(routeSource, /if \(!isRngdleSubcommand\(subcommand\)\)/);
+  assert.doesNotMatch(
+    routeSource,
+    /subcommand !== "\w+" &&/,
+    "the guard must not restate the subcommand list - that is the drift that shipped a dead command",
+  );
+}
 assert.match(routeSource, /\|\| customId === RNGDLE_REGRETS_BUTTON_ID/, "the button must be claimed as an RNGDLE interaction");
 assert.equal(delivery.RNGDLE_REGRETS_BUTTON_ID, "rngdle-regrets:v1");
 assert.match(routeSource, /RNGDLE_TODAY_BUTTON_ID/);
