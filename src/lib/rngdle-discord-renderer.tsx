@@ -697,7 +697,10 @@ function resultImage(
 // Mirrors the badge grid's flex-wrap layout (left 62, top 478, width 1076,
 // gap 7, chip height 42) so chips can be cropped out of the rendered still.
 // Rects carry a 2px margin to capture anti-aliased edges; chips sit 7px apart
-// so margins never overlap a neighbour.
+// so margins never overlap a neighbour. The margin is clamped to the strip:
+// a row may end within 2px of the right edge, and a crop that runs past it
+// throws "extract_area: bad extract area" - which took the whole reveal down,
+// since a failed GIF is caught and delivery falls through to the still.
 const CHIP_CROP_MARGIN = 2;
 
 const BADGE_GRID = { left: 62, top: 478, width: 1076, height: 160 } as const;
@@ -716,11 +719,13 @@ function resultBadgeRects(badges: RngdleBadge[]): Array<{ left: number; top: num
       x = 0;
       row += 1;
     }
+    const left = Math.max(0, x - CHIP_CROP_MARGIN);
+    const top = Math.max(0, row * 49 - CHIP_CROP_MARGIN);
     rects.push({
-      left: Math.max(0, x - CHIP_CROP_MARGIN),
-      top: Math.max(0, row * 49 - CHIP_CROP_MARGIN),
-      width: width + CHIP_CROP_MARGIN * 2,
-      height: 42 + CHIP_CROP_MARGIN * 2,
+      left,
+      top,
+      width: Math.min(width + CHIP_CROP_MARGIN * 2, BADGE_GRID.width - left),
+      height: Math.min(42 + CHIP_CROP_MARGIN * 2, BADGE_GRID.height - top),
     });
     x += width + 7;
   }

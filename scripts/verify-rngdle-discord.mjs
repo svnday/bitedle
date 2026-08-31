@@ -212,6 +212,26 @@ assert.ok(assets.loops >= 2, "the reveal should replay before settling");
 assert.equal(gifPlayCount(assets.animation), assets.loops, "encoded play count must match the reported one");
 assert.notEqual(gifPlayCount(assets.animation), Infinity, "the reveal must stop, not loop forever");
 assert.equal(gifMetadata.delay.slice(0, 10).every((delay) => delay === 120), true, "the reel should spin with smooth 120ms ticks");
+
+// Badge chips are cropped out of a 1076px strip with a 2px bleed on each side,
+// so a row that ends within 2px of the right edge asks sharp for pixels that
+// are not there. That throws, delivery catches it, and the roll silently ships
+// the still with no reveal at all - which is how 3.3% of numbers lost their
+// GIF in production. 1000 and 1007 are two of them; every roll must animate.
+for (const number of [1000, 1007]) {
+  const overflowing = await renderer.renderRngdleDiscordAnimation(
+    scoring.scoreRngdleNumber(number),
+    "RNG Tester",
+    1,
+    2,
+    resultStats,
+  );
+  assert.equal(
+    overflowing.animation.subarray(0, 6).toString("ascii"),
+    "GIF89a",
+    `roll ${number} must still render a reveal, not fall through to the still`,
+  );
+}
 const pngMetadata = await sharp(assets.still).metadata();
 assert.deepEqual({ width: pngMetadata.width, height: pngMetadata.height }, {
   width: renderer.RNGDLE_DISCORD_RESULT_WIDTH,
