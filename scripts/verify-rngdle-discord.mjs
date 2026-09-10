@@ -337,6 +337,39 @@ assert.match(rendererSource, /DowngradeArrow/, "the was -> is arrow is drawn, no
   );
 }
 
+// The standing row along the bottom states the outcome outright: today's rank
+// is the answer the reel is still counting towards, and career EP is the roll
+// already added on. It belongs to the still, not the reveal - so every frame of
+// the GIF must leave that strip as bare backdrop, and the still must fill it.
+// Counted as lit pixels rather than hashed, because the strip's backdrop shifts
+// with the theme when the number lands and a hash would only see that.
+{
+  const pages = gifMetadata.pages ?? 1;
+  // Clear of the badge grid above (which ends at 638) and inside the card.
+  const row = { left: 62, top: 660, width: 1076, height: 96 };
+  const litPixels = async (image, options) => {
+    const { data, info } = await sharp(image, options)
+      .extract(row)
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    let lit = 0;
+    for (let index = 0; index < data.length; index += info.channels) {
+      if (data[index] > 140 && data[index + 1] > 140 && data[index + 2] > 140) lit += 1;
+    }
+    return lit;
+  };
+
+  const stillLit = await litPixels(assets.still, {});
+  assert.ok(stillLit > 300, `the settled card must carry the standing row, but its strip lit only ${stillLit} pixels`);
+  for (let page = 0; page < pages; page += 1) {
+    const lit = await litPixels(assets.animation, { page });
+    assert.ok(
+      lit < 40,
+      `frame ${page} of the reveal shows the standing row (${lit} lit pixels) - the rank and career EP give the roll away before it lands`,
+    );
+  }
+}
+
 const riskAsset = await renderer.renderRngdleRiskAnimation(37);
 assert.equal(riskAsset.animation.subarray(0, 6).toString("ascii"), "GIF89a");
 fs.writeFileSync(riskPath, riskAsset.animation);

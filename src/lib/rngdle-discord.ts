@@ -482,12 +482,12 @@ export async function deliverRngdleRoll(input: {
   // "-37% FROM …" line before the risk has run would give the outcome away.
   const isReroll = input.riskAnimationPercent !== undefined;
   const revealResult = isReroll ? scoreRngdleNumber(input.roll.current.number) : input.roll.current;
-  // The panel was already unpenalised, but the card's footer was not: career EP
-  // and today's rank are both read after the reroll is committed, so they
-  // already carried the penalised total - handing the outcome to anyone who
-  // knows what their career stood at, before the risk had been drawn. Both are
-  // restated as they would read with this roll at full value, so the whole
-  // reveal describes one consistent moment.
+  // The panel was already unpenalised, but career EP and today's rank were not:
+  // both are read after the reroll is committed, so they carried the penalised
+  // total. The reveal no longer paints that standing row at all, which closes
+  // the leak on its own, but the figures are still restated as they would read
+  // with this roll at full value - the reveal is rendered from one consistent
+  // moment, and none of it rests on the row staying hidden.
   const revealStats = isReroll
     ? rngdleRevealStats(input.stats, input.roll.current.creditedEp, revealResult.creditedEp)
     : input.stats;

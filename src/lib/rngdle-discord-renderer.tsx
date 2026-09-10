@@ -305,7 +305,8 @@ const GIF_INTER_FRAME_MAX_ERROR = 8;
 // byte the same, so nothing is added to render time - which is the only latency
 // a player actually waits on - or to what every viewer downloads. Adding frames
 // would cost both. The last pass ends on the settled card and stays there, so
-// the still that replaces it is still a seamless swap.
+// the still that replaces it lands on an already-final panel - only the
+// standing row along the bottom arrives with it.
 const ROLL_REVEAL_LOOPS = 2;
 
 const DIGIT_GLOW = (color: string) => `0 0 34px ${color}55, 0 0 120px ${color}3a`;
@@ -636,6 +637,7 @@ function formatDropCountdown(nextResetAt: number, now: number): string {
   return `${hours}h ${String(minutes).padStart(2, "0")}m`;
 }
 
+/** `showStanding` draws the bottom row; the reveal builds its bases without it. */
 function resultCardImage(
   result: RngdleResult,
   playerName: string,
@@ -645,6 +647,7 @@ function resultCardImage(
   view: RngdlePanelView,
   badges: RngdleBadge[],
   layer: RngdlePanelLayer = "full",
+  showStanding = true,
 ) {
   const theme = cardTheme(result, view.settled);
   const color = theme.primary;
@@ -664,19 +667,21 @@ function resultCardImage(
       <div style={{ position: "absolute", left: 62, top: 478, width: 1076, display: "flex", flexWrap: "wrap", gap: 7 }}>
         {badges.map((badge) => compactResultBadge(badge, color))}
       </div>
-      <div style={{ position: "absolute", left: 62, bottom: 25, width: 1076, display: "flex", justifyContent: "space-between" }}>
-        {[
-          [clipped(playerName, 24), "TODAY'S ROLLER"],
-          [`#${rank} / ${playerCount}`, "TODAY"],
-          [`${stats.currentStreak} ${stats.currentStreak === 1 ? "DAY" : "DAYS"}`, "STREAK"],
-          [formatEp(stats.careerEp), "CAREER EP"],
-        ].map(([value, label]) => (
-          <div key={label} style={{ width: 230, display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "Geist Mono", display: "flex" }}>{value}</div>
-            <div style={{ marginTop: 10, color: "#727990", fontSize: 13, display: "flex" }}>{label}</div>
-          </div>
-        ))}
-      </div>
+      {showStanding ? (
+        <div style={{ position: "absolute", left: 62, bottom: 25, width: 1076, display: "flex", justifyContent: "space-between" }}>
+          {[
+            [clipped(playerName, 24), "TODAY'S ROLLER"],
+            [`#${rank} / ${playerCount}`, "TODAY"],
+            [`${stats.currentStreak} ${stats.currentStreak === 1 ? "DAY" : "DAYS"}`, "STREAK"],
+            [formatEp(stats.careerEp), "CAREER EP"],
+          ].map(([value, label]) => (
+            <div key={label} style={{ width: 230, display: "flex", flexDirection: "column" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "Geist Mono", display: "flex" }}>{value}</div>
+              <div style={{ marginTop: 10, color: "#727990", fontSize: 13, display: "flex" }}>{label}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </>,
     theme.from,
     theme.to,
@@ -1422,14 +1427,24 @@ export async function renderRngdleDiscordAnimation(
   // Two base cards, because the backdrop itself is part of the reveal: frames
   // before the number lands wear the pending theme, and everything after wears
   // the rarity's. Each frame's panel patch is drawn over the matching base.
+  //
+  // Neither base carries the standing row. That row reads the roll after it has
+  // been credited, so painting it into the reveal hands over the answer the
+  // reveal is building to: "#3 / 3" says the roll came last before a single
+  // digit has locked, and anyone who knows what their career stood at yesterday
+  // can subtract. Withheld from the whole GIF rather than revealed on its
+  // closing frame, because the reveal replays ROLL_REVEAL_LOOPS times and a row
+  // that arrived at the end of the first pass would blink out again for the
+  // second. It lands with the still instead, which is the moment the card stops
+  // moving.
   const [basePending, baseSettled, badgeStrip] = await Promise.all([
     render(
-      resultCardImage(result, playerName, rank, playerCount, stats, panelViewForFrame(result, frames[0]), [], "empty"),
+      resultCardImage(result, playerName, rank, playerCount, stats, panelViewForFrame(result, frames[0]), [], "empty", false),
       GIF_WIDTH,
       GIF_HEIGHT,
     ),
     render(
-      resultCardImage(result, playerName, rank, playerCount, stats, stillPanelView(result), [], "empty"),
+      resultCardImage(result, playerName, rank, playerCount, stats, stillPanelView(result), [], "empty", false),
       GIF_WIDTH,
       GIF_HEIGHT,
     ),
