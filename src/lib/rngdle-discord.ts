@@ -4,6 +4,8 @@ import type {
   RngdleLeaderboardEntry,
   RngdleLowScoreEntry,
   RngdleLowScoreTotals,
+  RngdleRegretEntry,
+  RngdleRegretTotals,
   RngdleUserProfile,
 } from "./rngdle-discord-store";
 import {
@@ -729,14 +731,19 @@ export async function deliverRngdleLeaderboard(input: {
 export async function deliverRngdleHallOfShame(input: {
   applicationId: string;
   token: string;
-  entries: RngdleLowScoreEntry[];
-  totals: RngdleLowScoreTotals;
+  lowScores: RngdleLowScoreEntry[];
+  lowScoreTotals: RngdleLowScoreTotals;
+  regrets: RngdleRegretEntry[];
+  regretTotals: RngdleRegretTotals;
   attachmentSizeLimit?: number;
   fetchImpl?: typeof fetch;
 }): Promise<void> {
   const fetchImpl = input.fetchImpl ?? fetch;
   const url = webhookUrl(input.applicationId, input.token);
-  if (input.entries.length === 0) {
+  // The regret panel can be empty on a board that still has plenty to show, so
+  // only an empty left panel means there is no board at all - nothing has been
+  // rolled, and the right panel could not have anything either.
+  if (input.lowScores.length === 0) {
     await patchJson(url, {
       // There is no bottom of the board until someone has rolled at all.
       content: "No one has rolled RNGDLE in this server yet.",
@@ -745,18 +752,34 @@ export async function deliverRngdleHallOfShame(input: {
     return;
   }
   const heading = "🗑️ **RNGDLE hall of shame**";
-  const image = await renderRngdleDiscordHallOfShame(input.entries, input.totals);
+  const image = await renderRngdleDiscordHallOfShame(
+    input.lowScores,
+    input.regrets,
+    input.lowScoreTotals,
+    input.regretTotals,
+  );
   if (image.byteLength <= safeLimit(input.attachmentSizeLimit)) {
     const response = await patchMultipart(url, {
       content: heading,
       allowed_mentions: { parse: [] }, components: [],
-      attachments: [{ id: 0, filename: RNGDLE_DISCORD_HALL_OF_SHAME_FILENAME, description: "RNGDLE hall of shame - the lowest-scoring rolls in the server" }],
+      attachments: [{ id: 0, filename: RNGDLE_DISCORD_HALL_OF_SHAME_FILENAME, description: "RNGDLE hall of shame - the lowest-scoring rolls and the worst rerolls" }],
     }, image, RNGDLE_DISCORD_HALL_OF_SHAME_FILENAME, "image/png", fetchImpl);
     if (response.ok) return;
   }
-  const lines = input.entries.slice(0, 10).map((entry, index) =>
+  // The text fallback cannot sit two rankings side by side, so it stacks them
+  // under their own subheadings rather than dropping one.
+  const lowScoreLines = input.lowScores.slice(0, 10).map((entry, index) =>
     `**${index + 1}.** ${escapeDiscordText(entry.displayName)} — ${entry.creditedEp.toLocaleString("en-US")} EP (roll ${entry.number}, ${entry.gameDay})`,
   );
+  const regretLines = input.regrets.slice(0, 10).map((entry, index) =>
+    `**${index + 1}.** ${escapeDiscordText(entry.displayName)} — gave up ${entry.gaveUpEp.toLocaleString("en-US")} EP for ${entry.keptEp.toLocaleString("en-US")} EP (-${entry.epLost.toLocaleString("en-US")} EP)`,
+  );
+  const lines = [
+    "__Lowest EP__",
+    ...lowScoreLines,
+    "__Worst rerolls__",
+    ...(regretLines.length === 0 ? ["No one has regretted a reroll yet."] : regretLines),
+  ];
   const fallback = await patchJson(url, {
     content: [heading, ...lines].join("\n"),
     allowed_mentions: { parse: [] }, components: [], attachments: [],

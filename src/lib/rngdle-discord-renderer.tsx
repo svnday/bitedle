@@ -7,6 +7,8 @@ import type {
   RngdleLeaderboardEntry,
   RngdleLowScoreEntry,
   RngdleLowScoreTotals,
+  RngdleRegretEntry,
+  RngdleRegretTotals,
   RngdleUserProfile,
 } from "./rngdle-discord-store";
 import { classifyRngdleScore } from "./rngdle/scoring";
@@ -936,14 +938,6 @@ const DAILY_LAYOUT: RngdleBoardLayout = {
   rank: 92, name: 295, score: 220, worst: 0, badge: 310, total: 181,
   nameLimit: 26, badgeLabelLimit: 24, badgeDescLimit: 58,
 };
-// The Hall of Shame's second column holds a date rather than a second score,
-// so it is the narrowest of the three boards' - a game day is always ten
-// characters - and the width it gives up goes to the name and the badge.
-const LOW_SCORE_LAYOUT: RngdleBoardLayout = {
-  rank: 92, name: 250, score: 175, worst: 150, badge: 250, total: 181,
-  nameLimit: 21, badgeLabelLimit: 19, badgeDescLimit: 46,
-};
-
 function allTimeBoard(entries: RngdleLeaderboardEntry[], totalPlayers: number): RngdleBoard {
   return {
     heading: "ALL-TIME LEADERBOARD",
@@ -1010,20 +1004,73 @@ function dailyBoard(standings: RngdleDailyStanding[], gameDay: string, totalPlay
 }
 
 /**
- * The Hall of Shame: the ten lowest-scoring rolls the guild has ever produced,
- * read left to right as the day it happened - the number, when it landed, what
- * little it badged, and the EP it was finally credited. Ranked by that EP,
- * which is why it sits in the rightmost column, the same place the other two
- * boards keep the figure they are ranked by.
+ * The Hall of Shame is two rankings of the same bad day, so it is drawn as two
+ * half-width panels rather than one board. A panel is the board shape with the
+ * badge and day columns taken out: at 530px there is no room for a badge's own
+ * wording, and what is left - who, which roll, what it cost - is what either
+ * ranking is actually about.
  */
-function lowScoreBoard(entries: RngdleLowScoreEntry[], totals: RngdleLowScoreTotals): RngdleBoard {
+interface RngdlePanelRow {
+  key: string;
+  rank: number;
+  name: string;
+  score: RngdleBoardScore;
+  total: string;
+}
+
+interface RngdlePanelLayout {
+  rank: number;
+  name: number;
+  score: number;
+  total: number;
+  nameLimit: number;
+}
+
+interface RngdleBoardPanel {
+  heading: string;
+  caption: string;
+  columns: { player: string; score: string; total: string };
+  layout: RngdlePanelLayout;
+  footer: string;
+  /** Drawn in place of the rows when a panel has nothing to rank. */
+  empty: string;
+  rows: RngdlePanelRow[];
+}
+
+// Two 530-wide panels either side of a 38px gutter, inside the same 51px
+// margins the full-width boards use: 51 + 530 + 38 + 530 + 51 = 1200.
+const PANEL_WIDTH = 530;
+const PANEL_LEFT_X = 51;
+const PANEL_RIGHT_X = 619;
+const PANEL_TOP = 160;
+const PANEL_ROWS_TOP = 232;
+// 10 rows of 42 with a 6px gap clear the footer by some margin: 232 + 474 =
+// 706, against a footer baseline at 753.
+const PANEL_ROW_HEIGHT = 42;
+
+// The name column gets first call on the width, because it is the only column
+// holding something that cannot be shortened without losing it - a Discord
+// display name. The figure columns are sized to their worst case and no wider:
+// the largest EP any roll can be credited is eight digits, so 140px of mono at
+// 14px clears "25,000,025 EP" with room over. The regret panel spends 14px of
+// its name on the score column, since "GAVE UP" carries two figures where the
+// low-score panel's carries one roll.
+const LOW_SCORE_PANEL_LAYOUT: RngdlePanelLayout = {
+  rank: 52, name: 210, score: 128, total: 140, nameLimit: 20,
+};
+const REGRET_PANEL_LAYOUT: RngdlePanelLayout = {
+  rank: 52, name: 196, score: 142, total: 140, nameLimit: 18,
+};
+
+/** Left panel: the lowest-scoring rolls, whether or not a reroll caused them. */
+function lowScorePanel(entries: RngdleLowScoreEntry[], totals: RngdleLowScoreTotals): RngdleBoardPanel {
   return {
-    heading: "HALL OF SHAME",
+    heading: "LOWEST EP",
     caption: `${totals.rolls} ${totals.rolls === 1 ? "ROLL" : "ROLLS"}  •  ${totals.players} ${totals.players === 1 ? "PLAYER" : "PLAYERS"}`,
-    layout: LOW_SCORE_LAYOUT,
-    columns: { player: "PLAYER", score: "ROLL", worst: "DAY", badge: "RAREST BADGE", total: "EP" },
-    footerLeft: "Ranked by lowest credited EP",
-    footerRight: "Every roll is eligible. No takebacks.",
+    columns: { player: "PLAYER", score: "ROLL", total: "EP" },
+    layout: LOW_SCORE_PANEL_LAYOUT,
+    footer: "Ranked by lowest credited EP",
+    empty: "No one has rolled yet",
     rows: entries.slice(0, 10).map((entry, index) => ({
       // A player can hold several rows, so the day is part of the identity.
       key: `${entry.userId}:${entry.gameDay}`,
@@ -1034,22 +1081,100 @@ function lowScoreBoard(entries: RngdleLowScoreEntry[], totals: RngdleLowScoreTot
         bottom: entry.rarityLabel,
         penaltyPercent: entry.penaltyPercent,
       },
-      // The day, and whether they talked themselves into it. A reroll no longer
-      // ranks a row, but it is still the difference between bad luck and a bad
-      // decision, so the row says which one this was.
-      worst: {
-        top: entry.gameDay,
-        bottom: entry.rerolled ? "REROLLED" : "FIRST ROLL",
-        penaltyPercent: null,
-      },
-      badge: {
-        label: entry.rarestBadgeLabel ? clipped(entry.rarestBadgeLabel.toUpperCase(), LOW_SCORE_LAYOUT.badgeLabelLimit) : "NO BADGES",
-        ep: entry.rarestBadgeEp ? `+${formatEp(entry.rarestBadgeEp)} EP` : "",
-        desc: clipped(entry.rarestBadgeDesc ?? "", LOW_SCORE_LAYOUT.badgeDescLimit),
-      },
       total: `${formatEp(entry.creditedEp)} EP`,
     })),
   };
+}
+
+/**
+ * Right panel: the board this one used to be, kept intact beside it. The trade
+ * is stated as what they gave up over what they kept, since the figure it is
+ * ranked by - the difference - already has the rightmost column.
+ */
+function regretPanel(entries: RngdleRegretEntry[], totals: RngdleRegretTotals): RngdleBoardPanel {
+  return {
+    heading: "WORST REROLLS",
+    caption: `${totals.regrets} ${totals.regrets === 1 ? "REGRET" : "REGRETS"}  •  ${formatEp(totals.epBurned)} EP BURNED`,
+    columns: { player: "PLAYER", score: "GAVE UP", total: "EP LOST" },
+    layout: REGRET_PANEL_LAYOUT,
+    footer: "Ranked by EP given up to a reroll",
+    empty: "No one has regretted a reroll yet",
+    rows: entries.slice(0, 10).map((entry, index) => ({
+      key: `${entry.userId}:${entry.gameDay}`,
+      rank: index + 1,
+      name: entry.displayName,
+      // The penalty rides on what they kept, since that is the number it was
+      // taken off - the roll they gave up never had one.
+      score: {
+        top: `${formatEp(entry.gaveUpEp)} EP`,
+        bottom: `KEPT ${formatEp(entry.keptEp)}`,
+        penaltyPercent: entry.penaltyPercent,
+      },
+      total: `-${formatEp(entry.epLost)} EP`,
+    })),
+  };
+}
+
+function BoardPanel({ x, panel }: { x: number; panel: RngdleBoardPanel }) {
+  const layout = panel.layout;
+  return (
+    <>
+      <div style={{ position: "absolute", left: x + 7, top: PANEL_TOP, display: "flex", flexDirection: "column" }}>
+        <div style={{ fontSize: 19, fontWeight: 900, display: "flex" }}>{panel.heading}</div>
+        <div style={{ marginTop: 7, color: "#7f8ca5", fontSize: 11.5, display: "flex" }}>{panel.caption}</div>
+      </div>
+      <div style={{ position: "absolute", left: x, top: PANEL_TOP + 52, width: PANEL_WIDTH, height: 14, display: "flex", alignItems: "center", color: "#6d7a91", fontSize: 9, fontWeight: 700, letterSpacing: 1.2 }}>
+        <div style={{ width: layout.rank, paddingLeft: 14, display: "flex" }}>#</div>
+        <div style={{ width: layout.name, display: "flex" }}>{panel.columns.player}</div>
+        <div style={{ width: layout.score, display: "flex" }}>{panel.columns.score}</div>
+        <div style={{ width: layout.total, paddingRight: 14, justifyContent: "flex-end", display: "flex" }}>{panel.columns.total}</div>
+      </div>
+      <div style={{ position: "absolute", left: x, top: PANEL_ROWS_TOP, width: PANEL_WIDTH, display: "flex", flexDirection: "column", gap: 6 }}>
+        {panel.rows.length === 0 ? (
+          <div style={{ width: PANEL_WIDTH, height: PANEL_ROW_HEIGHT, borderRadius: 12, border: "1px solid #26303f", background: "linear-gradient(90deg, rgba(18,25,34,.82), rgba(28,25,45,.64))", alignItems: "center", justifyContent: "center", color: "#718098", fontSize: 13, display: "flex" }}>
+            {panel.empty}
+          </div>
+        ) : panel.rows.map((entry, index) => {
+          const accent = index === 0 ? "#24d8ff" : index <= 6 ? "#f0a300" : "#ff4caf";
+          const borderColor = index === 0 ? "#24d8ff" : index <= 6 ? "#b87900" : "#26303f";
+          const topColor = index === 0 ? "#24d8ff" : index <= 6 ? "#ffad00" : "#ff55b6";
+          const rankColor = index === 0 ? "#ffd02e" : index === 1 ? "#dce5ef" : index === 2 ? "#ff8735" : "#718098";
+          return (
+            <div key={entry.key} style={{ width: PANEL_WIDTH, height: PANEL_ROW_HEIGHT, borderRadius: 12, border: `1px solid ${borderColor}`, background: index <= 6 ? "linear-gradient(90deg, rgba(28,35,40,.88), rgba(65,43,81,.65))" : "linear-gradient(90deg, rgba(18,25,34,.82), rgba(28,25,45,.64))", display: "flex", alignItems: "center" }}>
+              <div style={{ width: layout.rank, paddingLeft: 14, color: rankColor, fontFamily: "Geist Mono", fontSize: 14, fontWeight: 700, display: "flex" }}>#{entry.rank}</div>
+              <div style={{ width: layout.name, fontSize: 15, fontWeight: 700, display: "flex" }}>{clipped(entry.name, layout.nameLimit)}</div>
+              <BoardScoreCell width={layout.score} score={entry.score} topColor={topColor} subColor={index >= 7 ? accent : "#b7b5c5"} />
+              <div style={{ width: layout.total, paddingRight: 14, justifyContent: "flex-end", whiteSpace: "nowrap", fontFamily: "Geist Mono", fontSize: 14, fontWeight: 700, letterSpacing: -.25, display: "flex" }}>{entry.total}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ position: "absolute", left: x + 7, bottom: 37, color: "#718098", fontSize: 12, display: "flex" }}>{panel.footer}</div>
+    </>
+  );
+}
+
+/** One canvas, two panels, sharing the wordmark and the title above them. */
+function dualBoardImage(heading: string, left: RngdleBoardPanel, right: RngdleBoardPanel) {
+  return referenceShell(
+    <>
+      <div style={{ position: "absolute", left: 0, top: 0, width: 1200, height: 790, background: "linear-gradient(90deg, rgba(0,112,150,.20), rgba(28,24,58,.05) 46%, rgba(103,43,178,.34))", display: "flex" }} />
+      <div style={{ position: "absolute", left: 0, top: 0, width: 1200, height: 790, background: "radial-gradient(circle at 62% 8%, rgba(124,58,205,.40) 0%, rgba(0,0,0,0) 52%)", display: "flex" }} />
+      <div style={{ position: "absolute", left: 0, top: 0, width: 1200, height: 790, background: "radial-gradient(circle at 6% 94%, rgba(0,140,180,.22) 0%, rgba(0,0,0,0) 46%)", display: "flex" }} />
+      <LeaderboardOrbitBackdrop />
+      <div style={{ position: "absolute", left: 58, top: 42, display: "flex", flexDirection: "column" }}>
+        <div style={{ fontSize: 27, fontWeight: 950, display: "flex" }}>RNGDLE</div>
+        <div style={{ marginTop: 17, fontSize: 37, fontWeight: 950, display: "flex" }}>{heading}</div>
+      </div>
+      {/* The gutter, drawn: two rankings side by side read as one table without
+          something between them saying they are not. */}
+      <div style={{ position: "absolute", left: 600, top: PANEL_TOP, width: 1, height: 546, background: "rgba(120,134,164,.30)", display: "flex" }} />
+      <BoardPanel x={PANEL_LEFT_X} panel={left} />
+      <BoardPanel x={PANEL_RIGHT_X} panel={right} />
+    </>,
+    "#0b2837",
+    "#3c1b70",
+  );
 }
 
 /**
@@ -1365,11 +1490,13 @@ export function renderRngdleDiscordLeaderboard(entries: RngdleLeaderboardEntry[]
 }
 
 export function renderRngdleDiscordHallOfShame(
-  entries: RngdleLowScoreEntry[],
-  totals: RngdleLowScoreTotals = { rolls: entries.length, players: new Set(entries.map((entry) => entry.userId)).size },
+  lowScores: RngdleLowScoreEntry[],
+  regrets: RngdleRegretEntry[],
+  lowScoreTotals: RngdleLowScoreTotals = { rolls: lowScores.length, players: new Set(lowScores.map((entry) => entry.userId)).size },
+  regretTotals: RngdleRegretTotals = { regrets: regrets.length, epBurned: regrets.reduce((sum, entry) => sum + entry.epLost, 0) },
 ): Promise<Buffer> {
   return render(
-    leaderboardImage(lowScoreBoard(entries, totals)),
+    dualBoardImage("HALL OF SHAME", lowScorePanel(lowScores, lowScoreTotals), regretPanel(regrets, regretTotals)),
     RNGDLE_DISCORD_LEADERBOARD_WIDTH,
     RNGDLE_DISCORD_LEADERBOARD_HEIGHT,
   );

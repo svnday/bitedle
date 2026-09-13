@@ -862,18 +862,21 @@ async function processRngdleCommand(
     }
 
     if (subcommand === "regrets") {
-      // Ten rows and a guild-wide caption, the same shape as the all-time
-      // board: the totals count every roll in the guild, not just the ten
-      // lowest that are on show.
-      const [entries, totals] = await Promise.all([
+      // Two panels, ten rows each, and a caption per panel counting every row
+      // behind it rather than the ten on show.
+      const [lowScores, lowScoreTotals, regrets, regretTotals] = await Promise.all([
         repository.lowScores(guildId, 10),
         repository.lowScoreTotals(guildId),
+        repository.regrets(guildId, 10),
+        repository.regretTotals(guildId),
       ]);
       await deliverRngdleHallOfShame({
         applicationId,
         token,
-        entries,
-        totals,
+        lowScores,
+        lowScoreTotals,
+        regrets,
+        regretTotals,
         attachmentSizeLimit: body.attachment_size_limit,
       });
       return;

@@ -1048,18 +1048,75 @@ assert.match(commandSource, /name: "rngdle"[\s\S]*?integration_types: \[0\][\s\S
     );
     assert.equal((await repository.lowScoreTotals(guildB)).rolls, 1, "and so is its caption");
 
-    const shameImage = await renderer.renderRngdleDiscordHallOfShame(lowScores, { rolls: 47, players: 12 });
+    // The right-hand panel is the board this one used to be, so its ranking
+    // has to keep working on the same fixtures: only rerolls that came out
+    // behind, ranked by what the trade cost, with the winner and the player
+    // who never rerolled both absent.
+    const regrets = await repository.regrets(shameGuild, 10);
+    assert.equal(regrets.length, 4, "only the rerolls that came out behind are regrets");
+    assert.equal(
+      regrets.filter((entry) => entry.userId === "serial").length,
+      2,
+      "the regret panel ranks moments too, not people",
+    );
+    assert.equal(regrets.some((entry) => entry.userId === "lucky"), false, "a reroll that gained is not a regret");
+    assert.equal(regrets.some((entry) => entry.userId === "steady"), false, "a player who never rerolled is absent, not zero");
+    for (const entry of regrets) {
+      assert.ok(entry.epLost > 0, "every row must have cost something");
+      assert.equal(entry.epLost, entry.gaveUpEp - entry.keptEp, "the loss is the trade, stated once");
+    }
+    for (let index = 1; index < regrets.length; index += 1) {
+      assert.ok(regrets[index - 1].epLost >= regrets[index].epLost, "ranked by what the reroll cost");
+    }
+    const regretTotals = await repository.regretTotals(shameGuild);
+    assert.equal(regretTotals.regrets, 4, "the panel's caption counts every regret in the guild");
+    assert.equal(regretTotals.epBurned, regrets.reduce((sum, entry) => sum + entry.epLost, 0));
+    assert.equal((await repository.regrets(guildB, 10)).length, 0, "the regret panel is guild-isolated too");
+
+    // The two panels rank different things off the same guild, so a row can sit
+    // on one and not the other. That is the whole point of showing both.
+    assert.ok(
+      lowScores.some((entry) => entry.userId === "steady"),
+      "the low-score panel ranks a roll the regret panel cannot see",
+    );
+
+    const shameImage = await renderer.renderRngdleDiscordHallOfShame(
+      lowScores,
+      regrets,
+      { rolls: 47, players: 12 },
+      { regrets: 47, epBurned: 7_863_977 },
+    );
     const shameMeta = await sharp(shameImage).metadata();
     assert.equal(shameMeta.width, renderer.RNGDLE_DISCORD_LEADERBOARD_WIDTH);
     assert.equal(shameMeta.height, renderer.RNGDLE_DISCORD_LEADERBOARD_HEIGHT);
     fs.writeFileSync(regretsBoardPath, shameImage);
 
-    // Same canvas as the other two boards, and the name is on it.
-    for (const heading of ["HALL OF SHAME", "RAREST BADGE", "REROLLED", "FIRST ROLL"]) {
+    // An empty right-hand panel must still render: a guild can have rolls
+    // without anyone having regretted a reroll, and that is the common case on
+    // the day a server starts playing.
+    const halfEmpty = await renderer.renderRngdleDiscordHallOfShame(lowScores, []);
+    assert.equal((await sharp(halfEmpty).metadata()).width, renderer.RNGDLE_DISCORD_LEADERBOARD_WIDTH);
+
+    // Both panels are on the one canvas, each named, with the columns the
+    // half-width layout has room for and neither of the two it does not.
+    for (const heading of ["HALL OF SHAME", "LOWEST EP", "WORST REROLLS", "GAVE UP", "EP LOST"]) {
       assert.ok(rendererSourceForBoards.includes(heading), `missing hall of shame heading: ${heading}`);
     }
-    assert.match(rendererSourceForBoards, /worst: "DAY"/);
     assert.doesNotMatch(rendererSourceForBoards, /→/, "no typed arrow may reach the board");
+    // The panels have to sit inside the canvas: two 530s, a gutter and the
+    // margins have to come to exactly the width the image is rendered at.
+    const panelWidth = Number(/const PANEL_WIDTH = (\d+);/.exec(rendererSourceForBoards)[1]);
+    const leftX = Number(/const PANEL_LEFT_X = (\d+);/.exec(rendererSourceForBoards)[1]);
+    const rightX = Number(/const PANEL_RIGHT_X = (\d+);/.exec(rendererSourceForBoards)[1]);
+    assert.ok(leftX + panelWidth < rightX, "the panels may not overlap");
+    assert.equal(rightX + panelWidth + leftX, renderer.RNGDLE_DISCORD_LEADERBOARD_WIDTH, "the margins must match");
+    // And each panel's columns have to add up to the panel, or a cell runs past
+    // the gutter and into the panel beside it.
+    for (const [, body] of rendererSourceForBoards.matchAll(/_PANEL_LAYOUT: RngdlePanelLayout = \{([^}]+)\}/g)) {
+      const widths = ["rank", "name", "score", "total"].map((key) =>
+        Number(new RegExp(`${key}: (\\d+)`).exec(body)[1]));
+      assert.equal(widths.reduce((sum, width) => sum + width, 0), panelWidth, "a panel's columns must sum to its width");
+    }
 
     // A row key has to survive the same player twice or React collapses them.
     assert.match(rendererSourceForBoards, /key: `\$\{entry\.userId\}:\$\{entry\.gameDay\}`/);
