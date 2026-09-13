@@ -57,32 +57,33 @@ export interface RngdleDailyStanding {
 }
 
 /**
- * One reroll that came out behind - the unit the Hall of Shame ranks. A row is
- * a moment, not a player: the same person appears once per reroll they regret,
- * because a career of bad decisions is several separate stories rather than one
- * total, and ranking the moments keeps the board off the tenure treadmill that
- * a per-player worst would climb.
+ * One roll that scored badly - the unit the Hall of Shame ranks. A row is a
+ * moment, not a player: the same person appears once per roll they would rather
+ * forget, because a career of bad days is several separate stories rather than
+ * one total, and ranking the moments keeps the board off the tenure treadmill
+ * that a per-player worst would climb.
  */
-export interface RngdleRegretEntry {
+export interface RngdleLowScoreEntry {
   userId: string;
   displayName: string;
   avatar: string | null;
   gameDay: string;
-  /** Always positive: what the reroll cost against the number given up. */
-  epLost: number;
-  keptNumber: number;
-  keptEp: number;
-  keptRarityLabel: string;
-  gaveUpNumber: number;
-  gaveUpEp: number;
-  gaveUpRarityLabel: string;
+  /** What the roll was credited in the end - the figure the board ranks by. */
+  creditedEp: number;
+  number: number;
+  rarityLabel: string;
   penaltyPercent: number | null;
+  /** Whether a reroll landed them here. Stated on the row, never ranked on. */
+  rerolled: boolean;
+  rarestBadgeLabel: string | null;
+  rarestBadgeDesc: string | null;
+  rarestBadgeEp: number | null;
 }
 
 /** Guild-wide totals for the board's caption, counted past the rows it shows. */
-export interface RngdleRegretTotals {
-  regrets: number;
-  epBurned: number;
+export interface RngdleLowScoreTotals {
+  rolls: number;
+  players: number;
 }
 
 export interface RngdleProfileRoll {
@@ -131,8 +132,8 @@ export interface RngdleDiscordRepository {
   leaderboard(guildId: string, limit?: number): Promise<RngdleLeaderboardEntry[]>;
   /** Distinct players in a guild, for the leaderboard's "N PLAYERS" caption. */
   playerCount(guildId: string): Promise<number>;
-  regrets(guildId: string, limit?: number): Promise<RngdleRegretEntry[]>;
-  regretTotals(guildId: string): Promise<RngdleRegretTotals>;
+  lowScores(guildId: string, limit?: number): Promise<RngdleLowScoreEntry[]>;
+  lowScoreTotals(guildId: string): Promise<RngdleLowScoreTotals>;
   userProfile(guildId: string, userId: string, currentGameDay: string): Promise<RngdleUserProfile | null>;
 }
 
@@ -149,28 +150,27 @@ function cloneRoll(roll: RngdleDiscordRoll): RngdleDiscordRoll {
 }
 
 /**
- * The rerolls worth being ashamed of. A reroll that broke even or came out
- * ahead is not a regret and never reaches the board, which is also why someone
- * who has never rerolled is absent from it rather than sitting at zero: the
- * board ranks a decision, and they have not made one.
+ * Every roll in the guild, as the rows the board ranks. Nothing is filtered
+ * out: the board is the bottom of the scoreboard, so a first roll that scored
+ * almost nothing earns its place exactly as much as a reroll that threw a good
+ * number away. Badges come from the roll's own badges[0], which the engine
+ * already sorts by EP descending.
  */
-function regretRows(rolls: RngdleDiscordRoll[]): RngdleRegretEntry[] {
-  return rolls
-    .filter((roll) => roll.rerolledAt !== null && roll.current.creditedEp < roll.initial.creditedEp)
-    .map((roll) => ({
-      userId: roll.userId,
-      displayName: roll.displayName,
-      avatar: roll.avatar,
-      gameDay: roll.gameDay,
-      epLost: roll.initial.creditedEp - roll.current.creditedEp,
-      keptNumber: roll.current.number,
-      keptEp: roll.current.creditedEp,
-      keptRarityLabel: roll.current.rarityLabel,
-      gaveUpNumber: roll.initial.number,
-      gaveUpEp: roll.initial.creditedEp,
-      gaveUpRarityLabel: roll.initial.rarityLabel,
-      penaltyPercent: roll.current.penaltyPercent,
-    }));
+function lowScoreRows(rolls: RngdleDiscordRoll[]): RngdleLowScoreEntry[] {
+  return rolls.map((roll) => ({
+    userId: roll.userId,
+    displayName: roll.displayName,
+    avatar: roll.avatar,
+    gameDay: roll.gameDay,
+    creditedEp: roll.current.creditedEp,
+    number: roll.current.number,
+    rarityLabel: roll.current.rarityLabel,
+    penaltyPercent: roll.current.penaltyPercent,
+    rerolled: roll.rerolledAt !== null,
+    rarestBadgeLabel: roll.current.badges[0]?.label ?? null,
+    rarestBadgeDesc: roll.current.badges[0]?.desc ?? null,
+    rarestBadgeEp: roll.current.badges[0]?.ep ?? null,
+  }));
 }
 
 function rankedDaily(rows: Omit<RngdleDailyStanding, "rank">[]): RngdleDailyStanding[] {
@@ -425,21 +425,21 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
       }));
   }
 
-  async regrets(guildId: string, limit = 10): Promise<RngdleRegretEntry[]> {
-    return this.guildRegrets(guildId)
-      .sort((a, b) => b.epLost - a.epLost
+  async lowScores(guildId: string, limit = 10): Promise<RngdleLowScoreEntry[]> {
+    return this.guildLowScores(guildId)
+      .sort((a, b) => a.creditedEp - b.creditedEp
         || b.gameDay.localeCompare(a.gameDay)
         || a.displayName.localeCompare(b.displayName))
       .slice(0, Math.max(1, limit));
   }
 
-  async regretTotals(guildId: string): Promise<RngdleRegretTotals> {
-    const rows = this.guildRegrets(guildId);
-    return { regrets: rows.length, epBurned: rows.reduce((total, row) => total + row.epLost, 0) };
+  async lowScoreTotals(guildId: string): Promise<RngdleLowScoreTotals> {
+    const rows = this.guildLowScores(guildId);
+    return { rolls: rows.length, players: new Set(rows.map((row) => row.userId)).size };
   }
 
-  private guildRegrets(guildId: string): RngdleRegretEntry[] {
-    return regretRows(Object.values(this.db.rolls).filter((roll) => roll.guildId === guildId));
+  private guildLowScores(guildId: string): RngdleLowScoreEntry[] {
+    return lowScoreRows(Object.values(this.db.rolls).filter((roll) => roll.guildId === guildId));
   }
 
   async playerCount(guildId: string): Promise<number> {
@@ -710,9 +710,9 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
     }));
   }
 
-  async regrets(guildId: string, limit = 10): Promise<RngdleRegretEntry[]> {
-    // No GROUP BY: the board ranks individual rerolls, so a player with three
-    // bad calls occupies three rows. game_day breaks ties on equal losses, and
+  async lowScores(guildId: string, limit = 10): Promise<RngdleLowScoreEntry[]> {
+    // No GROUP BY: the board ranks individual rolls, so a player with three bad
+    // days occupies three rows. game_day breaks ties on equal scores, and
     // display_name after it, so the order is total rather than arbitrary.
     const rows = await this.sql`
       SELECT
@@ -720,66 +720,60 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
         display_name,
         avatar,
         game_day,
-        (initial_result->>'creditedEp')::bigint - (current_result->>'creditedEp')::bigint AS ep_lost,
-        (current_result->>'number')::int AS kept_number,
-        (current_result->>'creditedEp')::bigint AS kept_ep,
-        current_result->>'rarityLabel' AS kept_rarity_label,
-        (initial_result->>'number')::int AS gave_up_number,
-        (initial_result->>'creditedEp')::bigint AS gave_up_ep,
-        initial_result->>'rarityLabel' AS gave_up_rarity_label,
-        (current_result->>'penaltyPercent')::int AS penalty_percent
+        (current_result->>'creditedEp')::bigint AS credited_ep,
+        (current_result->>'number')::int AS number,
+        current_result->>'rarityLabel' AS rarity_label,
+        (current_result->>'penaltyPercent')::int AS penalty_percent,
+        rerolled_at IS NOT NULL AS rerolled,
+        current_result->'badges'->0->>'label' AS rarest_badge_label,
+        current_result->'badges'->0->>'desc' AS rarest_badge_desc,
+        (current_result->'badges'->0->>'ep')::bigint AS rarest_badge_ep
       FROM rngdle_rolls
       WHERE guild_id = ${guildId}
-        AND rerolled_at IS NOT NULL
-        AND (current_result->>'creditedEp')::bigint < (initial_result->>'creditedEp')::bigint
-      ORDER BY ep_lost DESC, game_day DESC, display_name ASC
+      ORDER BY credited_ep ASC, game_day DESC, display_name ASC
       LIMIT ${Math.max(1, limit)}` as Array<{
         user_id: string;
         display_name: string;
         avatar: string | null;
         game_day: string;
-        ep_lost: string | number;
-        kept_number: string | number;
-        kept_ep: string | number;
-        kept_rarity_label: string;
-        gave_up_number: string | number;
-        gave_up_ep: string | number;
-        gave_up_rarity_label: string;
+        credited_ep: string | number;
+        number: string | number;
+        rarity_label: string;
         penalty_percent: string | number | null;
+        rerolled: boolean;
+        rarest_badge_label: string | null;
+        rarest_badge_desc: string | null;
+        rarest_badge_ep: string | null;
       }>;
     return rows.map((row) => ({
       userId: row.user_id,
       displayName: row.display_name,
       avatar: row.avatar,
       gameDay: row.game_day,
-      epLost: Number(row.ep_lost),
-      keptNumber: Number(row.kept_number),
-      keptEp: Number(row.kept_ep),
-      keptRarityLabel: row.kept_rarity_label,
-      gaveUpNumber: Number(row.gave_up_number),
-      gaveUpEp: Number(row.gave_up_ep),
-      gaveUpRarityLabel: row.gave_up_rarity_label,
+      creditedEp: Number(row.credited_ep),
+      number: Number(row.number),
+      rarityLabel: row.rarity_label,
       penaltyPercent: row.penalty_percent === null ? null : Number(row.penalty_percent),
+      rerolled: row.rerolled,
+      rarestBadgeLabel: row.rarest_badge_label,
+      rarestBadgeDesc: row.rarest_badge_desc,
+      rarestBadgeEp: row.rarest_badge_ep === null ? null : Number(row.rarest_badge_ep),
     }));
   }
 
-  async regretTotals(guildId: string): Promise<RngdleRegretTotals> {
+  async lowScoreTotals(guildId: string): Promise<RngdleLowScoreTotals> {
     const rows = await this.sql`
       SELECT
-        COUNT(*)::int AS regrets,
-        COALESCE(SUM(
-          (initial_result->>'creditedEp')::bigint - (current_result->>'creditedEp')::bigint
-        ), 0) AS ep_burned
+        COUNT(*)::int AS rolls,
+        COUNT(DISTINCT user_id)::int AS players
       FROM rngdle_rolls
-      WHERE guild_id = ${guildId}
-        AND rerolled_at IS NOT NULL
-        AND (current_result->>'creditedEp')::bigint < (initial_result->>'creditedEp')::bigint` as Array<{
-        regrets: number;
-        ep_burned: string | number;
+      WHERE guild_id = ${guildId}` as Array<{
+        rolls: number;
+        players: number;
       }>;
     return {
-      regrets: rows[0]?.regrets ?? 0,
-      epBurned: rows[0] === undefined ? 0 : Number(rows[0].ep_burned),
+      rolls: rows[0]?.rolls ?? 0,
+      players: rows[0]?.players ?? 0,
     };
   }
 

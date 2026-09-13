@@ -55,7 +55,7 @@ import { deliverBiteballResponse } from "@/lib/biteball-discord";
 import {
   deliverRngdleDailyLeaderboard,
   deliverRngdleLeaderboard,
-  deliverRngdleRegrets,
+  deliverRngdleHallOfShame,
   deliverRngdleError,
   deliverRngdleNotice,
   deliverRngdleProfile,
@@ -863,12 +863,13 @@ async function processRngdleCommand(
 
     if (subcommand === "regrets") {
       // Ten rows and a guild-wide caption, the same shape as the all-time
-      // board: the totals count every regret, not just the ten on show.
+      // board: the totals count every roll in the guild, not just the ten
+      // lowest that are on show.
       const [entries, totals] = await Promise.all([
-        repository.regrets(guildId, 10),
-        repository.regretTotals(guildId),
+        repository.lowScores(guildId, 10),
+        repository.lowScoreTotals(guildId),
       ]);
-      await deliverRngdleRegrets({
+      await deliverRngdleHallOfShame({
         applicationId,
         token,
         entries,

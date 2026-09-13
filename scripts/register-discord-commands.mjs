@@ -121,7 +121,7 @@ const commands = [
       {
         type: 1,
         name: "regrets",
-        description: "Show the hall of shame: the rerolls that came out behind",
+        description: "Show the hall of shame: the lowest-EP rolls in this server",
       },
       {
         type: 1,

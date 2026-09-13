@@ -2,21 +2,21 @@ import type {
   RngdleDailyStanding,
   RngdleDiscordRoll,
   RngdleLeaderboardEntry,
-  RngdleRegretEntry,
-  RngdleRegretTotals,
+  RngdleLowScoreEntry,
+  RngdleLowScoreTotals,
   RngdleUserProfile,
 } from "./rngdle-discord-store";
 import {
   RNGDLE_DISCORD_GIF_FILENAME,
   RNGDLE_DISCORD_LEADERBOARD_FILENAME,
-  RNGDLE_DISCORD_REGRETS_FILENAME,
+  RNGDLE_DISCORD_HALL_OF_SHAME_FILENAME,
   RNGDLE_DISCORD_PNG_FILENAME,
   RNGDLE_DISCORD_PROFILE_FILENAME,
   RNGDLE_DISCORD_RISK_GIF_FILENAME,
   renderRngdleDiscordAnimation,
   renderRngdleDiscordDailyLeaderboard,
   renderRngdleDiscordLeaderboard,
-  renderRngdleDiscordRegrets,
+  renderRngdleDiscordHallOfShame,
   renderRngdleDiscordProfile,
   renderRngdleRiskAnimation,
   renderRngdleDiscordStill,
@@ -67,6 +67,10 @@ export const RNGDLE_REROLL_BUTTON_LABEL = "Reroll 1-99% Risk";
 export const RNGDLE_LEADERBOARD_BUTTON_ID = "rngdle-leaderboard:v1";
 export const RNGDLE_TODAY_BUTTON_ID = "rngdle-today:v1";
 export const RNGDLE_PROFILE_BUTTON_ID = "rngdle-profile:v1";
+// Spelled for the metric the board used to rank by. The id is on buttons that
+// are already sitting in channels, so it stays as it is; renaming it would
+// leave every posted leaderboard with a Hall of Shame button that answers to
+// nothing.
 export const RNGDLE_REGRETS_BUTTON_ID = "rngdle-regrets:v1";
 
 export function rngdleRerollCustomId(gameDay: string, userId: string): string {
@@ -722,11 +726,11 @@ export async function deliverRngdleLeaderboard(input: {
   if (!fallback.ok) throw new Error(`RNGDLE leaderboard delivery failed (${await responseError(fallback)})`);
 }
 
-export async function deliverRngdleRegrets(input: {
+export async function deliverRngdleHallOfShame(input: {
   applicationId: string;
   token: string;
-  entries: RngdleRegretEntry[];
-  totals: RngdleRegretTotals;
+  entries: RngdleLowScoreEntry[];
+  totals: RngdleLowScoreTotals;
   attachmentSizeLimit?: number;
   fetchImpl?: typeof fetch;
 }): Promise<void> {
@@ -734,24 +738,24 @@ export async function deliverRngdleRegrets(input: {
   const url = webhookUrl(input.applicationId, input.token);
   if (input.entries.length === 0) {
     await patchJson(url, {
-      // Stated as the achievement it is, rather than as an empty board.
-      content: "No one in this server has regretted a reroll yet.",
+      // There is no bottom of the board until someone has rolled at all.
+      content: "No one has rolled RNGDLE in this server yet.",
       allowed_mentions: { parse: [] }, components: [], attachments: [],
     }, fetchImpl);
     return;
   }
   const heading = "🗑️ **RNGDLE hall of shame**";
-  const image = await renderRngdleDiscordRegrets(input.entries, input.totals);
+  const image = await renderRngdleDiscordHallOfShame(input.entries, input.totals);
   if (image.byteLength <= safeLimit(input.attachmentSizeLimit)) {
     const response = await patchMultipart(url, {
       content: heading,
       allowed_mentions: { parse: [] }, components: [],
-      attachments: [{ id: 0, filename: RNGDLE_DISCORD_REGRETS_FILENAME, description: "RNGDLE hall of shame - the rerolls that came out behind" }],
-    }, image, RNGDLE_DISCORD_REGRETS_FILENAME, "image/png", fetchImpl);
+      attachments: [{ id: 0, filename: RNGDLE_DISCORD_HALL_OF_SHAME_FILENAME, description: "RNGDLE hall of shame - the lowest-scoring rolls in the server" }],
+    }, image, RNGDLE_DISCORD_HALL_OF_SHAME_FILENAME, "image/png", fetchImpl);
     if (response.ok) return;
   }
   const lines = input.entries.slice(0, 10).map((entry, index) =>
-    `**${index + 1}.** ${escapeDiscordText(entry.displayName)} — gave up ${entry.gaveUpEp.toLocaleString("en-US")} EP for ${entry.keptEp.toLocaleString("en-US")} EP (-${entry.epLost.toLocaleString("en-US")} EP)`,
+    `**${index + 1}.** ${escapeDiscordText(entry.displayName)} — ${entry.creditedEp.toLocaleString("en-US")} EP (roll ${entry.number}, ${entry.gameDay})`,
   );
   const fallback = await patchJson(url, {
     content: [heading, ...lines].join("\n"),
