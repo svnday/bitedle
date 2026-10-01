@@ -27,6 +27,13 @@ import GameNav from "./GameNav";
 import RngdleBadgeBreakdown from "./RngdleBadgeBreakdown";
 import RngdleRoll from "./RngdleRoll";
 
+type LabTab = "lab" | "override";
+
+const LAB_TABS: readonly [LabTab, string][] = [
+  ["lab", "Scoring lab"],
+  ["override", "Override"],
+];
+
 const STORAGE_KEY = "bitedle:rngdle:website-lab:v1";
 const LIFETIME_STORAGE_KEY = "bitedle:rngdle:website-lab:lifetime:v1";
 const PENALTY_REVEAL_MS = 900;
@@ -58,6 +65,8 @@ export default function RngdleDemo({
 }: {
   onModeChange: (mode: GameMode) => void;
 }) {
+  const [tab, setTab] = useState<LabTab>("lab");
+  const [coverLifted, setCoverLifted] = useState(false);
   const [dayState, setDayState] = useState<RngdleDayState | null | undefined>(undefined);
   const [lifetimeEp, setLifetimeEp] = useState(0);
   const [displayedLifetimeEp, setDisplayedLifetimeEp] = useState(0);
@@ -75,6 +84,7 @@ export default function RngdleDemo({
   const displayedLifetimeEpRef = useRef(0);
   const resultRef = useRef<HTMLDivElement>(null);
   const confirmationRef = useRef<HTMLButtonElement>(null);
+  const tabRefs = useRef<Partial<Record<LabTab, HTMLButtonElement | null>>>({});
 
   const clearTimers = useCallback(() => {
     for (const timer of timers.current) clearTimeout(timer);
@@ -371,144 +381,242 @@ export default function RngdleDemo({
         <div className="rngdle-shell">
           <h1 className="sr-only">RNGDLE</h1>
 
-          <section className="rngdle-stage" aria-labelledby="rngdle-stage-title">
-            <div className="rngdle-stage-topline">
-              <button type="button" className="rngdle-lab-reset" onClick={resetLab} disabled={isAnimating}>
-                Reset lab
+          <div className="rngdle-tabs" role="tablist" aria-label="RNGDLE lab sections">
+            {LAB_TABS.map(([value, label], index) => (
+              <button
+                key={value}
+                ref={(node) => { tabRefs.current[value] = node; }}
+                type="button"
+                role="tab"
+                id={`rngdle-tab-${value}`}
+                aria-controls={`rngdle-panel-${value}`}
+                aria-selected={tab === value}
+                tabIndex={tab === value ? 0 : -1}
+                onClick={() => setTab(value)}
+                onKeyDown={(event) => {
+                  const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+                  if (!step) return;
+                  event.preventDefault();
+                  const next = LAB_TABS[(index + step + LAB_TABS.length) % LAB_TABS.length][0];
+                  setTab(next);
+                  tabRefs.current[next]?.focus();
+                }}
+              >
+                {label}
               </button>
-            </div>
-            <h2 id="rngdle-stage-title" className="sr-only">Daily RNGDLE roll</h2>
+            ))}
+          </div>
 
-            <div ref={resultRef} className="rngdle-result-focus" tabIndex={dayState ? -1 : undefined}>
-              <RngdleRoll
-                displayedLifetimeEp={displayedLifetimeEp}
-                displayedScore={displayedRawEp}
-                lifetimeVisible={lifetimeVisible}
-                onComposePoem={() => setPoemOpen(true)}
-                result={result}
-                state={revealState}
-                nextReset={nextReset}
-              />
-            </div>
-
-            {!dayState ? (
-              <div className="rngdle-primary-actions">
-                <button type="button" className="rngdle-roll-button" onClick={roll}>
-                  GENERATE
+          <div
+            id="rngdle-panel-lab"
+            role="tabpanel"
+            aria-labelledby="rngdle-tab-lab"
+            hidden={tab !== "lab"}
+          >
+            <section className="rngdle-stage" aria-labelledby="rngdle-stage-title">
+              <div className="rngdle-stage-topline">
+                <button type="button" className="rngdle-lab-reset" onClick={resetLab} disabled={isAnimating}>
+                  Reset lab
                 </button>
-                <p>Website lab · your roll is saved in this browser</p>
               </div>
-            ) : null}
+              <h2 id="rngdle-stage-title" className="sr-only">Daily RNGDLE roll</h2>
 
-            {isAnimating ? (
-              <p className="rngdle-stage-status" aria-live="polite">
-                {revealState === "rolling" || revealState === "rerolling"
-                  ? "Gathering entropy…"
-                  : revealState === "revealing-penalty"
-                    ? "Applying the reroll penalty…"
-                    : "Analyzing number patterns…"}
-              </p>
-            ) : null}
+              <div ref={resultRef} className="rngdle-result-focus" tabIndex={dayState ? -1 : undefined}>
+                <RngdleRoll
+                  displayedLifetimeEp={displayedLifetimeEp}
+                  displayedScore={displayedRawEp}
+                  lifetimeVisible={lifetimeVisible}
+                  onComposePoem={() => setPoemOpen(true)}
+                  result={result}
+                  state={revealState}
+                  nextReset={nextReset}
+                />
+              </div>
 
-            {revealState === "initial-complete" && rerollAvailable ? (
-              <div className="rngdle-reroll-offer">
-                <div>
-                  <span>ONE REROLL AVAILABLE</span>
-                  <strong>{rerollRemaining}</strong>
+              {!dayState ? (
+                <div className="rngdle-primary-actions">
+                  <button type="button" className="rngdle-roll-button" onClick={roll}>
+                    GENERATE
+                  </button>
+                  <p>Website lab · your roll is saved in this browser</p>
                 </div>
-                <p>Replace this roll permanently. The new score loses a random 1–99%.</p>
-                <button type="button" onClick={() => setRevealState("reroll-confirmation")}>
-                  Risk a reroll
-                </button>
-              </div>
-            ) : null}
+              ) : null}
 
-            {revealState === "reroll-confirmation" ? (
-              <div
-                className="rngdle-confirmation"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="rngdle-confirm-title"
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") setRevealState("initial-complete");
-                }}
-              >
-                <p className="rngdle-confirm-kicker">THE POINT OF NO RETURN</p>
-                <h2 id="rngdle-confirm-title">Replace {dayState?.initial.number}?</h2>
-                <p>
-                  Your original {dayState?.initial.rawEp.toLocaleString()} EP result becomes uncredited.
-                  The new number is final, then loses a random 1–99% of its raw EP.
+              {isAnimating ? (
+                <p className="rngdle-stage-status" aria-live="polite">
+                  {revealState === "rolling" || revealState === "rerolling"
+                    ? "Gathering entropy…"
+                    : revealState === "revealing-penalty"
+                      ? "Applying the reroll penalty…"
+                      : "Analyzing number patterns…"}
                 </p>
-                <div>
-                  <button
-                    ref={confirmationRef}
-                    type="button"
-                    className="rngdle-confirm-cancel"
-                    onClick={() => setRevealState("initial-complete")}
-                  >
-                    Keep this roll
-                  </button>
-                  <button type="button" className="rngdle-confirm-risk" onClick={confirmReroll}>
-                    Replace it forever
+              ) : null}
+
+              {revealState === "initial-complete" && rerollAvailable ? (
+                <div className="rngdle-reroll-offer">
+                  <div>
+                    <span>ONE REROLL AVAILABLE</span>
+                    <strong>{rerollRemaining}</strong>
+                  </div>
+                  <p>Replace this roll permanently. The new score loses a random 1–99%.</p>
+                  <button type="button" onClick={() => setRevealState("reroll-confirmation")}>
+                    Risk a reroll
                   </button>
                 </div>
+              ) : null}
+
+              {revealState === "reroll-confirmation" ? (
+                <div
+                  className="rngdle-confirmation"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="rngdle-confirm-title"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setRevealState("initial-complete");
+                  }}
+                >
+                  <p className="rngdle-confirm-kicker">THE POINT OF NO RETURN</p>
+                  <h2 id="rngdle-confirm-title">Replace {dayState?.initial.number}?</h2>
+                  <p>
+                    Your original {dayState?.initial.rawEp.toLocaleString()} EP result becomes uncredited.
+                    The new number is final, then loses a random 1–99% of its raw EP.
+                  </p>
+                  <div>
+                    <button
+                      ref={confirmationRef}
+                      type="button"
+                      className="rngdle-confirm-cancel"
+                      onClick={() => setRevealState("initial-complete")}
+                    >
+                      Keep this roll
+                    </button>
+                    <button type="button" className="rngdle-confirm-risk" onClick={confirmReroll}>
+                      Replace it forever
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {dayState?.reroll && (revealState === "revealing-penalty" || revealState === "final-complete") ? (
+                <div className="rngdle-original-audit">
+                  <span>ORIGINAL · UNCREDITED</span>
+                  <strong>{dayState.initial.number}</strong>
+                  <span>{dayState.initial.rawEp.toLocaleString()} EP</span>
+                </div>
+              ) : null}
+            </section>
+
+            {poemOpen && result ? (
+              <div className="rngdle-poem-backdrop" role="presentation">
+                <section
+                  className="rngdle-poem-dialog"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="rngdle-poem-title"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setPoemOpen(false);
+                  }}
+                >
+                  <header>
+                    <div>
+                      <h2 id="rngdle-poem-title">Poetry</h2>
+                      <p>Compose a poem with the words your badges gave you.</p>
+                    </div>
+                    <button type="button" onClick={() => setPoemOpen(false)} aria-label="Close poem composer">
+                      {"\u00d7"}
+                    </button>
+                  </header>
+                  <div className="rngdle-poem-draft">
+                    <h3>Your Poem</h3>
+                    <p>Tap words below to compose...</p>
+                  </div>
+                  <div className="rngdle-poem-bank">
+                    <h3>Word Bank</h3>
+                    <div>
+                      {result.badges.slice(0, 12).map((badge) => (
+                        <span key={badge.id}>{badge.emoji} {badge.label.toLowerCase()}</span>
+                      ))}
+                    </div>
+                  </div>
+                </section>
               </div>
             ) : null}
 
-            {dayState?.reroll && (revealState === "revealing-penalty" || revealState === "final-complete") ? (
-              <div className="rngdle-original-audit">
-                <span>ORIGINAL · UNCREDITED</span>
-                <strong>{dayState.initial.number}</strong>
-                <span>{dayState.initial.rawEp.toLocaleString()} EP</span>
-              </div>
+            {result && visibleBadgeCount > 0 ? (
+              <RngdleBadgeBreakdown
+                animate={revealState === "revealing-badges"}
+                badges={result.badges}
+                number={result.number}
+                summaryVisible={badgeSummaryVisible}
+                visibleCount={visibleBadgeCount}
+              />
             ) : null}
-          </section>
+          </div>
 
-          {poemOpen && result ? (
-            <div className="rngdle-poem-backdrop" role="presentation">
-              <section
-                className="rngdle-poem-dialog"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="rngdle-poem-title"
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") setPoemOpen(false);
-                }}
-              >
-                <header>
-                  <div>
-                    <h2 id="rngdle-poem-title">Poetry</h2>
-                    <p>Compose a poem with the words your badges gave you.</p>
-                  </div>
-                  <button type="button" onClick={() => setPoemOpen(false)} aria-label="Close poem composer">
-                    {"\u00d7"}
-                  </button>
-                </header>
-                <div className="rngdle-poem-draft">
-                  <h3>Your Poem</h3>
-                  <p>Tap words below to compose...</p>
-                </div>
-                <div className="rngdle-poem-bank">
-                  <h3>Word Bank</h3>
-                  <div>
-                    {result.badges.slice(0, 12).map((badge) => (
-                      <span key={badge.id}>{badge.emoji} {badge.label.toLowerCase()}</span>
-                    ))}
-                  </div>
-                </div>
-              </section>
+          <div
+            id="rngdle-panel-override"
+            role="tabpanel"
+            aria-labelledby="rngdle-tab-override"
+            hidden={tab !== "override"}
+            className="rngdle-override"
+          >
+            <div className="rngdle-override-mark">
+              <strong>RNGDLE</strong>
+              <span aria-hidden="true" className="rngdle-override-mark-rule" />
+              <span>ENTROPY CONTROL UNIT</span>
             </div>
-          ) : null}
 
-          {result && visibleBadgeCount > 0 ? (
-            <RngdleBadgeBreakdown
-              animate={revealState === "revealing-badges"}
-              badges={result.badges}
-              number={result.number}
-              summaryVisible={badgeSummaryVisible}
-              visibleCount={visibleBadgeCount}
-            />
-          ) : null}
+            <div className="rngdle-killswitch">
+              <h2 className="sr-only">Daily roll override</h2>
+              <p className="rngdle-killswitch-head">
+                <span aria-hidden="true" className="rngdle-killswitch-lamp" />
+                CLEARANCE &#x3a9; &middot; AUTHORIZED PERSONNEL ONLY
+              </p>
+
+              <div
+                className={`rngdle-killswitch-housing${coverLifted ? " rngdle-killswitch-housing--armed" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="rngdle-killswitch-fire"
+                  disabled={!coverLifted}
+                >
+                  RESET HUEQI ROLL FOR TODAY
+                </button>
+                <button
+                  type="button"
+                  className={`rngdle-killswitch-glass${coverLifted ? " rngdle-killswitch-glass--lifted" : ""}`}
+                  aria-expanded={coverLifted}
+                  aria-label="Lift the safety cover"
+                  tabIndex={coverLifted ? -1 : 0}
+                  onClick={() => setCoverLifted(true)}
+                >
+                  <span aria-hidden="true" className="rngdle-killswitch-hinge" />
+                  <span className="rngdle-killswitch-glass-label">LIFT TO ARM</span>
+                </button>
+              </div>
+
+              <div className="rngdle-killswitch-readout">
+                <div><span>TARGET</span><strong>HUEQI</strong></div>
+                <div><span>SCOPE</span><strong>TODAY&apos;S ROLL</strong></div>
+                <div><span>ROLLBACK</span><strong>NONE</strong></div>
+              </div>
+
+              {coverLifted ? (
+                <button
+                  type="button"
+                  className="rngdle-killswitch-latch"
+                  onClick={() => setCoverLifted(false)}
+                >
+                  Lower the cover
+                </button>
+              ) : null}
+            </div>
+
+            <p className="rngdle-override-note">
+              Requires a physical key. No key has ever been issued.
+            </p>
+          </div>
 
           <footer className="rngdle-footer">
             <span>230 badge rules</span>

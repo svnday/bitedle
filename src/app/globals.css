@@ -1311,6 +1311,291 @@ body {
 }
 .rngdle-footer { margin-top: 1.5rem; color: #5f5c67; font-size: 0.55rem; }
 
+/* RNGDLE lab sections + the Hueqi override console */
+.rngdle-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-bottom: 3.4rem;
+}
+
+.rngdle-tabs button {
+  cursor: pointer;
+  border: 1px solid #3a3842;
+  border-radius: 999px;
+  padding: 0.38rem 1rem;
+  color: #85828e;
+  background: #1a1922;
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+
+.rngdle-tabs button:hover { color: #d9d7e0; border-color: #56535f; }
+
+.rngdle-tabs button[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--rng-green) 50%, #3a3842);
+  color: #0d0c12;
+  background: var(--rng-green);
+}
+
+.rngdle-override {
+  display: grid;
+  justify-items: center;
+  gap: 1.6rem;
+  text-align: center;
+}
+
+.rngdle-override-mark {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+}
+
+.rngdle-override-mark strong {
+  color: #d4d3d6;
+  font-size: clamp(2.1rem, 9vw, 2.9rem);
+  font-weight: 950;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-indent: 0.16em;
+  text-shadow: 0 1px 0 #fff, 0 0 1.4rem rgba(53, 230, 177, 0.18);
+}
+
+.rngdle-override-mark-rule {
+  width: 7rem;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--rng-green), transparent);
+  opacity: 0.55;
+}
+
+.rngdle-override-mark > span:last-child {
+  color: #6c6a76;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+}
+
+.rngdle-killswitch {
+  width: min(25rem, 100%);
+  border: 1px solid #4a4854;
+  border-radius: 0.9rem;
+  padding: 0.75rem;
+  background: linear-gradient(180deg, #24222c, #16151c);
+  box-shadow: 0 1.4rem 3.5rem rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.rngdle-killswitch::after {
+  display: block;
+  height: 0.3rem;
+  margin-top: 0.7rem;
+  border-radius: 0.2rem;
+  background: repeating-linear-gradient(-45deg, #f0c24a 0 0.4rem, #17161d 0.4rem 0.8rem);
+  content: "";
+  opacity: 0.5;
+}
+
+.rngdle-killswitch-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  color: #f0c24a;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(240, 194, 74, 0.14) 0 0.45rem,
+    rgba(0, 0, 0, 0.3) 0.45rem 0.9rem
+  );
+  font-size: 0.54rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.rngdle-killswitch-lamp {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: #ff4b3e;
+  box-shadow: 0 0 0.5rem #ff4b3e;
+  animation: rngdle-killswitch-blink 1.4s steps(1, end) infinite;
+}
+
+.rngdle-killswitch-housing {
+  position: relative;
+  display: grid;
+  place-items: center;
+  margin-top: 0.7rem;
+  border: 1px solid #3c3a45;
+  border-radius: 0.7rem;
+  padding: 1.35rem 1.1rem;
+  background-image:
+    radial-gradient(circle at 0.7rem 0.7rem, #5a5765 0 0.13rem, transparent 0.14rem),
+    radial-gradient(circle at calc(100% - 0.7rem) 0.7rem, #5a5765 0 0.13rem, transparent 0.14rem),
+    radial-gradient(circle at 0.7rem calc(100% - 0.7rem), #5a5765 0 0.13rem, transparent 0.14rem),
+    radial-gradient(circle at calc(100% - 0.7rem) calc(100% - 0.7rem), #5a5765 0 0.13rem, transparent 0.14rem),
+    linear-gradient(180deg, #2d2b35, #1a1921);
+  perspective: 50rem;
+}
+
+.rngdle-killswitch-housing--armed {
+  border-color: #6b3330;
+  box-shadow: inset 0 0 2.5rem rgba(228, 40, 30, 0.22);
+  animation: rngdle-killswitch-armed 1.8s ease-in-out infinite;
+}
+
+.rngdle-killswitch-fire {
+  width: 100%;
+  cursor: pointer;
+  border: 2px solid #ff7366;
+  border-radius: 0.55rem;
+  padding: 1.2rem 0.85rem;
+  color: #fff4f2;
+  background: linear-gradient(180deg, #ea3a2b 0%, #b4201a 55%, #7d100d 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -0.35rem 0.6rem rgba(0, 0, 0, 0.45),
+    0 0.3rem 0 #58090a,
+    0 0.9rem 1.6rem rgba(228, 40, 30, 0.28);
+  font-size: clamp(0.72rem, 2.8vw, 0.86rem);
+  font-weight: 950;
+  letter-spacing: 0.1em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  transition: transform 90ms ease, box-shadow 90ms ease;
+}
+
+.rngdle-killswitch-fire:active {
+  transform: translateY(0.3rem);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -0.2rem 0.5rem rgba(0, 0, 0, 0.5),
+    0 0 0 #58090a,
+    0 0.3rem 0.8rem rgba(228, 40, 30, 0.22);
+}
+
+.rngdle-killswitch-fire:disabled {
+  cursor: default;
+  filter: saturate(0.85) brightness(0.8);
+}
+
+.rngdle-killswitch-glass {
+  position: absolute;
+  z-index: 2;
+  inset: 0.55rem;
+  display: grid;
+  place-items: end center;
+  cursor: pointer;
+  padding: 0 0 0.45rem;
+  border: 1px solid rgba(196, 232, 255, 0.5);
+  border-radius: 0.5rem;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 0.55rem),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 0.55rem),
+    linear-gradient(135deg, rgba(198, 234, 255, 0.26), rgba(140, 190, 220, 0.08) 45%, rgba(214, 242, 255, 0.22));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 0.5rem 1.2rem rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2.5px) saturate(0.75);
+  transform-origin: top center;
+  transition: transform 450ms cubic-bezier(0.2, 0.8, 0.3, 1), opacity 450ms ease;
+}
+
+.rngdle-killswitch-glass-label {
+  border: 1px solid rgba(196, 232, 255, 0.38);
+  border-radius: 999px;
+  padding: 0.16rem 0.6rem;
+  color: #e8f6ff;
+  background: rgba(9, 12, 17, 0.78);
+  font-size: 0.55rem;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.rngdle-killswitch-hinge {
+  position: absolute;
+  top: -0.3rem;
+  right: 1.4rem;
+  left: 1.4rem;
+  height: 0.3rem;
+  border-radius: 0.15rem 0.15rem 0 0;
+  background: linear-gradient(180deg, #7b7887, #44424d);
+}
+
+.rngdle-killswitch-glass--lifted {
+  pointer-events: none;
+  opacity: 0.55;
+  transform: rotateX(-102deg);
+}
+
+.rngdle-killswitch-glass--lifted .rngdle-killswitch-glass-label { opacity: 0; }
+
+.rngdle-killswitch-readout {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+}
+
+.rngdle-killswitch-readout > div {
+  display: grid;
+  gap: 0.15rem;
+  border: 1px solid #36343e;
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.3rem;
+  background: #1b1a22;
+}
+
+.rngdle-killswitch-readout span {
+  color: #6c6a76;
+  font-size: 0.48rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.rngdle-killswitch-readout strong {
+  color: #d9d7e0;
+  font-size: 0.6rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.rngdle-killswitch-latch {
+  margin-top: 0.7rem;
+  cursor: pointer;
+  border: 0;
+  padding: 0.25rem;
+  color: #65636e;
+  background: transparent;
+  font-size: 0.56rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.rngdle-killswitch-latch:hover,
+.rngdle-killswitch-latch:focus-visible { color: #d9d7e0; }
+
+.rngdle-override-note {
+  max-width: 22rem;
+  color: #5f5c67;
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+}
+
+@keyframes rngdle-killswitch-blink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0.2; }
+}
+
+@keyframes rngdle-killswitch-armed {
+  0%, 100% { box-shadow: inset 0 0 2.5rem rgba(228, 40, 30, 0.14); }
+  50% { box-shadow: inset 0 0 2.5rem rgba(228, 40, 30, 0.34); }
+}
+
+
 @media (max-width: 640px) {
   .rngdle-main { padding: 3.5rem 0.7rem 2rem; }
   .rngdle-stage-topline { top: -2.4rem; }
@@ -1322,6 +1607,8 @@ body {
   .rngdle-badge-name h3 { font-size: 0.7rem; }
   .rngdle-badge-rarity { font-size: 0.5rem; }
   .rngdle-result-actions { flex-direction: column; gap: 0.6rem; }
+  .rngdle-killswitch-readout { grid-template-columns: 1fr; }
+  .rngdle-override-mark strong { letter-spacing: 0.1em; text-indent: 0.1em; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1331,7 +1618,11 @@ body {
   .rngdle-digit--spinning,
   .rngdle-badge-list--visible .rngdle-badge,
   .rngdle-badge--entering,
-  .rngdle-badge--entering .rngdle-badge-digit--active { animation: none; }
+  .rngdle-badge--entering .rngdle-badge-digit--active,
+  .rngdle-killswitch-lamp,
+  .rngdle-killswitch-housing--armed { animation: none; }
+
+  .rngdle-killswitch-glass { transition: none; }
 }
 
 /* --- Biteball website divination lab (website-only) ------------------- */
