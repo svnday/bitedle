@@ -78,6 +78,13 @@ import {
 } from "@/lib/rngdle-discord";
 import { getRngdleDiscordRepository } from "@/lib/rngdle-discord-store";
 import { scoreRngdleNumber, selectRngdleNumber, selectRngdlePenalty } from "@/lib/rngdle/scoring";
+import {
+  riggedRngdleRerollPenalty,
+  riggedRngdleRollFor,
+  rngdleRigCoversDay,
+  selectRngdleNumberInBand,
+  type RngdleRiggedRoll,
+} from "@/lib/rngdle/rigged";
 import { canRerollRngdle, rngdleGameDay, rngdleNextResetAt } from "@/lib/rngdle/time";
 
 // Imports next/og (via discord-summary) for the preview image — needs Node.
@@ -833,6 +840,27 @@ function rngdleDeliveryRank(
   };
 }
 
+/**
+ * The rig that should act on this roll, or null for an ordinary random one.
+ *
+ * A rig fires on the first roll at or after its armed-from day and is spent by
+ * that roll, so an entry left in RNGDLE_RIGGED_ROLLS means "their next roll"
+ * rather than "every roll from now on". The same answer covers the day's reroll:
+ * while today *is* the day the rig fired on, the reroll is still inside it.
+ */
+async function armedRngdleRig(
+  repository: ReturnType<typeof getRngdleDiscordRepository>,
+  guildId: string,
+  userId: string,
+  gameDay: string,
+): Promise<RngdleRiggedRoll | null> {
+  const rig = riggedRngdleRollFor(userId);
+  if (!rig || !rngdleRigCoversDay(rig, gameDay)) return null;
+  const firstRollDay = await repository.firstRollDaySince(guildId, userId, rig.armedFrom);
+  if (firstRollDay !== null && firstRollDay !== gameDay) return null;
+  return rig;
+}
+
 async function processRngdleCommand(
   body: Interaction,
   user: InteractionUser & { id: string },
@@ -931,7 +959,8 @@ async function processRngdleCommand(
 
     const now = Date.now();
     const rollGameDay = rngdleGameDay(new Date(now));
-    const result = scoreRngdleNumber(selectRngdleNumber());
+    const rig = await armedRngdleRig(repository, guildId, user.id, rollGameDay);
+    const result = scoreRngdleNumber(rig ? selectRngdleNumberInBand(rig.band) : selectRngdleNumber());
     const creation = await repository.createInitial({
       guildId,
       userId: user.id,
@@ -966,6 +995,7 @@ async function processRngdleCommand(
           ? null
           : creation.roll.current.creditedEp - creation.roll.initial.creditedEp,
       },
+      rerollPenaltyOverride: rig?.rigReroll ? riggedRngdleRerollPenalty(rig.band) : undefined,
       attachmentSizeLimit: body.attachment_size_limit,
     });
   } catch (error) {
@@ -1088,14 +1118,26 @@ async function processRngdleReroll(
 
     // Prefer the penalty pre-drawn at roll time — its risk animation is already
     // rendered on this instance, so the reroll answers without a render wait.
-    const penalty = takePendingRngdlePenalty(guildId, user.id, parsed.gameDay) ?? selectRngdlePenalty();
+    const pendingPenalty = takePendingRngdlePenalty(guildId, user.id, parsed.gameDay);
+    // A rig marked `reroll` follows the player into the reroll rather than
+    // handing them an escape hatch out of the band it just put them in. The
+    // pre-draw above already carries this same penalty whenever the reroll lands
+    // on the instance that rolled; recomputing covers the cold-instance case.
+    const rig = await armedRngdleRig(repository, guildId, user.id, parsed.gameDay);
+    const rerollRig = rig?.rigReroll ? rig : null;
+    const penalty = rerollRig
+      ? riggedRngdleRerollPenalty(rerollRig.band)
+      : pendingPenalty ?? selectRngdlePenalty();
     const outcome = await repository.reroll({
       guildId,
       userId: user.id,
       gameDay: parsed.gameDay,
       displayName: interactionName(user),
       avatar: user.avatar ?? null,
-      result: scoreRngdleNumber(selectRngdleNumber(), penalty),
+      result: scoreRngdleNumber(
+        rerollRig ? selectRngdleNumberInBand(rerollRig.band, penalty) : selectRngdleNumber(),
+        penalty,
+      ),
       now,
     });
     if (outcome.status !== "updated") {

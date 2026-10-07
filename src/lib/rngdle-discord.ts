@@ -215,14 +215,18 @@ function cachedRiskAnimation(
   return entry;
 }
 
-async function warmRerollRisk(roll: RngdleDiscordRoll, renderRisk: typeof renderRngdleRiskAnimation): Promise<void> {
+async function warmRerollRisk(
+  roll: RngdleDiscordRoll,
+  renderRisk: typeof renderRngdleRiskAnimation,
+  penaltyOverride?: number,
+): Promise<void> {
   if (roll.rerolledAt !== null) return;
   for (const key of pendingRerollPenalties.keys()) {
     if (!key.endsWith(`:${roll.gameDay}`)) pendingRerollPenalties.delete(key);
   }
   const key = pendingPenaltyKey(roll.guildId, roll.userId, roll.gameDay);
   if (pendingRerollPenalties.has(key)) return;
-  const penalty = selectRngdlePenalty();
+  const penalty = penaltyOverride ?? selectRngdlePenalty();
   pendingRerollPenalties.set(key, penalty);
   try {
     await cachedRiskAnimation(penalty, renderRisk);
@@ -455,6 +459,12 @@ export async function deliverRngdleRoll(input: {
   stats: RngdleResultCardStats;
   animate: boolean;
   riskAnimationPercent?: number;
+  /**
+   * Forces the penalty pre-drawn for this roll's reroll instead of drawing one.
+   * A rigged reroll has to warm its risk here like any other, or it would be
+   * the one reroll in the server that stops to render its animation on click.
+   */
+  rerollPenaltyOverride?: number;
   attachmentSizeLimit?: number;
   fetchImpl?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
@@ -671,7 +681,7 @@ export async function deliverRngdleRoll(input: {
       if (response.ok) {
         // Pre-draw the reroll penalty and render its risk animation now, so a
         // reroll click on this instance answers instantly.
-        await warmRerollRisk(input.roll, renderRisk);
+        await warmRerollRisk(input.roll, renderRisk, input.rerollPenaltyOverride);
         return;
       }
       console.warn(`rngdle: still-image edit failed (${await responseError(response)})`);

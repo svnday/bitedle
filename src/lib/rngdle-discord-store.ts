@@ -147,6 +147,12 @@ export type RngdleRerollOutcome =
 export interface RngdleDiscordRepository {
   createInitial(input: RngdleDiscordRoll): Promise<{ created: boolean; roll: RngdleDiscordRoll }>;
   getRoll(guildId: string, userId: string, gameDay: string): Promise<RngdleDiscordRoll | null>;
+  /**
+   * Earliest game day at or after `fromGameDay` on which this player has a
+   * roll, or null if they have none. Game days are YYYY-MM-DD, so comparing
+   * them as text is also comparing them as dates.
+   */
+  firstRollDaySince(guildId: string, userId: string, fromGameDay: string): Promise<string | null>;
   reroll(input: {
     guildId: string;
     userId: string;
@@ -357,6 +363,14 @@ export class FileRngdleDiscordRepository implements RngdleDiscordRepository {
   async getRoll(guildId: string, userId: string, gameDay: string) {
     const roll = this.db.rolls[recordKey(guildId, userId, gameDay)];
     return roll ? cloneRoll(roll) : null;
+  }
+
+  async firstRollDaySince(guildId: string, userId: string, fromGameDay: string) {
+    const days = Object.values(this.db.rolls)
+      .filter((roll) => roll.guildId === guildId && roll.userId === userId && roll.gameDay >= fromGameDay)
+      .map((roll) => roll.gameDay)
+      .sort();
+    return days[0] ?? null;
   }
 
   async reroll(input: {
@@ -641,6 +655,15 @@ export class NeonRngdleDiscordRepository implements RngdleDiscordRepository {
       WHERE guild_id = ${guildId} AND user_id = ${userId} AND game_day = ${gameDay}
       LIMIT 1` as NeonRollRow[];
     return rows[0] ? neonRoll(rows[0]) : null;
+  }
+
+  async firstRollDaySince(guildId: string, userId: string, fromGameDay: string) {
+    const rows = await this.sql`
+      SELECT game_day FROM rngdle_rolls
+      WHERE guild_id = ${guildId} AND user_id = ${userId} AND game_day >= ${fromGameDay}
+      ORDER BY game_day ASC
+      LIMIT 1` as { game_day: string }[];
+    return rows[0]?.game_day ?? null;
   }
 
   async reroll(input: {

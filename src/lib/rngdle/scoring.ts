@@ -120,7 +120,11 @@ export function scoreRngdleNumber(
   };
 }
 
-function secureRandomInt(maxExclusive: number): number {
+/**
+ * Uniform crypto-backed integer in [0, maxExclusive), rejecting the biased tail
+ * of the 32-bit range. The default source for every RNGDLE draw.
+ */
+export function secureRandomInt(maxExclusive: number): number {
   if (!Number.isSafeInteger(maxExclusive) || maxExclusive <= 0) {
     throw new RangeError("Random upper bound must be a positive integer.");
   }
