@@ -995,7 +995,7 @@ async function processRngdleCommand(
           ? null
           : creation.roll.current.creditedEp - creation.roll.initial.creditedEp,
       },
-      rerollPenaltyOverride: rig?.rigReroll ? riggedRngdleRerollPenalty(rig.band) : undefined,
+      rerollPenaltyOverride: rig?.rigReroll ? riggedRngdleRerollPenalty(rig) : undefined,
       attachmentSizeLimit: body.attachment_size_limit,
     });
   } catch (error) {
@@ -1126,7 +1126,7 @@ async function processRngdleReroll(
     const rig = await armedRngdleRig(repository, guildId, user.id, parsed.gameDay);
     const rerollRig = rig?.rigReroll ? rig : null;
     const penalty = rerollRig
-      ? riggedRngdleRerollPenalty(rerollRig.band)
+      ? riggedRngdleRerollPenalty(rerollRig)
       : pendingPenalty ?? selectRngdlePenalty();
     const outcome = await repository.reroll({
       guildId,

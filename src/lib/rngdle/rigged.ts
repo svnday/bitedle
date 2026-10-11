@@ -37,6 +37,13 @@ export interface RngdleRiggedRoll {
   armedFrom: string;
   /** Whether the day's reroll is dragged into the same band as well. */
   rigReroll: boolean;
+  /**
+   * Loss percentage the rigged reroll takes, or null for the band's default.
+   * Set it when the risk itself is part of the joke; the band is still judged
+   * on the EP left after it, so an unreachable pairing (a high band behind a
+   * steep loss) is the one way to configure a rig that cannot be served.
+   */
+  rerollPenalty: number | null;
 }
 
 // This module deliberately imports nothing outside src/lib/rngdle: the RNGDLE
@@ -45,25 +52,35 @@ export interface RngdleRiggedRoll {
 // build for one regex.
 const SNOWFLAKE_PATTERN = /^\d{5,25}$/;
 const GAME_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+// `reroll`, or `reroll=97` to pin the risk the reroll draws. Two digits only,
+// so the 1-99 range the risk animation can show is enforced by the shape of the
+// flag rather than by a bound somebody has to remember to check.
+const REROLL_FLAG_PATTERN = /^reroll(?:=(\d{1,2}))?$/;
 
 function parseRiggedEntry(raw: string): RngdleRiggedRoll | null {
   const [userId, band, armedFrom, ...flags] = raw.split(":");
   if (!SNOWFLAKE_PATTERN.test(userId ?? "")) return null;
   if (!RNGDLE_RIGGABLE_BANDS.includes(band as RngdleNumberRarity)) return null;
   if (!GAME_DAY_PATTERN.test(armedFrom ?? "")) return null;
-  if (flags.some((flag) => flag !== "reroll")) return null;
+  if (flags.length > 1) return null;
+  const rerollFlag = flags.length === 0 ? null : REROLL_FLAG_PATTERN.exec(flags[0]);
+  if (flags.length === 1 && !rerollFlag) return null;
+  const penalty = rerollFlag?.[1] === undefined ? null : Number(rerollFlag[1]);
+  if (penalty !== null && (penalty < 1 || penalty > 99)) return null;
   return {
     userId,
     band: band as RngdleNumberRarity,
     armedFrom,
-    rigReroll: flags.includes("reroll"),
+    rigReroll: rerollFlag !== null,
+    rerollPenalty: penalty,
   };
 }
 
 /**
  * Parsed from RNGDLE_RIGGED_ROLLS once at module load, like the Bitedle
  * blocklist — a redeploy picks up changes. Entries are
- * `userId:band:armedFromGameDay[:reroll]`, separated by commas or whitespace.
+ * `userId:band:armedFromGameDay[:reroll|:reroll=lossPercent]`, separated by
+ * commas or whitespace.
  *
  * A malformed entry is dropped with a warning rather than ignored silently: a
  * typo'd rig fails by simply never firing, which is invisible from Discord and
@@ -131,11 +148,15 @@ export function selectRngdleNumberInBand(
 }
 
 /**
- * The risk a rigged reroll draws, chosen so the band stays reachable: trash is
- * the only band you arrive at by *losing* EP, so it takes the maximum 99% loss
- * and every other band takes the minimum 1%. Both are values the honest 1-99
- * draw produces, so neither looks out of place on the risk animation.
+ * The risk a rigged reroll draws: the entry's own `reroll=lossPercent` when it
+ * names one, else the default that keeps the band reachable. Trash is the only
+ * band you arrive at by *losing* EP, so it defaults to the maximum 99% loss and
+ * every other band to the minimum 1%.
+ *
+ * Any value here is one the honest 1-99 draw also produces, so no rigged risk
+ * looks out of place on the risk animation — which is the reason the override is
+ * a loss percentage rather than a free-form number.
  */
-export function riggedRngdleRerollPenalty(band: RngdleNumberRarity): number {
-  return band === "trash" ? 99 : 1;
+export function riggedRngdleRerollPenalty(rig: RngdleRiggedRoll): number {
+  return rig.rerollPenalty ?? (rig.band === "trash" ? 99 : 1);
 }

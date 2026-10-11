@@ -55,7 +55,12 @@ function loadRigged(config) {
 const MYTHIC_TARGET = "100000000000000001";
 const TRASH_TARGET = "100000000000000002";
 const UNRIGGED = "100000000000000003";
-const LIVE_CONFIG = `${MYTHIC_TARGET}:mythic:2026-10-07,${TRASH_TARGET}:trash:2026-10-07:reroll`;
+const PINNED_RISK_TARGET = "100000000000000004";
+const LIVE_CONFIG = [
+  `${MYTHIC_TARGET}:mythic:2026-10-07`,
+  `${TRASH_TARGET}:trash:2026-10-07:reroll`,
+  `${PINNED_RISK_TARGET}:trash:2026-10-11:reroll=97`,
+].join(",");
 const GUILD = "111222333444555666";
 const OTHER_GUILD = "777888999000111222";
 
@@ -63,10 +68,17 @@ const OTHER_GUILD = "777888999000111222";
 {
   const rigged = loadRigged(LIVE_CONFIG);
   assert.deepEqual(rigged.riggedRngdleRollFor(MYTHIC_TARGET), {
-    userId: MYTHIC_TARGET, band: "mythic", armedFrom: "2026-10-07", rigReroll: false,
+    userId: MYTHIC_TARGET, band: "mythic", armedFrom: "2026-10-07",
+    rigReroll: false, rerollPenalty: null,
   });
   assert.deepEqual(rigged.riggedRngdleRollFor(TRASH_TARGET), {
-    userId: TRASH_TARGET, band: "trash", armedFrom: "2026-10-07", rigReroll: true,
+    userId: TRASH_TARGET, band: "trash", armedFrom: "2026-10-07",
+    rigReroll: true, rerollPenalty: null,
+  });
+  // `reroll=NN` arms the reroll and pins the risk it draws.
+  assert.deepEqual(rigged.riggedRngdleRollFor(PINNED_RISK_TARGET), {
+    userId: PINNED_RISK_TARGET, band: "trash", armedFrom: "2026-10-11",
+    rigReroll: true, rerollPenalty: 97,
   });
 
   // Nobody else is touched, and a missing or odd id never throws.
@@ -94,6 +106,12 @@ for (const bad of [
   `${MYTHIC_TARGET}:mythic:2026-10-07:oops`, // unknown flag
   `${MYTHIC_TARGET}:MYTHIC:2026-10-07`,      // bands are lower case
   `not-an-id:mythic:2026-10-07`,             // not a snowflake
+  `${MYTHIC_TARGET}:mythic:2026-10-07:reroll=`,    // risk promised, none given
+  `${MYTHIC_TARGET}:mythic:2026-10-07:reroll=0`,   // below the honest 1-99 draw
+  `${MYTHIC_TARGET}:mythic:2026-10-07:reroll=100`, // above it
+  `${MYTHIC_TARGET}:mythic:2026-10-07:reroll=97%`, // not a bare number
+  `${MYTHIC_TARGET}:mythic:2026-10-07:reroll=1.5`, // nor a fractional one
+  `${MYTHIC_TARGET}:mythic:2026-10-07:reroll:97`,  // risk is one flag, not two
 ]) {
   assert.equal(loadRigged(bad).riggedRngdleRollFor(MYTHIC_TARGET), null, `must reject "${bad}"`);
 }
@@ -137,14 +155,29 @@ assert.equal(
 {
   const rigged = loadRigged(LIVE_CONFIG);
 
-  assert.equal(rigged.riggedRngdleRerollPenalty("trash"), 99, "trash takes the maximum loss");
-  assert.equal(rigged.riggedRngdleRerollPenalty("mythic"), 1, "mythic takes the minimum loss");
-  // Both are values the honest 1-99 draw also produces, so the risk animation
-  // shows nothing a player could not have drawn themselves.
-  for (const band of ["trash", "mythic"]) {
-    const penalty = rigged.riggedRngdleRerollPenalty(band);
+  const penaltyFor = (userId) => rigged.riggedRngdleRerollPenalty(rigged.riggedRngdleRollFor(userId));
+  assert.equal(penaltyFor(TRASH_TARGET), 99, "trash defaults to the maximum loss");
+  assert.equal(penaltyFor(MYTHIC_TARGET), 1, "mythic defaults to the minimum loss");
+  // A pinned risk wins over the band default, which is the whole point of it.
+  assert.equal(penaltyFor(PINNED_RISK_TARGET), 97, "a pinned risk is used as written");
+  // Every one of them is a value the honest 1-99 draw also produces, so the risk
+  // animation shows nothing a player could not have drawn themselves.
+  for (const userId of [TRASH_TARGET, MYTHIC_TARGET, PINNED_RISK_TARGET]) {
+    const penalty = penaltyFor(userId);
     assert.equal(penalty, scoring.selectRngdlePenalty(() => penalty - 1));
   }
+
+  // A trash rig at a pinned 97%: still trash on the number the card prints, and
+  // still a varied draw rather than a recognisable value.
+  const pinnedDraws = new Set();
+  for (let i = 0; i < 200; i += 1) {
+    const number = rigged.selectRngdleNumberInBand("trash", 97);
+    const result = scoring.scoreRngdleNumber(number, 97);
+    assert.equal(result.rarity, "trash", `${number} at 97% must stay trash`);
+    assert.equal(result.penaltyPercent, 97);
+    pinnedDraws.add(number);
+  }
+  assert.ok(pinnedDraws.size > 190, `97% draws must vary (${pinnedDraws.size} distinct of 200)`);
 
   // A trash rig's reroll: 99% risk, judged on what the card will actually print.
   for (let i = 0; i < 200; i += 1) {
@@ -255,7 +288,7 @@ assert.equal(
   // Still inside that day, the reroll is covered - no escape hatch.
   const rerollRig = await armed(TRASH_TARGET, "2026-10-07");
   assert.ok(rerollRig?.rigReroll, "the reroll must still be covered on the day it fired");
-  const rerollPenalty = rigged.riggedRngdleRerollPenalty(rerollRig.band);
+  const rerollPenalty = rigged.riggedRngdleRerollPenalty(rerollRig);
   const rerolled = scoring.scoreRngdleNumber(
     rigged.selectRngdleNumberInBand(rerollRig.band, rerollPenalty), rerollPenalty,
   );
@@ -274,6 +307,22 @@ assert.equal(
   assert.equal(secondRig.result.rarity, "mythic");
   assert.equal(secondRig.result.penaltyPercent, null, "an initial roll takes no penalty");
   assert.equal(await armed(MYTHIC_TARGET, "2026-10-09"), null, "and is spent afterwards");
+
+  // The pinned-risk rig: trash on the roll, trash again on the reroll, and the
+  // 97% loss its entry asked for on the risk animation.
+  const pinnedRoll = await rollAs(PINNED_RISK_TARGET, "2026-10-11");
+  assert.ok(pinnedRoll.rig, "the pinned-risk rig must fire on its armed day");
+  assert.equal(pinnedRoll.result.rarity, "trash");
+  const pinnedRerollRig = await armed(PINNED_RISK_TARGET, "2026-10-11");
+  assert.ok(pinnedRerollRig?.rigReroll, "its reroll must be covered too");
+  const pinnedPenalty = rigged.riggedRngdleRerollPenalty(pinnedRerollRig);
+  assert.equal(pinnedPenalty, 97);
+  const pinnedReroll = scoring.scoreRngdleNumber(
+    rigged.selectRngdleNumberInBand(pinnedRerollRig.band, pinnedPenalty), pinnedPenalty,
+  );
+  assert.equal(pinnedReroll.rarity, "trash", "the pinned-risk reroll must stay trash");
+  assert.equal(pinnedReroll.penaltyPercent, 97, "and must take the 97% risk");
+  assert.equal(await armed(PINNED_RISK_TARGET, "2026-10-12"), null, "then it is spent");
 
   // An unrigged player is never touched, on any day.
   for (const day of ["2026-10-07", "2026-10-08", "2026-11-01"]) {
