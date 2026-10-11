@@ -56,10 +56,13 @@ const MYTHIC_TARGET = "100000000000000001";
 const TRASH_TARGET = "100000000000000002";
 const UNRIGGED = "100000000000000003";
 const PINNED_RISK_TARGET = "100000000000000004";
+const EXACT_TARGET = "100000000000000005";
+const EXACT_NUMBER = 742069;
 const LIVE_CONFIG = [
   `${MYTHIC_TARGET}:mythic:2026-10-07`,
   `${TRASH_TARGET}:trash:2026-10-07:reroll`,
   `${PINNED_RISK_TARGET}:trash:2026-10-11:reroll=97`,
+  `${EXACT_TARGET}:=${EXACT_NUMBER}:2026-10-11:reroll=93`,
 ].join(",");
 const GUILD = "111222333444555666";
 const OTHER_GUILD = "777888999000111222";
@@ -68,18 +71,31 @@ const OTHER_GUILD = "777888999000111222";
 {
   const rigged = loadRigged(LIVE_CONFIG);
   assert.deepEqual(rigged.riggedRngdleRollFor(MYTHIC_TARGET), {
-    userId: MYTHIC_TARGET, band: "mythic", armedFrom: "2026-10-07",
-    rigReroll: false, rerollPenalty: null,
+    userId: MYTHIC_TARGET, band: "mythic", exactNumber: null,
+    armedFrom: "2026-10-07", rigReroll: false, rerollPenalty: null,
   });
   assert.deepEqual(rigged.riggedRngdleRollFor(TRASH_TARGET), {
-    userId: TRASH_TARGET, band: "trash", armedFrom: "2026-10-07",
-    rigReroll: true, rerollPenalty: null,
+    userId: TRASH_TARGET, band: "trash", exactNumber: null,
+    armedFrom: "2026-10-07", rigReroll: true, rerollPenalty: null,
   });
   // `reroll=NN` arms the reroll and pins the risk it draws.
   assert.deepEqual(rigged.riggedRngdleRollFor(PINNED_RISK_TARGET), {
-    userId: PINNED_RISK_TARGET, band: "trash", armedFrom: "2026-10-11",
-    rigReroll: true, rerollPenalty: 97,
+    userId: PINNED_RISK_TARGET, band: "trash", exactNumber: null,
+    armedFrom: "2026-10-11", rigReroll: true, rerollPenalty: 97,
   });
+  // `=N` in the band's place names the number itself, and leaves no band.
+  assert.deepEqual(rigged.riggedRngdleRollFor(EXACT_TARGET), {
+    userId: EXACT_TARGET, band: null, exactNumber: EXACT_NUMBER,
+    armedFrom: "2026-10-11", rigReroll: true, rerollPenalty: 93,
+  });
+
+  // The range ends are both legal numbers, and nothing beyond them is.
+  const edges = loadRigged([
+    `${MYTHIC_TARGET}:=0:2026-10-11`,
+    `${TRASH_TARGET}:=1000000:2026-10-11`,
+  ].join(","));
+  assert.equal(edges.riggedRngdleRollFor(MYTHIC_TARGET).exactNumber, 0);
+  assert.equal(edges.riggedRngdleRollFor(TRASH_TARGET).exactNumber, 1_000_000);
 
   // Nobody else is touched, and a missing or odd id never throws.
   assert.equal(rigged.riggedRngdleRollFor(UNRIGGED), null);
@@ -112,6 +128,13 @@ for (const bad of [
   `${MYTHIC_TARGET}:mythic:2026-10-07:reroll=97%`, // not a bare number
   `${MYTHIC_TARGET}:mythic:2026-10-07:reroll=1.5`, // nor a fractional one
   `${MYTHIC_TARGET}:mythic:2026-10-07:reroll:97`,  // risk is one flag, not two
+  `${MYTHIC_TARGET}:=1000001:2026-10-11`,    // one past the top of the range
+  `${MYTHIC_TARGET}:=9999999:2026-10-11`,    // and well past it
+  `${MYTHIC_TARGET}:=:2026-10-11`,           // number promised, none given
+  `${MYTHIC_TARGET}:=-1:2026-10-11`,         // no negatives
+  `${MYTHIC_TARGET}:=742069.5:2026-10-11`,   // nor fractions
+  `${MYTHIC_TARGET}:742069:2026-10-11`,      // the `=` is not optional
+  `${MYTHIC_TARGET}:=mythic:2026-10-11`,     // and a band is not a number
 ]) {
   assert.equal(loadRigged(bad).riggedRngdleRollFor(MYTHIC_TARGET), null, `must reject "${bad}"`);
 }
@@ -195,6 +218,53 @@ assert.equal(
   }
 }
 
+// --- An exact-number rig hands over exactly that number --------------------
+{
+  const rigged = loadRigged(LIVE_CONFIG);
+  const exactRig = rigged.riggedRngdleRollFor(EXACT_TARGET);
+
+  // Every call, at any risk, with no randomness consulted at all.
+  for (const penalty of [null, 1, 50, 93, 99]) {
+    assert.equal(
+      rigged.riggedRngdleNumber(exactRig, penalty, () => {
+        throw new Error("an exact-number rig must not draw");
+      }),
+      EXACT_NUMBER,
+    );
+  }
+
+  // The number is the number whatever the risk does to its EP: only the
+  // credited value moves, and the card still prints 742069.
+  const full = scoring.scoreRngdleNumber(EXACT_NUMBER);
+  const taxed = scoring.scoreRngdleNumber(EXACT_NUMBER, 93);
+  assert.equal(taxed.number, EXACT_NUMBER);
+  assert.equal(taxed.rawEp, full.rawEp, "the risk never touches raw EP");
+  assert.equal(taxed.creditedEp, Math.floor((full.rawEp * 7) / 100));
+  assert.equal(taxed.penaltyPercent, 93);
+  assert.deepEqual(taxed.badges, full.badges, "nor the badges the number carries");
+
+  // A band rig still resolves through the same door, by drawing.
+  const bandRig = rigged.riggedRngdleRollFor(MYTHIC_TARGET);
+  assert.equal(rigged.riggedRngdleNumber(bandRig, null, () => 69), 69);
+
+  // An exact rig needs no `reroll=NN` to be servable: with a bare `:reroll` it
+  // keeps as much of its own EP as the honest draw allows.
+  const bare = loadRigged(`${EXACT_TARGET}:=${EXACT_NUMBER}:2026-10-11:reroll`);
+  assert.equal(bare.riggedRngdleRerollPenalty(bare.riggedRngdleRollFor(EXACT_TARGET)), 1);
+
+  // This is the reason to reach for this form at a steep risk. A *band* at 93%
+  // is served by whatever numbers still score there afterwards - only 456 of
+  // the million for mythic, 89 at 99% - so the draw-and-reject loop usually
+  // runs dry and falls through to the exhaustive sweep, which costs ~50s. An
+  // exact number is handed over in constant time at any risk, as asserted
+  // above. (Deliberately not exercised here: the assertion would be the slow
+  // path itself.)
+  assert.equal(
+    rigged.riggedRngdleNumber(rigged.riggedRngdleRollFor(EXACT_TARGET), 93),
+    EXACT_NUMBER,
+  );
+}
+
 // --- The draw honours an injected source, so callers can pin it -------------
 {
   const rigged = loadRigged(LIVE_CONFIG);
@@ -266,7 +336,7 @@ assert.equal(
 
   const rollAs = async (userId, gameDay) => {
     const rig = await armed(userId, gameDay);
-    const number = rig ? rigged.selectRngdleNumberInBand(rig.band) : scoring.selectRngdleNumber();
+    const number = rig ? rigged.riggedRngdleNumber(rig) : scoring.selectRngdleNumber();
     const result = scoring.scoreRngdleNumber(number);
     await repository.createInitial({
       guildId: GUILD, userId, gameDay, displayName: userId, avatar: null,
@@ -323,6 +393,23 @@ assert.equal(
   assert.equal(pinnedReroll.rarity, "trash", "the pinned-risk reroll must stay trash");
   assert.equal(pinnedReroll.penaltyPercent, 97, "and must take the 97% risk");
   assert.equal(await armed(PINNED_RISK_TARGET, "2026-10-12"), null, "then it is spent");
+
+  // An exact-number rig armed on a day the target has *already* rolled: the
+  // roll it fires on is that one, so the rig still covers the day's reroll.
+  // This is the "already rolled, about to reroll" case the route has to serve.
+  const exactPre = await rollAs(EXACT_TARGET, "2026-10-11");
+  assert.equal(exactPre.rig?.exactNumber, EXACT_NUMBER,
+    "the rig must still be live on the day of an existing roll");
+  const exactRerollRig = await armed(EXACT_TARGET, "2026-10-11");
+  assert.ok(exactRerollRig, "the reroll after an existing roll must still be covered");
+  const exactPenalty = rigged.riggedRngdleRerollPenalty(exactRerollRig);
+  assert.equal(exactPenalty, 93);
+  const exactReroll = scoring.scoreRngdleNumber(
+    rigged.riggedRngdleNumber(exactRerollRig, exactPenalty), exactPenalty,
+  );
+  assert.equal(exactReroll.number, EXACT_NUMBER, "the reroll must print the chosen number");
+  assert.equal(exactReroll.penaltyPercent, 93, "at the chosen risk");
+  assert.equal(await armed(EXACT_TARGET, "2026-10-12"), null, "and then it is spent");
 
   // An unrigged player is never touched, on any day.
   for (const day of ["2026-10-07", "2026-10-08", "2026-11-01"]) {

@@ -79,10 +79,10 @@ import {
 import { getRngdleDiscordRepository } from "@/lib/rngdle-discord-store";
 import { scoreRngdleNumber, selectRngdleNumber, selectRngdlePenalty } from "@/lib/rngdle/scoring";
 import {
+  riggedRngdleNumber,
   riggedRngdleRerollPenalty,
   riggedRngdleRollFor,
   rngdleRigCoversDay,
-  selectRngdleNumberInBand,
   type RngdleRiggedRoll,
 } from "@/lib/rngdle/rigged";
 import { canRerollRngdle, rngdleGameDay, rngdleNextResetAt } from "@/lib/rngdle/time";
@@ -960,7 +960,7 @@ async function processRngdleCommand(
     const now = Date.now();
     const rollGameDay = rngdleGameDay(new Date(now));
     const rig = await armedRngdleRig(repository, guildId, user.id, rollGameDay);
-    const result = scoreRngdleNumber(rig ? selectRngdleNumberInBand(rig.band) : selectRngdleNumber());
+    const result = scoreRngdleNumber(rig ? riggedRngdleNumber(rig) : selectRngdleNumber());
     const creation = await repository.createInitial({
       guildId,
       userId: user.id,
@@ -1135,7 +1135,7 @@ async function processRngdleReroll(
       displayName: interactionName(user),
       avatar: user.avatar ?? null,
       result: scoreRngdleNumber(
-        rerollRig ? selectRngdleNumberInBand(rerollRig.band, penalty) : selectRngdleNumber(),
+        rerollRig ? riggedRngdleNumber(rerollRig, penalty) : selectRngdleNumber(),
         penalty,
       ),
       now,
