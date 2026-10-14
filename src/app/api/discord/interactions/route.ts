@@ -960,7 +960,7 @@ async function processRngdleCommand(
     const now = Date.now();
     const rollGameDay = rngdleGameDay(new Date(now));
     const rig = await armedRngdleRig(repository, guildId, user.id, rollGameDay);
-    const result = scoreRngdleNumber(rig ? riggedRngdleNumber(rig) : selectRngdleNumber());
+    const result = scoreRngdleNumber(rig ? riggedRngdleNumber(rig.roll) : selectRngdleNumber());
     const creation = await repository.createInitial({
       guildId,
       userId: user.id,
@@ -1135,7 +1135,7 @@ async function processRngdleReroll(
       displayName: interactionName(user),
       avatar: user.avatar ?? null,
       result: scoreRngdleNumber(
-        rerollRig ? riggedRngdleNumber(rerollRig, penalty) : selectRngdleNumber(),
+        rerollRig ? riggedRngdleNumber(rerollRig.reroll, penalty) : selectRngdleNumber(),
         penalty,
       ),
       now,

@@ -58,35 +58,48 @@ const UNRIGGED = "100000000000000003";
 const PINNED_RISK_TARGET = "100000000000000004";
 const EXACT_TARGET = "100000000000000005";
 const EXACT_NUMBER = 742069;
+const SPLIT_TARGET = "100000000000000006";
+const SPLIT_NUMBER = 506203;
 const LIVE_CONFIG = [
   `${MYTHIC_TARGET}:mythic:2026-10-07`,
   `${TRASH_TARGET}:trash:2026-10-07:reroll`,
   `${PINNED_RISK_TARGET}:trash:2026-10-11:reroll=97`,
   `${EXACT_TARGET}:=${EXACT_NUMBER}:2026-10-11:reroll=93`,
+  `${SPLIT_TARGET}:common:2026-10-14:reroll=93:rerollnumber=${SPLIT_NUMBER}`,
 ].join(",");
+
+const band = (name) => ({ band: name, exactNumber: null });
+const exactly = (value) => ({ band: null, exactNumber: value });
 const GUILD = "111222333444555666";
 const OTHER_GUILD = "777888999000111222";
 
 // --- Configuration parsing -------------------------------------------------
 {
   const rigged = loadRigged(LIVE_CONFIG);
+  // With no reroll outcome of its own, `reroll` is the same outcome as `roll`.
   assert.deepEqual(rigged.riggedRngdleRollFor(MYTHIC_TARGET), {
-    userId: MYTHIC_TARGET, band: "mythic", exactNumber: null,
+    userId: MYTHIC_TARGET, roll: band("mythic"), reroll: band("mythic"),
     armedFrom: "2026-10-07", rigReroll: false, rerollPenalty: null,
   });
   assert.deepEqual(rigged.riggedRngdleRollFor(TRASH_TARGET), {
-    userId: TRASH_TARGET, band: "trash", exactNumber: null,
+    userId: TRASH_TARGET, roll: band("trash"), reroll: band("trash"),
     armedFrom: "2026-10-07", rigReroll: true, rerollPenalty: null,
   });
   // `reroll=NN` arms the reroll and pins the risk it draws.
   assert.deepEqual(rigged.riggedRngdleRollFor(PINNED_RISK_TARGET), {
-    userId: PINNED_RISK_TARGET, band: "trash", exactNumber: null,
+    userId: PINNED_RISK_TARGET, roll: band("trash"), reroll: band("trash"),
     armedFrom: "2026-10-11", rigReroll: true, rerollPenalty: 97,
   });
   // `=N` in the band's place names the number itself, and leaves no band.
   assert.deepEqual(rigged.riggedRngdleRollFor(EXACT_TARGET), {
-    userId: EXACT_TARGET, band: null, exactNumber: EXACT_NUMBER,
+    userId: EXACT_TARGET, roll: exactly(EXACT_NUMBER), reroll: exactly(EXACT_NUMBER),
     armedFrom: "2026-10-11", rigReroll: true, rerollPenalty: 93,
+  });
+  // `rerollnumber=N` splits the two apart: a band on the roll, that number on
+  // the reroll. The roll's own outcome is left alone.
+  assert.deepEqual(rigged.riggedRngdleRollFor(SPLIT_TARGET), {
+    userId: SPLIT_TARGET, roll: band("common"), reroll: exactly(SPLIT_NUMBER),
+    armedFrom: "2026-10-14", rigReroll: true, rerollPenalty: 93,
   });
 
   // The range ends are both legal numbers, and nothing beyond them is.
@@ -94,8 +107,22 @@ const OTHER_GUILD = "777888999000111222";
     `${MYTHIC_TARGET}:=0:2026-10-11`,
     `${TRASH_TARGET}:=1000000:2026-10-11`,
   ].join(","));
-  assert.equal(edges.riggedRngdleRollFor(MYTHIC_TARGET).exactNumber, 0);
-  assert.equal(edges.riggedRngdleRollFor(TRASH_TARGET).exactNumber, 1_000_000);
+  assert.equal(edges.riggedRngdleRollFor(MYTHIC_TARGET).roll.exactNumber, 0);
+  assert.equal(edges.riggedRngdleRollFor(TRASH_TARGET).roll.exactNumber, 1_000_000);
+
+  // `rerollband=` is the other half of the split, and the flags commute.
+  const split = loadRigged([
+    `${MYTHIC_TARGET}:epic:2026-10-14:rerollband=trash`,
+    `${TRASH_TARGET}:epic:2026-10-14:rerollnumber=5:reroll=42`,
+  ].join(","));
+  const byBand = split.riggedRngdleRollFor(MYTHIC_TARGET);
+  assert.deepEqual(byBand.roll, band("epic"));
+  assert.deepEqual(byBand.reroll, band("trash"));
+  assert.equal(byBand.rigReroll, true, "naming a reroll outcome arms the reroll");
+  assert.equal(byBand.rerollPenalty, null, "with no pinned risk of its own");
+  const reversed = split.riggedRngdleRollFor(TRASH_TARGET);
+  assert.deepEqual(reversed.reroll, exactly(5), "flag order must not matter");
+  assert.equal(reversed.rerollPenalty, 42);
 
   // Nobody else is touched, and a missing or odd id never throws.
   assert.equal(rigged.riggedRngdleRollFor(UNRIGGED), null);
@@ -105,8 +132,8 @@ const OTHER_GUILD = "777888999000111222";
 
   // Whitespace separates entries as well as commas.
   const spaced = loadRigged(`${MYTHIC_TARGET}:mythic:2026-10-07  ${TRASH_TARGET}:trash:2026-10-07`);
-  assert.equal(spaced.riggedRngdleRollFor(MYTHIC_TARGET).band, "mythic");
-  assert.equal(spaced.riggedRngdleRollFor(TRASH_TARGET).band, "trash");
+  assert.equal(spaced.riggedRngdleRollFor(MYTHIC_TARGET).roll.band, "mythic");
+  assert.equal(spaced.riggedRngdleRollFor(TRASH_TARGET).roll.band, "trash");
 
   // Unset or empty rigs nobody, which is every other deployment.
   assert.equal(loadRigged(null).riggedRngdleRollFor(MYTHIC_TARGET), null);
@@ -135,13 +162,24 @@ for (const bad of [
   `${MYTHIC_TARGET}:=742069.5:2026-10-11`,   // nor fractions
   `${MYTHIC_TARGET}:742069:2026-10-11`,      // the `=` is not optional
   `${MYTHIC_TARGET}:=mythic:2026-10-11`,     // and a band is not a number
+  `${MYTHIC_TARGET}:common:2026-10-14:reroll:reroll`,              // repeated flag
+  `${MYTHIC_TARGET}:common:2026-10-14:reroll=12:reroll=34`,        // repeated, with values
+  `${MYTHIC_TARGET}:common:2026-10-14:rerollband=trash:rerollnumber=5`, // two reroll outcomes
+  `${MYTHIC_TARGET}:common:2026-10-14:rerollband=legendary`,       // not a real band
+  `${MYTHIC_TARGET}:common:2026-10-14:rerollband=`,                // band promised, none given
+  `${MYTHIC_TARGET}:common:2026-10-14:rerollband==trash`,          // flag values take no sigil
+  `${MYTHIC_TARGET}:common:2026-10-14:rerollnumber=1000001`,       // past the top of the range
+  `${MYTHIC_TARGET}:common:2026-10-14:rerollnumber=`,              // number promised, none given
+  `${MYTHIC_TARGET}:common:2026-10-14:rerollnumber==5`,            // nor a sigil here
+  `${MYTHIC_TARGET}:common:2026-10-14:rerollnumber=trash`,         // a band is not a number
+  `${MYTHIC_TARGET}:common:2026-10-14:rerolls`,                    // unknown flag
 ]) {
   assert.equal(loadRigged(bad).riggedRngdleRollFor(MYTHIC_TARGET), null, `must reject "${bad}"`);
 }
 
 // A malformed neighbour must not take a valid entry down with it.
 assert.equal(
-  loadRigged(`garbage:::,${TRASH_TARGET}:trash:2026-10-07:reroll`).riggedRngdleRollFor(TRASH_TARGET).band,
+  loadRigged(`garbage:::,${TRASH_TARGET}:trash:2026-10-07:reroll`).riggedRngdleRollFor(TRASH_TARGET).roll.band,
   "trash",
 );
 
@@ -226,7 +264,7 @@ assert.equal(
   // Every call, at any risk, with no randomness consulted at all.
   for (const penalty of [null, 1, 50, 93, 99]) {
     assert.equal(
-      rigged.riggedRngdleNumber(exactRig, penalty, () => {
+      rigged.riggedRngdleNumber(exactRig.roll, penalty, () => {
         throw new Error("an exact-number rig must not draw");
       }),
       EXACT_NUMBER,
@@ -245,7 +283,7 @@ assert.equal(
 
   // A band rig still resolves through the same door, by drawing.
   const bandRig = rigged.riggedRngdleRollFor(MYTHIC_TARGET);
-  assert.equal(rigged.riggedRngdleNumber(bandRig, null, () => 69), 69);
+  assert.equal(rigged.riggedRngdleNumber(bandRig.roll, null, () => 69), 69);
 
   // An exact rig needs no `reroll=NN` to be servable: with a bare `:reroll` it
   // keeps as much of its own EP as the honest draw allows.
@@ -260,8 +298,43 @@ assert.equal(
   // above. (Deliberately not exercised here: the assertion would be the slow
   // path itself.)
   assert.equal(
-    rigged.riggedRngdleNumber(rigged.riggedRngdleRollFor(EXACT_TARGET), 93),
+    rigged.riggedRngdleNumber(rigged.riggedRngdleRollFor(EXACT_TARGET).reroll, 93),
     EXACT_NUMBER,
+  );
+}
+
+// --- A split rig: one outcome for the roll, another for the reroll ----------
+{
+  const rigged = loadRigged(LIVE_CONFIG);
+  const rig = rigged.riggedRngdleRollFor(SPLIT_TARGET);
+
+  // The roll draws from its band, and must not leak the reroll's number.
+  for (let i = 0; i < 200; i += 1) {
+    const number = rigged.riggedRngdleNumber(rig.roll);
+    assert.equal(scoring.scoreRngdleNumber(number).rarity, "common");
+    assert.notEqual(number, SPLIT_NUMBER, "the roll must not hand over the reroll's number");
+  }
+
+  // The reroll is the exact number, at the pinned risk, drawing nothing.
+  const penalty = rigged.riggedRngdleRerollPenalty(rig);
+  assert.equal(penalty, 93);
+  assert.equal(
+    rigged.riggedRngdleNumber(rig.reroll, penalty, () => {
+      throw new Error("an exact-number reroll must not draw");
+    }),
+    SPLIT_NUMBER,
+  );
+  const scored = scoring.scoreRngdleNumber(SPLIT_NUMBER, penalty);
+  assert.equal(scored.number, SPLIT_NUMBER);
+  assert.equal(scored.rarity, "trash", "the split reroll must land in trash");
+  assert.equal(scored.penaltyPercent, 93);
+
+  // The reroll's band is what the default risk keys off, not the roll's: a
+  // common roll with a trash reroll takes trash's 99%, not common's 1%.
+  const defaulted = loadRigged(`${SPLIT_TARGET}:common:2026-10-14:rerollband=trash`);
+  assert.equal(
+    defaulted.riggedRngdleRerollPenalty(defaulted.riggedRngdleRollFor(SPLIT_TARGET)),
+    99,
   );
 }
 
@@ -336,7 +409,7 @@ assert.equal(
 
   const rollAs = async (userId, gameDay) => {
     const rig = await armed(userId, gameDay);
-    const number = rig ? rigged.riggedRngdleNumber(rig) : scoring.selectRngdleNumber();
+    const number = rig ? rigged.riggedRngdleNumber(rig.roll) : scoring.selectRngdleNumber();
     const result = scoring.scoreRngdleNumber(number);
     await repository.createInitial({
       guildId: GUILD, userId, gameDay, displayName: userId, avatar: null,
@@ -360,7 +433,7 @@ assert.equal(
   assert.ok(rerollRig?.rigReroll, "the reroll must still be covered on the day it fired");
   const rerollPenalty = rigged.riggedRngdleRerollPenalty(rerollRig);
   const rerolled = scoring.scoreRngdleNumber(
-    rigged.selectRngdleNumberInBand(rerollRig.band, rerollPenalty), rerollPenalty,
+    rigged.riggedRngdleNumber(rerollRig.reroll, rerollPenalty), rerollPenalty,
   );
   assert.equal(rerolled.rarity, "trash", "the rigged reroll must stay trash");
   assert.equal(rerolled.penaltyPercent, 99, "and must take the 99% risk");
@@ -388,7 +461,7 @@ assert.equal(
   const pinnedPenalty = rigged.riggedRngdleRerollPenalty(pinnedRerollRig);
   assert.equal(pinnedPenalty, 97);
   const pinnedReroll = scoring.scoreRngdleNumber(
-    rigged.selectRngdleNumberInBand(pinnedRerollRig.band, pinnedPenalty), pinnedPenalty,
+    rigged.riggedRngdleNumber(pinnedRerollRig.reroll, pinnedPenalty), pinnedPenalty,
   );
   assert.equal(pinnedReroll.rarity, "trash", "the pinned-risk reroll must stay trash");
   assert.equal(pinnedReroll.penaltyPercent, 97, "and must take the 97% risk");
@@ -398,14 +471,14 @@ assert.equal(
   // roll it fires on is that one, so the rig still covers the day's reroll.
   // This is the "already rolled, about to reroll" case the route has to serve.
   const exactPre = await rollAs(EXACT_TARGET, "2026-10-11");
-  assert.equal(exactPre.rig?.exactNumber, EXACT_NUMBER,
+  assert.equal(exactPre.rig?.roll.exactNumber, EXACT_NUMBER,
     "the rig must still be live on the day of an existing roll");
   const exactRerollRig = await armed(EXACT_TARGET, "2026-10-11");
   assert.ok(exactRerollRig, "the reroll after an existing roll must still be covered");
   const exactPenalty = rigged.riggedRngdleRerollPenalty(exactRerollRig);
   assert.equal(exactPenalty, 93);
   const exactReroll = scoring.scoreRngdleNumber(
-    rigged.riggedRngdleNumber(exactRerollRig, exactPenalty), exactPenalty,
+    rigged.riggedRngdleNumber(exactRerollRig.reroll, exactPenalty), exactPenalty,
   );
   assert.equal(exactReroll.number, EXACT_NUMBER, "the reroll must print the chosen number");
   assert.equal(exactReroll.penaltyPercent, 93, "at the chosen risk");

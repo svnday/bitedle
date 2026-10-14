@@ -34,30 +34,39 @@ const RNGDLE_RIGGABLE_BANDS: readonly RngdleNumberRarity[] = [
   "trash", "common", "uncommon", "rare", "epic", "anomaly", "mythic",
 ];
 
+/**
+ * What a rigged roll is worth: a band to draw from, or one exact number.
+ * Exactly one of the two is set — parsing rejects an outcome that names neither,
+ * and the format cannot express both.
+ */
+export interface RngdleRigOutcome {
+  band: RngdleNumberRarity | null;
+  exactNumber: number | null;
+}
+
 export interface RngdleRiggedRoll {
   userId: string;
-  /**
-   * The band to draw from, or null when `exactNumber` names a value instead.
-   * Exactly one of the two is set — parsing rejects an entry that names neither,
-   * and the format cannot express both.
-   */
-  band: RngdleNumberRarity | null;
-  /** The exact number to hand over, or null for a band draw. */
-  exactNumber: number | null;
+  /** What the roll the rig fires on is worth. */
+  roll: RngdleRigOutcome;
   /**
    * First game day the rig may fire on. Rolls before it neither fire nor spend
    * the rig, which is what makes "their next roll" mean the next one after you
    * armed it rather than the next one ever.
    */
   armedFrom: string;
-  /** Whether the day's reroll is dragged into the same band as well. */
+  /** Whether the day's reroll is dragged into a rigged outcome as well. */
   rigReroll: boolean;
   /**
-   * Loss percentage the rigged reroll takes, or null for the band's default.
-   * Set it when the risk itself is part of the joke. The band is still judged on
-   * the EP left after it, so a steep loss against a high band leaves very few
-   * numbers scoring there — reachable, because raw EP runs to ~186M, but only
-   * through the slow sweep below. Prefer an exact number for those.
+   * What the day's reroll is worth. The same as `roll` unless the entry gave the
+   * reroll its own outcome, so callers can read it without checking which.
+   */
+  reroll: RngdleRigOutcome;
+  /**
+   * Loss percentage the rigged reroll takes, or null for the reroll outcome's
+   * default. Set it when the risk itself is part of the joke. A band is still
+   * judged on the EP left after the loss, so a steep loss against a high band
+   * leaves very few numbers scoring there — reachable, because raw EP runs to
+   * ~186M, but only through the slow sweep below. Prefer an exact number there.
    */
   rerollPenalty: number | null;
 }
@@ -68,49 +77,129 @@ export interface RngdleRiggedRoll {
 // build for one regex.
 const SNOWFLAKE_PATTERN = /^\d{5,25}$/;
 const GAME_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-// `reroll`, or `reroll=97` to pin the risk the reroll draws. Two digits only,
-// so the 1-99 range the risk animation can show is enforced by the shape of the
-// flag rather than by a bound somebody has to remember to check.
-const REROLL_FLAG_PATTERN = /^reroll(?:=(\d{1,2}))?$/;
-// `=742069` in the band's place: hand over exactly this number. The leading `=`
+// A trailing `name` or `name=value`. Names are letters only, so a stray field
+// that is not a flag at all (`:97`) fails here rather than being taken for one.
+const FLAG_PATTERN = /^([a-z]+)(?:=(.+))?$/;
+// Two digits, so the 1-99 range the risk animation can show is enforced by the
+// shape of the value rather than by a bound somebody has to remember to check.
+const LOSS_PERCENT_PATTERN = /^\d{1,2}$/;
+// Seven digits covers the 0-1,000,000 range; the bound check in
+// parseExactNumber rejects the rest of what that admits.
+const BARE_NUMBER_PATTERN = /^\d{1,7}$/;
+// `=742069` where a band goes: hand over exactly this number. The leading `=`
 // reads as "pinned to", the same as it does in `reroll=97`, and keeps the field
-// impossible to confuse with a band name. Seven digits covers the 0-1,000,000
-// range; the bound check below rejects the rest of what that admits.
+// impossible to confuse with a band name. Flag values carry no sigil, because
+// their flag name has already said which of the two they are.
 const EXACT_NUMBER_PATTERN = /^=(\d{1,7})$/;
+
+function parseBand(raw: string): RngdleNumberRarity | null {
+  return RNGDLE_RIGGABLE_BANDS.includes(raw as RngdleNumberRarity)
+    ? (raw as RngdleNumberRarity)
+    : null;
+}
+
+function parseExactNumber(raw: string): number | null {
+  if (!BARE_NUMBER_PATTERN.test(raw)) return null;
+  const value = Number(raw);
+  return value >= RNGDLE_MIN_NUMBER && value <= RNGDLE_MAX_NUMBER ? value : null;
+}
+
+/** A band name, or `=N` for one exact number. */
+function parseOutcome(raw: string | undefined): RngdleRigOutcome | null {
+  const band = parseBand(raw ?? "");
+  if (band !== null) return { band, exactNumber: null };
+  const exactMatch = EXACT_NUMBER_PATTERN.exec(raw ?? "");
+  if (!exactMatch) return null;
+  const exactNumber = parseExactNumber(exactMatch[1]);
+  return exactNumber === null ? null : { band: null, exactNumber };
+}
+
+interface ParsedRigFlags {
+  rigReroll: boolean;
+  rerollPenalty: number | null;
+  /** The reroll's own outcome, or null to inherit the initial roll's. */
+  rerollOutcome: RngdleRigOutcome | null;
+}
+
+/**
+ * The trailing flags, in any order: `reroll`, `reroll=lossPercent`,
+ * `rerollband=band`, `rerollnumber=N`. Naming an outcome for the reroll implies
+ * rigging it, so `rerollnumber=2063` needs no bare `reroll` beside it.
+ *
+ * Each flag may appear once. A repeat is a mistake worth failing on rather than
+ * resolving silently, because the losing half of it would never be visible.
+ */
+function parseRigFlags(flags: readonly string[]): ParsedRigFlags | null {
+  let rigReroll = false;
+  let rerollPenalty: number | null = null;
+  let rerollOutcome: RngdleRigOutcome | null = null;
+  const seen = new Set<string>();
+
+  for (const flag of flags) {
+    const match = FLAG_PATTERN.exec(flag);
+    if (!match) return null;
+    const [, name, value] = match;
+    if (seen.has(name)) return null;
+    seen.add(name);
+
+    if (name === "reroll") {
+      rigReroll = true;
+      if (value === undefined) continue;
+      if (!LOSS_PERCENT_PATTERN.test(value)) return null;
+      const penalty = Number(value);
+      if (penalty < 1 || penalty > 99) return null;
+      rerollPenalty = penalty;
+      continue;
+    }
+
+    if (name === "rerollband") {
+      const band = parseBand(value ?? "");
+      if (band === null) return null;
+      rerollOutcome = { band, exactNumber: null };
+      rigReroll = true;
+      continue;
+    }
+
+    if (name === "rerollnumber") {
+      const exactNumber = parseExactNumber(value ?? "");
+      if (exactNumber === null) return null;
+      rerollOutcome = { band: null, exactNumber };
+      rigReroll = true;
+      continue;
+    }
+
+    return null;
+  }
+
+  // Both name the reroll's outcome, and `seen` only catches a repeat of one.
+  if (seen.has("rerollband") && seen.has("rerollnumber")) return null;
+  return { rigReroll, rerollPenalty, rerollOutcome };
+}
 
 function parseRiggedEntry(raw: string): RngdleRiggedRoll | null {
   const [userId, outcome, armedFrom, ...flags] = raw.split(":");
   if (!SNOWFLAKE_PATTERN.test(userId ?? "")) return null;
-  const exactMatch = EXACT_NUMBER_PATTERN.exec(outcome ?? "");
-  const exactNumber = exactMatch ? Number(exactMatch[1]) : null;
-  const band = RNGDLE_RIGGABLE_BANDS.includes(outcome as RngdleNumberRarity)
-    ? (outcome as RngdleNumberRarity)
-    : null;
-  if (exactNumber === null && band === null) return null;
-  if (exactNumber !== null && (exactNumber < RNGDLE_MIN_NUMBER || exactNumber > RNGDLE_MAX_NUMBER)) {
-    return null;
-  }
+  const roll = parseOutcome(outcome);
+  if (roll === null) return null;
   if (!GAME_DAY_PATTERN.test(armedFrom ?? "")) return null;
-  if (flags.length > 1) return null;
-  const rerollFlag = flags.length === 0 ? null : REROLL_FLAG_PATTERN.exec(flags[0]);
-  if (flags.length === 1 && !rerollFlag) return null;
-  const penalty = rerollFlag?.[1] === undefined ? null : Number(rerollFlag[1]);
-  if (penalty !== null && (penalty < 1 || penalty > 99)) return null;
+  const parsed = parseRigFlags(flags);
+  if (parsed === null) return null;
   return {
     userId,
-    band,
-    exactNumber,
+    roll,
     armedFrom,
-    rigReroll: rerollFlag !== null,
-    rerollPenalty: penalty,
+    rigReroll: parsed.rigReroll,
+    reroll: parsed.rerollOutcome ?? roll,
+    rerollPenalty: parsed.rerollPenalty,
   };
 }
 
 /**
  * Parsed from RNGDLE_RIGGED_ROLLS once at module load, like the Bitedle
  * blocklist — a redeploy picks up changes. Entries are
- * `userId:band|=exactNumber:armedFromGameDay[:reroll|:reroll=lossPercent]`,
- * separated by commas or whitespace.
+ * `userId:band|=exactNumber:armedFromGameDay[:flag...]`, separated by commas or
+ * whitespace. Flags: `reroll`, `reroll=lossPercent`, `rerollband=band`,
+ * `rerollnumber=N`.
  *
  * A malformed entry is dropped with a warning rather than ignored silently: a
  * typo'd rig fails by simply never firing, which is invisible from Discord and
@@ -186,27 +275,28 @@ export function selectRngdleNumberInBand(
 }
 
 /**
- * The number this rig hands over: its exact value, or a fresh uniform draw from
- * its band conditioned on `penaltyPercent`. The only place the two kinds of rig
- * differ, which is why the route resolves both through here.
+ * The number an outcome hands over: its exact value, or a fresh uniform draw
+ * from its band conditioned on `penaltyPercent`. The only place the two kinds of
+ * outcome differ, which is why the route resolves both through here — it passes
+ * `rig.roll` for the roll the rig fires on and `rig.reroll` for the reroll.
  */
 export function riggedRngdleNumber(
-  rig: RngdleRiggedRoll,
+  outcome: RngdleRigOutcome,
   penaltyPercent: number | null = null,
   randomInt?: (maxExclusive: number) => number,
 ): number {
-  if (rig.exactNumber !== null) return rig.exactNumber;
-  if (rig.band === null) {
-    throw new TypeError("A rigged roll must name either a band or an exact number.");
+  if (outcome.exactNumber !== null) return outcome.exactNumber;
+  if (outcome.band === null) {
+    throw new TypeError("A rigged outcome must name either a band or an exact number.");
   }
-  return selectRngdleNumberInBand(rig.band, penaltyPercent, randomInt);
+  return selectRngdleNumberInBand(outcome.band, penaltyPercent, randomInt);
 }
 
 /**
  * The risk a rigged reroll draws: the entry's own `reroll=lossPercent` when it
- * names one, else the default that keeps the band reachable. Trash is the only
- * band you arrive at by *losing* EP, so it defaults to the maximum 99% loss and
- * every other band to the minimum 1%.
+ * names one, else the default that keeps the reroll's band reachable. Trash is
+ * the only band you arrive at by *losing* EP, so it defaults to the maximum 99%
+ * loss and every other band to the minimum 1%.
  *
  * Any value here is one the honest 1-99 draw also produces, so no rigged risk
  * looks out of place on the risk animation — which is the reason the override is
@@ -214,8 +304,9 @@ export function riggedRngdleNumber(
  */
 export function riggedRngdleRerollPenalty(rig: RngdleRiggedRoll): number {
   if (rig.rerollPenalty !== null) return rig.rerollPenalty;
-  // An exact number has no band to keep reachable — it is handed over whatever
-  // the risk does — so it defaults to the smallest loss of its own EP.
-  if (rig.band === null) return 1;
-  return rig.band === "trash" ? 99 : 1;
+  // Keyed off what the *reroll* is worth, which is the band that has to stay
+  // reachable. An exact number has no band to keep reachable — it is handed over
+  // whatever the risk does — so it defaults to the smallest loss of its own EP.
+  if (rig.reroll.band === null) return 1;
+  return rig.reroll.band === "trash" ? 99 : 1;
 }
