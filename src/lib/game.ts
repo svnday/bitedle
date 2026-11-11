@@ -92,6 +92,9 @@ function boardDraw(date: string): { indices: number[]; bombCount: number } {
 const CHECK_MOVE_FROM = "2026-07-13"; // check never repeats yesterday's cell
 const BOMB_MOVE_FROM = "2026-07-14"; // at most 1 bomb repeats a yesterday-bomb cell
 
+/** Puzzle numbers whose board is every cell a bomb except the one check. */
+const ALL_BOMBS_PUZZLES = new Set([1971]); // Bitedle 1971 = 2031-03-17
+
 /** A date's final board contents after the anti-repeat rules. */
 interface FinalDraw {
   checkIndex: number;
@@ -170,6 +173,14 @@ function finalDrawFor(date: string): FinalDraw {
  */
 export function layoutFor(date: string): CellResult[] {
   const { checkIndex, bombIndices } = finalDrawFor(date);
+  if (ALL_BOMBS_PUZZLES.has(puzzleNumber(date))) {
+    // Special board: the check stays where the draw put it, every other cell
+    // is a bomb. Applied here (not in finalDrawFor) so the next day's
+    // anti-repeat chain still sees the normal draw.
+    const cells: CellResult[] = Array(BOARD_SIZE).fill("bomb");
+    cells[checkIndex] = "check";
+    return cells;
+  }
   const cells: CellResult[] = Array(BOARD_SIZE).fill("x");
   cells[checkIndex] = "check";
   for (const bomb of bombIndices) cells[bomb] = "bomb";
