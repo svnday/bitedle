@@ -93,7 +93,7 @@ const CHECK_MOVE_FROM = "2026-07-13"; // check never repeats yesterday's cell
 const BOMB_MOVE_FROM = "2026-07-14"; // at most 1 bomb repeats a yesterday-bomb cell
 
 /** Puzzle numbers whose board is every cell a bomb except the one check. */
-const ALL_BOMBS_PUZZLES = new Set([1971]); // Bitedle 1971 = 2031-03-17
+const ALL_BOMBS_PUZZLES = new Set([384]); // Bitedle 384 = 2026-11-11
 
 /** A date's final board contents after the anti-repeat rules. */
 interface FinalDraw {
